@@ -51,7 +51,9 @@ function loadInitial(): SidebarLayout {
       normalizeSide(parsed.dockSide) ??
       DEFAULT_RAIL_SIDE;
     return {
-      width: clampWidth(isFiniteNumber(parsed.width) ? parsed.width : DEFAULT_WIDTH),
+      width: clampWidth(
+        isFiniteNumber(parsed.width) ? parsed.width : DEFAULT_WIDTH,
+      ),
       splitRatio: clampRatio(
         isFiniteNumber(parsed.splitRatio) ? parsed.splitRatio : DEFAULT_SPLIT,
       ),

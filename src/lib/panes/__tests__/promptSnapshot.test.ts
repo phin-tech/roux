@@ -25,7 +25,10 @@ function line(text: string, isWrapped = false): FakeLine {
   };
 }
 
-function buildBuffer(lines: FakeLine[], opts: { baseY?: number; cursorY: number }): FakeBuffer {
+function buildBuffer(
+  lines: FakeLine[],
+  opts: { baseY?: number; cursorY: number },
+): FakeBuffer {
   return {
     type: "normal",
     cursorY: opts.cursorY,
@@ -44,10 +47,12 @@ describe("readPromptSnapshot", () => {
   });
 
   it("strips ❯ and # prefixes", () => {
-    expect(readPromptSnapshot(buildBuffer([line("❯ ls")], { cursorY: 0 })))
-      .toEqual({ text: "ls", seeded: true });
-    expect(readPromptSnapshot(buildBuffer([line("# apt update")], { cursorY: 0 })))
-      .toEqual({ text: "apt update", seeded: true });
+    expect(
+      readPromptSnapshot(buildBuffer([line("❯ ls")], { cursorY: 0 })),
+    ).toEqual({ text: "ls", seeded: true });
+    expect(
+      readPromptSnapshot(buildBuffer([line("# apt update")], { cursorY: 0 })),
+    ).toEqual({ text: "apt update", seeded: true });
   });
 
   it("walks backwards through wrapped continuation lines", () => {
@@ -86,7 +91,10 @@ describe("readPromptSnapshot", () => {
 
   it("leaves lines without a known prefix alone", () => {
     const buf = buildBuffer([line("some raw line")], { cursorY: 0 });
-    expect(readPromptSnapshot(buf)).toEqual({ text: "some raw line", seeded: true });
+    expect(readPromptSnapshot(buf)).toEqual({
+      text: "some raw line",
+      seeded: true,
+    });
   });
 
   it("trims trailing whitespace from the composed result", () => {

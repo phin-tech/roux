@@ -75,7 +75,12 @@ describe("agentNotifications", () => {
   });
 
   it("fires exactly once on a generating → idle transition", async () => {
-    createPane({ id: "pane-1", type: "shell", ptyId: "pty-1", name: "Work pane" });
+    createPane({
+      id: "pane-1",
+      type: "shell",
+      ptyId: "pty-1",
+      name: "Work pane",
+    });
 
     updateAgentState("pane-1", {
       provider: "claude",
@@ -94,7 +99,10 @@ describe("agentNotifications", () => {
     expect(request.title).toContain("Work pane");
     expect(request.level).toBe("success");
     expect(request.source).toEqual({ type: "hook", provider: "claude" });
-    expect(request.actions[0].kind).toEqual({ type: "focusPane", paneId: "pane-1" });
+    expect(request.actions[0].kind).toEqual({
+      type: "focusPane",
+      paneId: "pane-1",
+    });
   });
 
   it("does not fire completion for blocked → idle", async () => {
@@ -115,7 +123,12 @@ describe("agentNotifications", () => {
   });
 
   it("fires a deduped error notification when an agent enters error", async () => {
-    createPane({ id: "pane-1", type: "shell", ptyId: "pty-1", name: "Work pane" });
+    createPane({
+      id: "pane-1",
+      type: "shell",
+      ptyId: "pty-1",
+      name: "Work pane",
+    });
 
     updateAgentState("pane-1", {
       provider: "claude",
@@ -139,7 +152,10 @@ describe("agentNotifications", () => {
     expect(request.level).toBe("error");
     expect(request.source).toEqual({ type: "hook", provider: "claude" });
     expect(request.title).toContain("Work pane");
-    expect(request.actions[0].kind).toEqual({ type: "focusPane", paneId: "pane-1" });
+    expect(request.actions[0].kind).toEqual({
+      type: "focusPane",
+      paneId: "pane-1",
+    });
     expect(request.dedupKey).toBe("error:pane:pane-1");
   });
 
@@ -193,11 +209,15 @@ describe("agentNotifications", () => {
     await waitTick();
 
     expect(notificationsPush).toHaveBeenCalledTimes(2);
-    const titles = vi.mocked(notificationsPush).mock.calls.map(([req]) => req.title);
+    const titles = vi
+      .mocked(notificationsPush)
+      .mock.calls.map(([req]) => req.title);
     // Default title is provider-based when no pane name/profile is set.
     expect(titles).toContain("Claude finished");
     expect(titles).toContain("Codex finished");
-    const dedupKeys = vi.mocked(notificationsPush).mock.calls.map(([req]) => req.dedupKey);
+    const dedupKeys = vi
+      .mocked(notificationsPush)
+      .mock.calls.map(([req]) => req.dedupKey);
     expect(dedupKeys).toContain("completion:pane:pane-a");
     expect(dedupKeys).toContain("completion:pane:pane-b");
   });
@@ -219,34 +239,81 @@ describe("agentNotifications", () => {
       ]),
     );
 
-    updateAgentState("pane-a", { provider: "claude", status: "generating", source: "hook" });
-    updateAgentState("pane-b", { provider: "claude", status: "generating", source: "hook" });
-    updateAgentState("pane-a", { provider: "claude", status: "idle", source: "hook" });
-    updateAgentState("pane-b", { provider: "claude", status: "idle", source: "hook" });
+    updateAgentState("pane-a", {
+      provider: "claude",
+      status: "generating",
+      source: "hook",
+    });
+    updateAgentState("pane-b", {
+      provider: "claude",
+      status: "generating",
+      source: "hook",
+    });
+    updateAgentState("pane-a", {
+      provider: "claude",
+      status: "idle",
+      source: "hook",
+    });
+    updateAgentState("pane-b", {
+      provider: "claude",
+      status: "idle",
+      source: "hook",
+    });
     await waitTick();
 
     expect(notificationsPush).toHaveBeenCalledTimes(2);
-    const requests = vi.mocked(notificationsPush).mock.calls.map(([req]) => req);
+    const requests = vi
+      .mocked(notificationsPush)
+      .mock.calls.map(([req]) => req);
     expect(requests.every((req) => req.sessionId === "s1")).toBe(true);
-    expect(requests.every((req) => req.dedupKey === "completion:session:s1")).toBe(true);
+    expect(
+      requests.every((req) => req.dedupKey === "completion:session:s1"),
+    ).toBe(true);
   });
 
   it("does not fire when the setting is disabled", async () => {
-    settings.set({ ...DEFAULT_SETTINGS, agentCompletionNotificationsEnabled: false });
+    settings.set({
+      ...DEFAULT_SETTINGS,
+      agentCompletionNotificationsEnabled: false,
+    });
 
-    updateAgentState("pane-1", { provider: "claude", status: "generating", source: "hook" });
-    updateAgentState("pane-1", { provider: "claude", status: "idle", source: "hook" });
+    updateAgentState("pane-1", {
+      provider: "claude",
+      status: "generating",
+      source: "hook",
+    });
+    updateAgentState("pane-1", {
+      provider: "claude",
+      status: "idle",
+      source: "hook",
+    });
     await waitTick();
 
     expect(notificationsPush).not.toHaveBeenCalled();
   });
 
   it("still fires error notifications when completion notifications are disabled", async () => {
-    settings.set({ ...DEFAULT_SETTINGS, agentCompletionNotificationsEnabled: false });
-    createPane({ id: "pane-1", type: "shell", ptyId: "pty-1", name: "Work pane" });
+    settings.set({
+      ...DEFAULT_SETTINGS,
+      agentCompletionNotificationsEnabled: false,
+    });
+    createPane({
+      id: "pane-1",
+      type: "shell",
+      ptyId: "pty-1",
+      name: "Work pane",
+    });
 
-    updateAgentState("pane-1", { provider: "claude", status: "generating", source: "hook" });
-    updateAgentState("pane-1", { provider: "claude", status: "error", source: "hook" });
+    updateAgentState("pane-1", {
+      provider: "claude",
+      status: "generating",
+      source: "hook",
+    });
+    updateAgentState("pane-1", {
+      provider: "claude",
+      status: "error",
+      source: "hook",
+    });
     await waitTick();
 
     expect(notificationsPush).toHaveBeenCalledTimes(1);
@@ -259,8 +326,16 @@ describe("agentNotifications", () => {
     sessionState.set({ sessions: [], activeSessionId: "s1" });
     focusedPaneId.set("pane-1");
 
-    updateAgentState("pane-1", { provider: "claude", status: "generating", source: "hook" });
-    updateAgentState("pane-1", { provider: "claude", status: "idle", source: "hook" });
+    updateAgentState("pane-1", {
+      provider: "claude",
+      status: "generating",
+      source: "hook",
+    });
+    updateAgentState("pane-1", {
+      provider: "claude",
+      status: "idle",
+      source: "hook",
+    });
     await waitTick();
 
     expect(notificationsPush).not.toHaveBeenCalled();
@@ -271,8 +346,16 @@ describe("agentNotifications", () => {
     sessionState.set({ sessions: [], activeSessionId: "s2" });
     focusedPaneId.set("pane-1");
 
-    updateAgentState("pane-1", { provider: "claude", status: "generating", source: "hook" });
-    updateAgentState("pane-1", { provider: "claude", status: "idle", source: "hook" });
+    updateAgentState("pane-1", {
+      provider: "claude",
+      status: "generating",
+      source: "hook",
+    });
+    updateAgentState("pane-1", {
+      provider: "claude",
+      status: "idle",
+      source: "hook",
+    });
     await waitTick();
 
     expect(notificationsPush).toHaveBeenCalledTimes(1);
@@ -300,8 +383,16 @@ describe("agentNotifications", () => {
     sessionState.set({ sessions: [], activeSessionId: "s1" });
     focusedPaneId.set("pane-2");
 
-    updateAgentState("pane-1", { provider: "claude", status: "generating", source: "hook" });
-    updateAgentState("pane-1", { provider: "claude", status: "idle", source: "hook" });
+    updateAgentState("pane-1", {
+      provider: "claude",
+      status: "generating",
+      source: "hook",
+    });
+    updateAgentState("pane-1", {
+      provider: "claude",
+      status: "idle",
+      source: "hook",
+    });
     await waitTick();
 
     expect(notificationsPush).toHaveBeenCalledTimes(1);

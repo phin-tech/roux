@@ -20,7 +20,13 @@
     path?: number[];
   }
 
-  let { node, sessionId, session = null, visible = true, path = [] }: Props = $props();
+  let {
+    node,
+    sessionId,
+    session = null,
+    visible = true,
+    path = [],
+  }: Props = $props();
 
   let splitEl: HTMLDivElement | null = $state(null);
   let activeDivider = $state<number | null>(null);
@@ -40,7 +46,9 @@
     activeDivider = null;
   }
 
-  function installDividerDragHandlers(onMove: (ev: PointerEvent) => void): void {
+  function installDividerDragHandlers(
+    onMove: (ev: PointerEvent) => void,
+  ): void {
     const onUp = () => endDividerDrag();
     const onKey = (ev: KeyboardEvent) => {
       if (ev.key === "Escape") endDividerDrag();
@@ -74,7 +82,13 @@
 
     installDividerDragHandlers((moveEv) => {
       const position = node.direction === "h" ? moveEv.clientX : moveEv.clientY;
-      resizeSplitDivider(sessionId, splitPath, dividerIndex, position - lastPosition, containerSize);
+      resizeSplitDivider(
+        sessionId,
+        splitPath,
+        dividerIndex,
+        position - lastPosition,
+        containerSize,
+      );
       lastPosition = position;
     });
   }
@@ -92,13 +106,26 @@
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <!-- svelte-ignore a11y_click_events_have_key_events -->
       <div
-        class="flex items-center h-6 shrink-0 select-none border-b border-hairline px-2 gap-1.5 cursor-pointer transition-[background-color,box-shadow] duration-150 {i === (node.activeIndex ?? 0) ? 'bg-bg-deep shadow-[inset_0_2px_0_var(--color-accent-dim)]' : 'bg-transparent hover:bg-bg-surface/30'}"
+        class="flex items-center h-6 shrink-0 select-none border-b border-hairline px-2 gap-1.5 cursor-pointer transition-[background-color,box-shadow] duration-150 {i ===
+        (node.activeIndex ?? 0)
+          ? 'bg-bg-deep shadow-[inset_0_2px_0_var(--color-accent-dim)]'
+          : 'bg-transparent hover:bg-bg-surface/30'}"
         onclick={() => setActiveStackIndex(sessionId, i, path)}
       >
-        <span class="text-[10px] text-text-muted/60 shrink-0">{i === (node.activeIndex ?? 0) ? '\u25BE' : '\u25B8'}</span>
-        <span class="text-[11px] truncate {i === (node.activeIndex ?? 0) ? 'text-text-secondary' : 'text-text-muted'}">{getStackDisplayLabel(child)}</span>
+        <span class="text-[10px] text-text-muted/60 shrink-0"
+          >{i === (node.activeIndex ?? 0) ? "\u25BE" : "\u25B8"}</span
+        >
+        <span
+          class="text-[11px] truncate {i === (node.activeIndex ?? 0)
+            ? 'text-text-secondary'
+            : 'text-text-muted'}">{getStackDisplayLabel(child)}</span
+        >
       </div>
-      <div class="min-h-0 min-w-0 flex flex-col {i === (node.activeIndex ?? 0) ? 'flex-1' : 'hidden'}">
+      <div
+        class="min-h-0 min-w-0 flex flex-col {i === (node.activeIndex ?? 0)
+          ? 'flex-1'
+          : 'hidden'}"
+      >
         {#if child.kind === "leaf"}
           <PaneShell
             paneId={child.paneId}
@@ -134,7 +161,7 @@
       {@const size = node.sizes?.[i]}
       <div
         class="flex flex-col min-h-0 min-w-0 {childVisible ? '' : 'hidden'}"
-        style={childVisible ? `flex: ${size ?? 1}` : ''}
+        style={childVisible ? `flex: ${size ?? 1}` : ""}
       >
         <SplitPane
           node={child}
@@ -146,18 +173,28 @@
       </div>
       {#if childVisible && i < node.children.length - 1}
         {@const nextChild = node.children[i + 1]}
-        {@const nextVisible = !isFullscreenActive || (fsId ? containsPaneId(nextChild, fsId) : false)}
+        {@const nextVisible =
+          !isFullscreenActive ||
+          (fsId ? containsPaneId(nextChild, fsId) : false)}
         {#if nextVisible}
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
             data-testid={`pane-divider-${node.direction}-${i}`}
             role="separator"
-            aria-orientation={node.direction === "h" ? "vertical" : "horizontal"}
-            class="group relative z-10 shrink-0 select-none touch-none {node.direction === 'h' ? 'cursor-col-resize w-2 -mx-1' : 'cursor-row-resize h-2 -my-1'}"
+            aria-orientation={node.direction === "h"
+              ? "vertical"
+              : "horizontal"}
+            class="group relative z-10 shrink-0 select-none touch-none {node.direction ===
+            'h'
+              ? 'cursor-col-resize w-2 -mx-1'
+              : 'cursor-row-resize h-2 -my-1'}"
             onpointerdown={(ev) => onDividerPointerDown(ev, i)}
           >
             <div
-              class="pointer-events-none absolute bg-transparent transition-colors duration-150 group-hover:bg-accent-dim/40 {node.direction === 'h' ? 'inset-y-0 left-1/2 w-px -translate-x-1/2' : 'inset-x-0 top-1/2 h-px -translate-y-1/2'}"
+              class="pointer-events-none absolute bg-transparent transition-colors duration-150 group-hover:bg-accent-dim/40 {node.direction ===
+              'h'
+                ? 'inset-y-0 left-1/2 w-px -translate-x-1/2'
+                : 'inset-x-0 top-1/2 h-px -translate-y-1/2'}"
               class:bg-accent-dim={activeDivider === i}
             ></div>
           </div>

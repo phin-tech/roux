@@ -13,7 +13,11 @@ vi.mock("$lib/stores/worktrunkDetection", () => ({
   refreshWorktrunkDetection: vi.fn(),
 }));
 
-import { setDefaultAgentProfile, setStartupTarget, settings } from "../settings";
+import {
+  setDefaultAgentProfile,
+  setStartupTarget,
+  settings,
+} from "../settings";
 
 describe("settings actions", () => {
   beforeEach(() => {
@@ -35,8 +39,12 @@ describe("settings actions", () => {
 
     await vi.runAllTimersAsync();
     expect(tauriMock.updateSettings).toHaveBeenCalledTimes(1);
-    expect(tauriMock.updateSettings.mock.calls[0][0].defaultAgentProfile).toBe("codex");
-    expect(tauriMock.updateSettings.mock.calls[0][0].kanban?.defaultAgentProfile).toBe("codex");
+    expect(tauriMock.updateSettings.mock.calls[0][0].defaultAgentProfile).toBe(
+      "codex",
+    );
+    expect(
+      tauriMock.updateSettings.mock.calls[0][0].kanban?.defaultAgentProfile,
+    ).toBe("codex");
   });
 
   it("updates startup target and legacy Kanban launch state in one draft", async () => {
@@ -54,7 +62,11 @@ describe("settings actions", () => {
 
     await vi.runAllTimersAsync();
     expect(tauriMock.updateSettings).toHaveBeenCalledTimes(1);
-    expect(tauriMock.updateSettings.mock.calls[0][0].startupTarget).toBe("restore");
-    expect(tauriMock.updateSettings.mock.calls[0][0].kanban?.startupSidebar).toBe("restore");
+    expect(tauriMock.updateSettings.mock.calls[0][0].startupTarget).toBe(
+      "restore",
+    );
+    expect(
+      tauriMock.updateSettings.mock.calls[0][0].kanban?.startupSidebar,
+    ).toBe("restore");
   });
 });

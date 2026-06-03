@@ -48,10 +48,22 @@ vi.mock("$lib/themes", () => ({
     cursor: "#fff",
     selectionBackground: "#444",
     ansi: {
-      black: "#000", red: "#f00", green: "#0f0", yellow: "#ff0",
-      blue: "#00f", magenta: "#f0f", cyan: "#0ff", white: "#fff",
-      brightBlack: "#888", brightRed: "#f88", brightGreen: "#8f8", brightYellow: "#ff8",
-      brightBlue: "#88f", brightMagenta: "#f8f", brightCyan: "#8ff", brightWhite: "#fff",
+      black: "#000",
+      red: "#f00",
+      green: "#0f0",
+      yellow: "#ff0",
+      blue: "#00f",
+      magenta: "#f0f",
+      cyan: "#0ff",
+      white: "#fff",
+      brightBlack: "#888",
+      brightRed: "#f88",
+      brightGreen: "#8f8",
+      brightYellow: "#ff8",
+      brightBlue: "#88f",
+      brightMagenta: "#f8f",
+      brightCyan: "#8ff",
+      brightWhite: "#fff",
     },
   }),
 }));
@@ -69,7 +81,10 @@ vi.mock("../promptSnapshot", () => ({
 }));
 
 vi.mock("@xterm/xterm", () => ({
-  Terminal: vi.fn().mockImplementation(function (this: Record<string, unknown>, options: Record<string, unknown>) {
+  Terminal: vi.fn().mockImplementation(function (
+    this: Record<string, unknown>,
+    options: Record<string, unknown>,
+  ) {
     this.loadAddon = mocks.terminalLoadAddon;
     this.dispose = mocks.terminalDispose;
     this.options = { ...options };
@@ -90,7 +105,9 @@ vi.mock("@xterm/xterm", () => ({
 }));
 
 vi.mock("@xterm/addon-fit", () => ({
-  FitAddon: vi.fn().mockImplementation(function (this: Record<string, unknown>) {
+  FitAddon: vi.fn().mockImplementation(function (
+    this: Record<string, unknown>,
+  ) {
     this.fit = mocks.fitAddonFit;
     this.proposeDimensions = mocks.fitAddonProposeDimensions;
   }),
@@ -101,7 +118,9 @@ vi.mock("@xterm/addon-web-links", () => ({
 }));
 
 vi.mock("@xterm/addon-webgl", () => ({
-  WebglAddon: vi.fn().mockImplementation(function (this: Record<string, unknown>) {
+  WebglAddon: vi.fn().mockImplementation(function (
+    this: Record<string, unknown>,
+  ) {
     mocks.webglConstructor();
     if (mocks.nextWebglShouldThrow) {
       throw new Error("WebGL unavailable");
@@ -335,9 +354,8 @@ describe("XtermTerminalController renderer setup", () => {
       options: Record<string, unknown>;
       attachCustomKeyEventHandler: ReturnType<typeof vi.fn>;
     };
-    const keyHandler = terminal.attachCustomKeyEventHandler.mock.calls[0]?.[0] as
-      | ((event: KeyboardEvent) => boolean)
-      | undefined;
+    const keyHandler = terminal.attachCustomKeyEventHandler.mock
+      .calls[0]?.[0] as ((event: KeyboardEvent) => boolean) | undefined;
     expect(keyHandler).toBeDefined();
     expect(terminal.options.disableStdin).toBe(false);
 

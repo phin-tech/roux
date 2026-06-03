@@ -26,7 +26,8 @@ export const layoutRegistry: Readable<Map<string, LayoutSpec>> = derived(
   ([$builtin, $user]) => {
     const map = new Map<string, LayoutSpec>();
     for (const l of $builtin) map.set(l.id, l);
-    for (const l of $user) map.set(l.id, { ...l, source: "user" as LayoutSource });
+    for (const l of $user)
+      map.set(l.id, { ...l, source: "user" as LayoutSource });
     return map;
   },
 );

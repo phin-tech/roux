@@ -10,7 +10,7 @@ When Roux is quit and reopened, sessions load in a "disconnected" state. Clickin
 
 The persistence infrastructure for pane trees and pane descriptors already exists in `src/lib/panes/persistence.ts`, backed by `localStorage`. It auto-saves on every layout change. But on app startup, `App.svelte` loads the persisted layout and immediately discards it with a `clearLayout(s.id)` call and a TODO comment:
 
-> *"Full shell pane restore (spawn fresh PTYs for each persisted shell) is deferred to a later iteration."*
+> _"Full shell pane restore (spawn fresh PTYs for each persisted shell) is deferred to a later iteration."_
 
 This spec closes that gap.
 
@@ -31,15 +31,15 @@ This spec closes that gap.
 
 ## Key Decisions
 
-| Decision | Choice | Rationale |
-|---|---|---|
-| Shell restore semantics | Fresh shell at same `workingDir`, no scrollback | Matches tmux/iTerm behavior on restart; minimum honest implementation |
-| Persistence layer | Rust/disk, per-session JSON file | Consistency with `sessions.json`, durability, inspectability, test-friendliness |
-| On-disk schema | Versioned opaque: `{ version: 1, data: <frontend-shaped JSON> }` | Rust stays dumb about contents; forward-compatible for scrollback and future fields |
-| Migration | None — delete old localStorage keys on first launch | Existing data is already broken; nothing worth rescuing |
-| Write cadence | 1500ms debounce + flush on quit | Balances live-feel with IPC/IO overhead; flush guarantees no loss on clean quit |
-| Failure handling | Dead placeholder pane with error message and Retry button | Preserves the layout, explains the cause, enables recovery without app restart |
-| Restore timing | On reconnect click only (not on startup) | Session is disconnected-as-a-unit or restored-as-a-unit; no half-live state; all restore logic in one place |
+| Decision                | Choice                                                           | Rationale                                                                                                   |
+| ----------------------- | ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| Shell restore semantics | Fresh shell at same `workingDir`, no scrollback                  | Matches tmux/iTerm behavior on restart; minimum honest implementation                                       |
+| Persistence layer       | Rust/disk, per-session JSON file                                 | Consistency with `sessions.json`, durability, inspectability, test-friendliness                             |
+| On-disk schema          | Versioned opaque: `{ version: 1, data: <frontend-shaped JSON> }` | Rust stays dumb about contents; forward-compatible for scrollback and future fields                         |
+| Migration               | None — delete old localStorage keys on first launch              | Existing data is already broken; nothing worth rescuing                                                     |
+| Write cadence           | 1500ms debounce + flush on quit                                  | Balances live-feel with IPC/IO overhead; flush guarantees no loss on clean quit                             |
+| Failure handling        | Dead placeholder pane with error message and Retry button        | Preserves the layout, explains the cause, enables recovery without app restart                              |
+| Restore timing          | On reconnect click only (not on startup)                         | Session is disconnected-as-a-unit or restored-as-a-unit; no half-live state; all restore logic in one place |
 
 ## Architecture
 
@@ -84,7 +84,12 @@ Reconnect click → loadPaneState(sessionId) → rehydratePanes() → sessionLay
     "layout": { "kind": "leaf", "paneId": "sess123-main" },
     "descriptors": [
       { "id": "sess123-main", "type": "claude", "ptyId": "sess123" },
-      { "id": "pane-abc", "type": "shell", "ptyId": "...", "workingDir": "/Users/you/code/project" }
+      {
+        "id": "pane-abc",
+        "type": "shell",
+        "ptyId": "...",
+        "workingDir": "/Users/you/code/project"
+      }
     ]
   }
 }
@@ -94,15 +99,15 @@ Rust treats `data` as `serde_json::Value` — opaque. Only `version` is inspecte
 
 **Tauri commands:**
 
-| Command | Args | Returns | Notes |
-|---|---|---|---|
-| `load_pane_state` | `sessionId: String` | `Option<serde_json::Value>` | Returns `data` field, or `None` if missing / unreadable / wrong version |
-| `save_pane_state` | `sessionId: String, data: serde_json::Value` | `Result<(), String>` | Atomic write: tmp file + rename. Wraps `data` in `{version: 1, data}` |
-| `delete_pane_state` | `sessionId: String` | `Result<(), String>` | Best-effort delete; non-existent file is not an error |
+| Command             | Args                                         | Returns                     | Notes                                                                   |
+| ------------------- | -------------------------------------------- | --------------------------- | ----------------------------------------------------------------------- |
+| `load_pane_state`   | `sessionId: String`                          | `Option<serde_json::Value>` | Returns `data` field, or `None` if missing / unreadable / wrong version |
+| `save_pane_state`   | `sessionId: String, data: serde_json::Value` | `Result<(), String>`        | Atomic write: tmp file + rename. Wraps `data` in `{version: 1, data}`   |
+| `delete_pane_state` | `sessionId: String`                          | `Result<(), String>`        | Best-effort delete; non-existent file is not an error                   |
 
 **Atomic write pattern:** write to `<file>.tmp`, `fsync`, rename over target. Standard pattern; prevents half-written files on crash.
 
-**Session deletion hook:** in `src-tauri/src/services/sessions.rs::kill_session` (around line 179, right after `session_handle.remove(id).await?`), add a call to `delete_pane_state(session_id)`. Best-effort; logged on error but non-fatal. *Not* in `session.rs` — that module only handles loading/path helpers.
+**Session deletion hook:** in `src-tauri/src/services/sessions.rs::kill_session` (around line 179, right after `session_handle.remove(id).await?`), add a call to `delete_pane_state(session_id)`. Best-effort; logged on error but non-fatal. _Not_ in `session.rs` — that module only handles loading/path helpers.
 
 **Loader diagnostics:** `load_pane_state` returns `None` on unreadable / corrupt / wrong-version files to keep the UX fallback clean, but **every failure path logs the cause** (file IO error, JSON parse error, version mismatch with the expected vs. actual version number). Without this, "my layout vanished" becomes undebuggable.
 
@@ -120,9 +125,14 @@ Rust treats `data` as `serde_json::Value` — opaque. Only `version` is inspecte
      descriptors: PaneDescriptor[];
    }
 
-   export async function loadPaneState(sessionId: string): Promise<PaneStatePayload | null>
-   export async function savePaneState(sessionId: string, payload: PaneStatePayload): Promise<void>
-   export async function deletePaneState(sessionId: string): Promise<void>
+   export async function loadPaneState(
+     sessionId: string,
+   ): Promise<PaneStatePayload | null>;
+   export async function savePaneState(
+     sessionId: string,
+     payload: PaneStatePayload,
+   ): Promise<void>;
+   export async function deletePaneState(sessionId: string): Promise<void>;
    ```
 
 3. **Update `scheduleSave` / `initPersistence`:**
@@ -137,10 +147,14 @@ Rust treats `data` as `serde_json::Value` — opaque. Only `version` is inspecte
 **Changes to `src/lib/tauri.ts`:**
 
 Add wrappers around the three new Tauri commands:
+
 ```ts
-export function loadPaneStateRaw(sessionId: string): Promise<unknown | null>
-export function savePaneStateRaw(sessionId: string, data: unknown): Promise<void>
-export function deletePaneStateRaw(sessionId: string): Promise<void>
+export function loadPaneStateRaw(sessionId: string): Promise<unknown | null>;
+export function savePaneStateRaw(
+  sessionId: string,
+  data: unknown,
+): Promise<void>;
+export function deletePaneStateRaw(sessionId: string): Promise<void>;
 ```
 
 **Changes to `App.svelte`:**
@@ -168,7 +182,7 @@ export function deletePaneStateRaw(sessionId: string): Promise<void>
 
 **When to rehydrate vs. plain reconnect.** `reconnectSession` is called from several places — not just after app restart. It's also triggered when a session disconnects mid-use (Claude CLI crashes, SessionCard button, SessionTabs, PaneShell). If the user already has splits open and Claude crashes, we **must not** rehydrate from disk — that would stomp existing live pane instances. So the first thing reconnect does is inspect the current in-memory layout:
 
-- If the current `sessionLayouts` entry for this session is a **single leaf** matching `<sessionId>-main` (the default post-startup state), we *may* rehydrate from disk.
+- If the current `sessionLayouts` entry for this session is a **single leaf** matching `<sessionId>-main` (the default post-startup state), we _may_ rehydrate from disk.
 - If the current layout has **any splits already rendered**, rehydration is skipped entirely and we fall through to today's main-pane-only reconnect. The disk state is stale relative to runtime; we trust runtime.
 
 **New behavior for `reconnectSession(session, extraFlags)`:**
@@ -224,7 +238,7 @@ export function deletePaneStateRaw(sessionId: string): Promise<void>
 4. No duplicate descriptor ids.
 5. No descriptor types outside `"claude" | "shell" | "command" | "markdown"`.
 
-If any check fails → log the specific reason, return null from the load path, fall back to main-pane-only reconnect. Reason: without this, a corrupt file (e.g., partial write from a crash older than this design, or an old-schema file that slipped through the version guard) would render empty leaves in `SplitPane.svelte`/`PaneShell.svelte` *and* the auto-save subscription would then persist the bad state back to disk, compounding the problem.
+If any check fails → log the specific reason, return null from the load path, fall back to main-pane-only reconnect. Reason: without this, a corrupt file (e.g., partial write from a crash older than this design, or an old-schema file that slipped through the version guard) would render empty leaves in `SplitPane.svelte`/`PaneShell.svelte` _and_ the auto-save subscription would then persist the bad state back to disk, compounding the problem.
 
 **Store mutation — the correct pattern.** `sessionLayouts` is a `writable<Map<string, LayoutNode>>`. The existing codebase (layout.ts, actions.ts) always mutates per-session entries via the `update` pattern, not `.set(...)`:
 
@@ -248,10 +262,11 @@ Step 7e uses exactly this pattern. Using `sessionLayouts.set(sessionId, stripped
 async function rehydratePane(
   descriptor: PaneDescriptor,
   sessionWorktreePath: string,
-): Promise<{ paneId: string; error?: string }>
+): Promise<{ paneId: string; error?: string }>;
 ```
 
 Logic per descriptor type:
+
 - `"claude"` → skip (main pane already exists from startup).
 - `"shell"` → generate fresh `ptyId` via `crypto.randomUUID()`, call `spawnShell(ptyId, descriptor.workingDir ?? sessionWorktreePath)`. On success: create `PaneInstance` with the descriptor's original id, fresh ptyId, copied metadata. On failure: create the instance anyway with `restoreError` set to the error message.
 - `"markdown"` → create instance directly, preserve `docPath`.
@@ -303,10 +318,11 @@ Tailwind styling matching existing Roux panels. No new design language.
 **Retry logic — new export in `src/lib/sessions/reconnect.ts`:**
 
 ```ts
-export async function retryShellPane(paneId: string): Promise<void>
+export async function retryShellPane(paneId: string): Promise<void>;
 ```
 
 Behavior:
+
 1. Read the instance. Bail if not a shell or if `restoreError` is unset.
 2. Generate fresh `ptyId`.
 3. Call `spawnShell(ptyId, instance.workingDir)`.
@@ -379,7 +395,7 @@ Behavior:
 
 1. **Subscription fires during rehydration.** Applying the restored tree via `sessionLayouts.update(...)` triggers the auto-save subscription, which schedules a redundant save. Harmless but wasteful. Acceptable — debounce absorbs it.
 2. **Reconnect race.** Rapid double-click could double-spawn shells. Mitigated by the per-session `reconnecting` flag set at reconnect entry, cleared in `finally`.
-3. **Mid-session disconnect scenario.** Claude CLI crashes while the user has splits open → clicking reconnect should respawn Claude but leave the existing pane tree alone. Mitigated by step 2 of the reconnect flow: rehydrate *only* when the current layout is a single main-only leaf. Any other runtime state is trusted over disk.
+3. **Mid-session disconnect scenario.** Claude CLI crashes while the user has splits open → clicking reconnect should respawn Claude but leave the existing pane tree alone. Mitigated by step 2 of the reconnect flow: rehydrate _only_ when the current layout is a single main-only leaf. Any other runtime state is trusted over disk.
 4. **Stale/corrupt persisted state.** A partial write from a crashed old version, or a file tampered with externally, could reference missing pane ids or have mismatched descriptors. Mitigated by the integrity preflight in step 5; invalid state is logged and ignored rather than applied.
 5. **PaneShell component contract.** Currently assumes `instance.terminal` exists after mount for shell panes. The `restoreError` branch short-circuits before that dereference, but a full audit of `PaneShell.svelte` during implementation is required to confirm nothing downstream derefs `instance.terminal` unconditionally.
 6. **Atomic write on macOS.** `rename(2)` over an existing file is atomic on APFS, but only within the same filesystem. The tmp file must be created in the same directory as the target (not in `/tmp`). Standard practice; just flagging.
@@ -398,12 +414,14 @@ None at design time. All architectural decisions made and confirmed.
 ## Files Touched (forecast)
 
 **New:**
+
 - `src-tauri/src/pane_state.rs`
 - `src/lib/components/DeadPaneView.svelte`
 - `src/lib/panes/__tests__/persistence.test.ts` (may already exist; extend if so)
 - Tests as listed above
 
 **Modified:**
+
 - `src-tauri/src/main.rs` — register new Tauri commands
 - `src-tauri/src/services/sessions.rs` — call `delete_pane_state` in `kill_session` after `session_handle.remove(id)`
 - `src/lib/tauri.ts` — wrappers for the three new Tauri commands

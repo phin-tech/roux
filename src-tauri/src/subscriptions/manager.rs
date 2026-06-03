@@ -59,10 +59,7 @@ impl SubscriptionManager {
     /// In-memory variant. No load, no persist on mutations. For tests.
     #[cfg(test)]
     pub fn in_memory() -> Self {
-        Self {
-            inner: Arc::new(Mutex::new(SubscriptionStore::new())),
-            persistence_path: None,
-        }
+        Self { inner: Arc::new(Mutex::new(SubscriptionStore::new())), persistence_path: None }
     }
 
     /// Add a subscription. Validates the pattern (and alias format)
@@ -114,11 +111,7 @@ impl SubscriptionManager {
     /// `Ok(false)` when the id was unknown, and an error when the
     /// disk save failed (in which case the in-memory deletion has
     /// been rolled back).
-    pub fn unsubscribe(
-        &self,
-        id: &str,
-        app: Option<&AppHandle>,
-    ) -> Result<bool, UnsubscribeError> {
+    pub fn unsubscribe(&self, id: &str, app: Option<&AppHandle>) -> Result<bool, UnsubscribeError> {
         let removed_entry = {
             let mut store = self.inner.lock().expect("subscription store poisoned");
             let entry = store.get(id).cloned();
@@ -139,8 +132,8 @@ impl SubscriptionManager {
             return Err(UnsubscribeError::Persist(e.to_string()));
         }
         if let Some(app) = app {
-            let _ = app
-                .emit(SUBSCRIPTION_EVENT, &BusSubscriptionEvent::Removed { id: id.to_string() });
+            let _ =
+                app.emit(SUBSCRIPTION_EVENT, &BusSubscriptionEvent::Removed { id: id.to_string() });
         }
         Ok(true)
     }
@@ -179,11 +172,7 @@ impl SubscriptionManager {
     /// Patterns subscribed to by `alias` in scopes compatible with
     /// `event_project_id`. Used by the mailbox layer to extend
     /// `list_for_recipient` and ack ownership for topic events.
-    pub fn patterns_for_alias(
-        &self,
-        alias: &str,
-        event_project_id: Option<&str>,
-    ) -> Vec<String> {
+    pub fn patterns_for_alias(&self, alias: &str, event_project_id: Option<&str>) -> Vec<String> {
         let store = self.inner.lock().expect("subscription store poisoned");
         store.patterns_for_alias(alias, event_project_id)
     }

@@ -9,17 +9,20 @@ type GeneratedExperimentId = string extends keyof RequiredExperiments
   : keyof RequiredExperiments;
 
 type BooleanExperimentId = {
-  [K in GeneratedExperimentId]: RequiredExperiments[K] extends boolean ? K : never;
+  [K in GeneratedExperimentId]: RequiredExperiments[K] extends boolean
+    ? K
+    : never;
 }[GeneratedExperimentId];
 
 type EnumExperimentId = Exclude<GeneratedExperimentId, BooleanExperimentId>;
 
-type BooleanExperimentDef<K extends BooleanExperimentId = BooleanExperimentId> = {
-  kind: "boolean";
-  id: K;
-  label: string;
-  description: string;
-};
+type BooleanExperimentDef<K extends BooleanExperimentId = BooleanExperimentId> =
+  {
+    kind: "boolean";
+    id: K;
+    label: string;
+    description: string;
+  };
 
 type EnumExperimentDef<K extends EnumExperimentId = EnumExperimentId> = {
   kind: "enum";
@@ -29,9 +32,7 @@ type EnumExperimentDef<K extends EnumExperimentId = EnumExperimentId> = {
   options: ReadonlyArray<{ value: RequiredExperiments[K]; label: string }>;
 };
 
-type RegisteredExperimentDef =
-  | BooleanExperimentDef
-  | EnumExperimentDef;
+type RegisteredExperimentDef = BooleanExperimentDef | EnumExperimentDef;
 
 type EmptyExperimentDef =
   | {
@@ -54,12 +55,12 @@ export type ExperimentDef = [GeneratedExperimentId] extends [never]
 
 type ExperimentRegistry = [GeneratedExperimentId] extends [never]
   ? Record<string, never>
-  : { [K in GeneratedExperimentId]:
-      K extends BooleanExperimentId
+  : {
+      [K in GeneratedExperimentId]: K extends BooleanExperimentId
         ? BooleanExperimentDef<K>
         : K extends EnumExperimentId
           ? EnumExperimentDef<K>
-          : never
+          : never;
     };
 
 // Indexed by id so adding a new flag to `ExperimentsConfig` (Rust side) without
@@ -67,7 +68,8 @@ type ExperimentRegistry = [GeneratedExperimentId] extends [never]
 // branch matches specta's empty-struct binding while there are no experiments.
 const EXPERIMENT_DEFS = {} satisfies ExperimentRegistry;
 
-export const EXPERIMENTS: ReadonlyArray<ExperimentDef> = Object.values(EXPERIMENT_DEFS);
+export const EXPERIMENTS: ReadonlyArray<ExperimentDef> =
+  Object.values(EXPERIMENT_DEFS);
 
 export { EXPERIMENT_DEFAULTS };
 

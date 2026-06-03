@@ -59,13 +59,18 @@
         {/if}
 
         {#if error}
-          <p class="rounded-md border border-red/30 bg-red/10 px-3 py-2 text-[12px] text-red" role="alert">
+          <p
+            class="rounded-md border border-red/30 bg-red/10 px-3 py-2 text-[12px] text-red"
+            role="alert"
+          >
             {error}
           </p>
         {/if}
       </div>
 
-      <div class="flex flex-wrap justify-end gap-2 border-t border-hairline px-5 py-4">
+      <div
+        class="flex flex-wrap justify-end gap-2 border-t border-hairline px-5 py-4"
+      >
         <button
           type="button"
           class="cursor-pointer rounded-xl border border-border-subtle bg-bg-surface px-4 py-2 text-[13px] font-medium text-text-secondary hover:bg-bg-hover hover:text-text-primary disabled:opacity-50"

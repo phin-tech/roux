@@ -17,16 +17,15 @@ async fn active_repo_for_session(
         return Ok(None);
     };
     let session = state
-        .runtime.session_handle
+        .runtime
+        .session_handle
         .get(id)
         .await
         .map_err(|e| format!("load session {id}: {e}"))?;
     Ok(session.map(|session| session.repo_root))
 }
 
-fn settings_snapshot(
-    state: &AppState,
-) -> Result<crate::settings::RouxSettings, String> {
+fn settings_snapshot(state: &AppState) -> Result<crate::settings::RouxSettings, String> {
     state
         .settings
         .lock()
@@ -95,9 +94,7 @@ pub(crate) async fn list_library_items(
     let active_repo = active_repo_for_session(&state, session_id.as_deref()).await?;
     let settings = settings_snapshot(&state)?;
     let layers = library_layers_for(&settings, active_repo);
-    tauri::async_runtime::spawn_blocking(move || svc::list_items(&layers))
-        .await
-        .map_err(join_err)
+    tauri::async_runtime::spawn_blocking(move || svc::list_items(&layers)).await.map_err(join_err)
 }
 
 #[tauri::command]

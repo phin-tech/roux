@@ -516,8 +516,7 @@ mod tests {
         std::fs::write(&real, "").unwrap();
         std::fs::set_permissions(&real, std::fs::Permissions::from_mode(0o755)).unwrap();
 
-        let extra =
-            std::env::join_paths([placeholder_dir.path(), real_dir.path()]).unwrap();
+        let extra = std::env::join_paths([placeholder_dir.path(), real_dir.path()]).unwrap();
         assert_eq!(resolve_bin(None, Some(extra.as_os_str())), real);
     }
 

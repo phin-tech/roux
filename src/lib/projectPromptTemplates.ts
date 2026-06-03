@@ -1,5 +1,10 @@
 import { get } from "svelte/store";
-import type { Project, RouxSettings, Session, SessionBlueprint } from "$lib/types";
+import type {
+  Project,
+  RouxSettings,
+  Session,
+  SessionBlueprint,
+} from "$lib/types";
 import type { SpawnProfile } from "$lib/panes/profiles";
 import { renderProjectPromptTemplate as renderProjectPromptTemplateRaw } from "$lib/tauri";
 import { getProjectById } from "$lib/stores/projects";
@@ -77,7 +82,9 @@ function modelName(settings: RouxSettings): string | null {
   return value ? value : null;
 }
 
-function sessionTemplateContext(session: Session): ProjectPromptTemplateSession {
+function sessionTemplateContext(
+  session: Session,
+): ProjectPromptTemplateSession {
   return {
     id: session.id,
     name: session.name,
@@ -97,7 +104,10 @@ function sameProjectSessions(
 ): ProjectPromptTemplateSession[] {
   if (!projectId) return [];
   return sessions
-    .filter((s) => s.projectId === projectId && s.id !== excludeSessionId && !s.archived)
+    .filter(
+      (s) =>
+        s.projectId === projectId && s.id !== excludeSessionId && !s.archived,
+    )
     .map(sessionTemplateContext);
 }
 
@@ -176,7 +186,11 @@ export function buildProjectPromptPreviewContext({
     paths: {
       sessions_folder: previewSession.worktree_path,
     },
-    other_sessions: sameProjectSessions(sessions, project.id, previewSession.id),
+    other_sessions: sameProjectSessions(
+      sessions,
+      project.id,
+      previewSession.id,
+    ),
   };
 }
 

@@ -23,14 +23,18 @@
   <MarkdownPaneComponent {docPath} />
 {:else if loadError}
   <div class="flex h-full w-full items-center justify-center p-4">
-    <div class="max-w-sm rounded-xl border border-red/20 bg-red/8 px-4 py-3 text-sm text-red">
+    <div
+      class="max-w-sm rounded-xl border border-red/20 bg-red/8 px-4 py-3 text-sm text-red"
+    >
       Failed to load the markdown editor.
       {loadError}
     </div>
   </div>
 {:else}
   <div class="flex h-full w-full items-center justify-center p-4">
-    <div class="rounded-xl border border-border-subtle bg-bg-surface/60 px-4 py-3 text-sm text-text-muted">
+    <div
+      class="rounded-xl border border-border-subtle bg-bg-surface/60 px-4 py-3 text-sm text-text-muted"
+    >
       Loading editor...
     </div>
   </div>

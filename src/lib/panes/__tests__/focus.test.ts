@@ -1,13 +1,18 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { get } from "svelte/store";
 
-const controllers = new Map<string, {
-  setInputEnabled: ReturnType<typeof vi.fn>;
-  focus: ReturnType<typeof vi.fn>;
-}>();
+const controllers = new Map<
+  string,
+  {
+    setInputEnabled: ReturnType<typeof vi.fn>;
+    focus: ReturnType<typeof vi.fn>;
+  }
+>();
 
 vi.mock("../terminalRuntime", () => ({
-  getTerminalController: vi.fn((paneId: string) => controllers.get(paneId) ?? null),
+  getTerminalController: vi.fn(
+    (paneId: string) => controllers.get(paneId) ?? null,
+  ),
   clearPaneOutputChannel: vi.fn(),
   disposePaneTerminalRuntime: vi.fn(),
 }));

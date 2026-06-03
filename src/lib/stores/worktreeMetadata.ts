@@ -101,7 +101,5 @@ export async function refreshWorktreeMetadataForRepos(
   for (const p of repoPaths) {
     if (p) unique.add(p);
   }
-  await Promise.all(
-    Array.from(unique).map((p) => refreshWorktreeMetadata(p)),
-  );
+  await Promise.all(Array.from(unique).map((p) => refreshWorktreeMetadata(p)));
 }

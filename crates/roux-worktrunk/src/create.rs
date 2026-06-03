@@ -65,15 +65,11 @@ pub fn create_worktree(
     // env (so wt sees the same config). We match by branch name —
     // `--no-cd` mode doesn't flip `is_current` reliably.
     let items = list_worktrees_with_env(wt, repo_path, &opts.env)?;
-    items
-        .into_iter()
-        .find(|i| i.branch.as_deref() == Some(branch))
-        .and_then(|i| i.path)
-        .ok_or_else(|| WtError::NotFound {
-            path: format!(
-                "wt reported success but no worktree named {branch:?} is listed"
-            ),
-        })
+    items.into_iter().find(|i| i.branch.as_deref() == Some(branch)).and_then(|i| i.path).ok_or_else(
+        || WtError::NotFound {
+            path: format!("wt reported success but no worktree named {branch:?} is listed"),
+        },
+    )
 }
 
 /// `list_worktrees` variant that forwards extra env to the spawned `wt`.

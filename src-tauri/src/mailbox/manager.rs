@@ -146,11 +146,7 @@ impl MailboxManager {
         subs.patterns_for_alias(recipient, event.project_id.as_deref())
     }
 
-    pub fn post(
-        &self,
-        builder: EventBuilder,
-        app: Option<&AppHandle>,
-    ) -> Result<Event, PostError> {
+    pub fn post(&self, builder: EventBuilder, app: Option<&AppHandle>) -> Result<Event, PostError> {
         let id = uuid::Uuid::new_v4().to_string();
         let now = now_ms();
         let event = {
@@ -197,21 +193,14 @@ impl MailboxManager {
         Ok(event)
     }
 
-    pub fn mark_read(
-        &self,
-        event_id: &str,
-        recipient: &str,
-        app: Option<&AppHandle>,
-    ) -> bool {
+    pub fn mark_read(&self, event_id: &str, recipient: &str, app: Option<&AppHandle>) -> bool {
         let now = now_ms();
         // Patterns are scoped to the event's own project so a recipient's
         // p2-scoped subscription can't authorize ReadState writes against
         // a p1-scoped event. Empty if the event doesn't exist — store will
         // then refuse the write either way.
-        let patterns = self
-            .get(event_id)
-            .map(|e| self.patterns_for_event(recipient, &e))
-            .unwrap_or_default();
+        let patterns =
+            self.get(event_id).map(|e| self.patterns_for_event(recipient, &e)).unwrap_or_default();
         let changed = {
             let mut store = self.inner.lock().expect("event store poisoned");
             store.mark_read(event_id, recipient, &patterns, now)
@@ -238,10 +227,8 @@ impl MailboxManager {
         app: Option<&AppHandle>,
     ) -> bool {
         let now = now_ms();
-        let patterns = self
-            .get(event_id)
-            .map(|e| self.patterns_for_event(recipient, &e))
-            .unwrap_or_default();
+        let patterns =
+            self.get(event_id).map(|e| self.patterns_for_event(recipient, &e)).unwrap_or_default();
         let changed = {
             let mut store = self.inner.lock().expect("event store poisoned");
             store.ack(event_id, recipient, &patterns, result.clone(), now)
@@ -274,10 +261,8 @@ impl MailboxManager {
         };
         if cleared > 0 {
             self.persist_read_state();
-            let evt = MailboxEvent::Cleared {
-                recipient: recipient.to_string(),
-                count: cleared as u32,
-            };
+            let evt =
+                MailboxEvent::Cleared { recipient: recipient.to_string(), count: cleared as u32 };
             self.broadcast(&evt);
             if let Some(app) = app {
                 let _ = app.emit(MAILBOX_EVENT, &evt);
@@ -327,17 +312,10 @@ impl MailboxManager {
     /// Recipient-side single-event hide. Sets `cleared_at` on the
     /// (event_id, recipient) ReadState regardless of read state and
     /// persists the read_state file. Returns true on state change.
-    pub fn dismiss(
-        &self,
-        event_id: &str,
-        recipient: &str,
-        app: Option<&AppHandle>,
-    ) -> bool {
+    pub fn dismiss(&self, event_id: &str, recipient: &str, app: Option<&AppHandle>) -> bool {
         let now = now_ms();
-        let patterns = self
-            .get(event_id)
-            .map(|e| self.patterns_for_event(recipient, &e))
-            .unwrap_or_default();
+        let patterns =
+            self.get(event_id).map(|e| self.patterns_for_event(recipient, &e)).unwrap_or_default();
         let changed = {
             let mut store = self.inner.lock().expect("event store poisoned");
             store.dismiss(event_id, recipient, &patterns, now)
@@ -367,20 +345,12 @@ impl MailboxManager {
         store.list_for_recipient(recipient, &patterns, unread_only, project_filter)
     }
 
-    pub fn list_for_topic(
-        &self,
-        topic: &str,
-        project_filter: ProjectFilter<'_>,
-    ) -> Vec<Event> {
+    pub fn list_for_topic(&self, topic: &str, project_filter: ProjectFilter<'_>) -> Vec<Event> {
         let store = self.inner.lock().expect("event store poisoned");
         store.list_for_topic(topic, project_filter)
     }
 
-    pub fn list_all(
-        &self,
-        project_filter: ProjectFilter<'_>,
-        limit: Option<usize>,
-    ) -> Vec<Event> {
+    pub fn list_all(&self, project_filter: ProjectFilter<'_>, limit: Option<usize>) -> Vec<Event> {
         let store = self.inner.lock().expect("event store poisoned");
         store.list_all(project_filter, limit)
     }
@@ -558,8 +528,7 @@ mod tests {
 
     #[test]
     fn subscriber_sees_topic_event_in_inbox() {
-        let mgr = MailboxManager::in_memory()
-            .with_subscriptions(SubscriptionManager::in_memory());
+        let mgr = MailboxManager::in_memory().with_subscriptions(SubscriptionManager::in_memory());
         // Set up the subscription via the wired manager so the manager
         // sees it. Need to grab the inner manager handle for that.
         // (For tests we reach in via a helper.)
@@ -581,12 +550,10 @@ mod tests {
 
     #[test]
     fn unsubscribed_recipient_does_not_see_topic_events() {
-        let mgr = MailboxManager::in_memory()
-            .with_subscriptions(SubscriptionManager::in_memory());
+        let mgr = MailboxManager::in_memory().with_subscriptions(SubscriptionManager::in_memory());
 
-        let topic_event = EventBuilder::new("hi")
-            .topic("repo-a.build.completed")
-            .kind(EventKind::Signal);
+        let topic_event =
+            EventBuilder::new("hi").topic("repo-a.build.completed").kind(EventKind::Signal);
         mgr.post(topic_event, None).unwrap();
 
         let mine = mgr.list_for_recipient("auditor", false, ProjectFilter::Any);
@@ -595,17 +562,14 @@ mod tests {
 
     #[test]
     fn subscriber_unread_count_includes_topic_matches() {
-        let mgr = MailboxManager::in_memory()
-            .with_subscriptions(SubscriptionManager::in_memory());
+        let mgr = MailboxManager::in_memory().with_subscriptions(SubscriptionManager::in_memory());
         mgr.subscriptions
             .as_ref()
             .unwrap()
             .subscribe("auditor", "**.completed", None, None)
             .unwrap();
 
-        let topic_event = EventBuilder::new("hi")
-            .topic("build.completed")
-            .kind(EventKind::Signal);
+        let topic_event = EventBuilder::new("hi").topic("build.completed").kind(EventKind::Signal);
         let event = mgr.post(topic_event, None).unwrap();
 
         assert_eq!(mgr.unread_count("auditor", ProjectFilter::Any), 1);
@@ -617,8 +581,7 @@ mod tests {
 
     #[test]
     fn project_scoped_subscription_only_matches_in_scope() {
-        let mgr = MailboxManager::in_memory()
-            .with_subscriptions(SubscriptionManager::in_memory());
+        let mgr = MailboxManager::in_memory().with_subscriptions(SubscriptionManager::in_memory());
         mgr.subscriptions
             .as_ref()
             .unwrap()
@@ -626,31 +589,17 @@ mod tests {
             .unwrap();
 
         // Event in p1: matches.
-        let in_p1 = EventBuilder::new("a")
-            .topic("foo")
-            .project_id("p1")
-            .kind(EventKind::Signal);
+        let in_p1 = EventBuilder::new("a").topic("foo").project_id("p1").kind(EventKind::Signal);
         mgr.post(in_p1, None).unwrap();
 
         // Event in p2: must not match.
-        let in_p2 = EventBuilder::new("b")
-            .topic("foo")
-            .project_id("p2")
-            .kind(EventKind::Signal);
+        let in_p2 = EventBuilder::new("b").topic("foo").project_id("p2").kind(EventKind::Signal);
         mgr.post(in_p2, None).unwrap();
 
-        let visible_p1 = mgr.list_for_recipient(
-            "auditor",
-            false,
-            ProjectFilter::Exact(Some("p1")),
-        );
+        let visible_p1 = mgr.list_for_recipient("auditor", false, ProjectFilter::Exact(Some("p1")));
         assert_eq!(visible_p1.len(), 1);
 
-        let visible_p2 = mgr.list_for_recipient(
-            "auditor",
-            false,
-            ProjectFilter::Exact(Some("p2")),
-        );
+        let visible_p2 = mgr.list_for_recipient("auditor", false, ProjectFilter::Exact(Some("p2")));
         assert!(visible_p2.is_empty());
     }
 
@@ -661,8 +610,7 @@ mod tests {
     /// any pattern matched the topic, regardless of project.
     #[test]
     fn cross_project_subscription_cannot_authorize_other_project_events() {
-        let mgr = MailboxManager::in_memory()
-            .with_subscriptions(SubscriptionManager::in_memory());
+        let mgr = MailboxManager::in_memory().with_subscriptions(SubscriptionManager::in_memory());
         // Auditor only subscribes inside p2.
         mgr.subscriptions
             .as_ref()
@@ -711,23 +659,16 @@ mod tests {
 
     #[tokio::test]
     async fn broadcast_fires_topic_delivered_for_each_subscription() {
-        let mgr = MailboxManager::in_memory()
-            .with_subscriptions(SubscriptionManager::in_memory());
+        let mgr = MailboxManager::in_memory().with_subscriptions(SubscriptionManager::in_memory());
         mgr.subscriptions
             .as_ref()
             .unwrap()
             .subscribe("auditor", "**.completed", None, None)
             .unwrap();
-        mgr.subscriptions
-            .as_ref()
-            .unwrap()
-            .subscribe("watcher", "**", None, None)
-            .unwrap();
+        mgr.subscriptions.as_ref().unwrap().subscribe("watcher", "**", None, None).unwrap();
 
         let mut rx = mgr.subscribe_events();
-        let topic_event = EventBuilder::new("a")
-            .topic("build.completed")
-            .kind(EventKind::Signal);
+        let topic_event = EventBuilder::new("a").topic("build.completed").kind(EventKind::Signal);
         mgr.post(topic_event, None).unwrap();
 
         // First message: Posted. Then one TopicDelivered per matching sub.
@@ -743,10 +684,7 @@ mod tests {
             }
         }
         delivered_recipients.sort();
-        assert_eq!(
-            delivered_recipients,
-            vec!["auditor".to_string(), "watcher".to_string()]
-        );
+        assert_eq!(delivered_recipients, vec!["auditor".to_string(), "watcher".to_string()]);
     }
 
     #[tokio::test]
@@ -818,10 +756,7 @@ mod tests {
 
         let mgr2 = MailboxManager::load_from(e, r);
         let inbox = mgr2.list_for_recipient("reviewer", false, ProjectFilter::Any);
-        assert!(
-            inbox.is_empty(),
-            "dismissed event must not reappear after reload"
-        );
+        assert!(inbox.is_empty(), "dismissed event must not reappear after reload");
     }
 
     #[tokio::test]

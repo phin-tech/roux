@@ -110,7 +110,10 @@ New bindings:
 ```ts
 export async function checkGhInstalled(): Promise<boolean>;
 export async function lookupPr(repoPath: string, url: string): Promise<PrInfo>;
-export async function fetchPrBranch(repoPath: string, prNumber: number): Promise<string>;
+export async function fetchPrBranch(
+  repoPath: string,
+  prNumber: number,
+): Promise<string>;
 ```
 
 Where `PrInfo`:
@@ -175,15 +178,15 @@ branch exists locally by the time the user clicks Create.
 All errors surface inline in the dialog under the PR input. The dialog remains
 usable — the user can clear the URL and proceed without the PR feature.
 
-| Condition                              | Error message                                                        |
-| -------------------------------------- | -------------------------------------------------------------------- |
-| `gh` missing at lookup time            | `gh CLI not found`                                                   |
-| `gh auth` missing / expired            | `gh is not authenticated — run 'gh auth login' and retry`            |
-| PR not found / 404                     | `PR not found`                                                       |
-| URL parse failure                      | `Not a valid GitHub PR URL`                                          |
-| Network failure                        | `Failed to fetch PR: <gh stderr truncated to 200 chars>`             |
-| Fork fetch failure                     | `Failed to fetch fork branch: <git stderr truncated>`                |
-| Branch `pr-<N>` already exists locally | `fetch_pr_branch` force-updates it (`+<head_ref>:pr-<N>` refspec)   |
+| Condition                              | Error message                                                     |
+| -------------------------------------- | ----------------------------------------------------------------- |
+| `gh` missing at lookup time            | `gh CLI not found`                                                |
+| `gh auth` missing / expired            | `gh is not authenticated — run 'gh auth login' and retry`         |
+| PR not found / 404                     | `PR not found`                                                    |
+| URL parse failure                      | `Not a valid GitHub PR URL`                                       |
+| Network failure                        | `Failed to fetch PR: <gh stderr truncated to 200 chars>`          |
+| Fork fetch failure                     | `Failed to fetch fork branch: <git stderr truncated>`             |
+| Branch `pr-<N>` already exists locally | `fetch_pr_branch` force-updates it (`+<head_ref>:pr-<N>` refspec) |
 
 ## Testing
 

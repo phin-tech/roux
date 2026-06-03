@@ -24,5 +24,6 @@ pub fn list_worktrees(wt: &WtBinary, repo_path: &Path) -> Result<Vec<WtItem>, Wt
         });
     }
 
-    serde_json::from_slice::<Vec<WtItem>>(&output.stdout).map_err(|source| WtError::Parse { source })
+    serde_json::from_slice::<Vec<WtItem>>(&output.stdout)
+        .map_err(|source| WtError::Parse { source })
 }

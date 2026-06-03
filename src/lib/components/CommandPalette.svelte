@@ -1,7 +1,11 @@
 <script lang="ts">
   import { fade, scale } from "svelte/transition";
   import { Command } from "bits-ui";
-  import { registry, type Command as Cmd, type CommandItem as CmdItem } from "$lib/commands/registry";
+  import {
+    registry,
+    type Command as Cmd,
+    type CommandItem as CmdItem,
+  } from "$lib/commands/registry";
   import { mainViewRoute } from "$lib/stores/mainView";
   import { commandBlockedByMainView } from "$lib/mainView/keyGate";
   import { formatShortcut } from "$lib/platform";
@@ -40,18 +44,22 @@
     initialCommandId = null,
   }: Props = $props();
 
-  let stepStack = $state<{ label: string; items: CmdItem[]; sourceCmd?: Cmd }[]>([]);
+  let stepStack = $state<
+    { label: string; items: CmdItem[]; sourceCmd?: Cmd }[]
+  >([]);
   let inputValue = $state("");
 
   let inDrillStep = $derived(stepStack.length > 0);
-  let currentStep = $derived(inDrillStep ? stepStack[stepStack.length - 1] : null);
+  let currentStep = $derived(
+    inDrillStep ? stepStack[stepStack.length - 1] : null,
+  );
 
   let availableCommands = $derived.by(() => {
     if (inDrillStep) return [];
     const mainViewOpen = $mainViewRoute !== null;
-    const cmds = registry.getAvailable().filter((cmd) =>
-      !mainViewOpen || !commandBlockedByMainView(cmd),
-    );
+    const cmds = registry
+      .getAvailable()
+      .filter((cmd) => !mainViewOpen || !commandBlockedByMainView(cmd));
     const groups = new Map<string, Cmd[]>();
     for (const cmd of cmds) {
       if (!groups.has(cmd.category)) groups.set(cmd.category, []);
@@ -68,7 +76,10 @@
       stepStack = [];
       if (initialCommandId) {
         const cmd = registry.get(initialCommandId);
-        if (cmd?.getItems && !($mainViewRoute !== null && commandBlockedByMainView(cmd))) {
+        if (
+          cmd?.getItems &&
+          !($mainViewRoute !== null && commandBlockedByMainView(cmd))
+        ) {
           // Auto-drill into the command's picker. Run async so the effect
           // completes synchronously; the drill happens on next tick.
           void Promise.resolve(cmd.getItems()).then((items) => {
@@ -116,7 +127,7 @@
       stepStack = [];
       inputValue = "";
       onclose();
-      await new Promise(r => setTimeout(r, 50));
+      await new Promise((r) => setTimeout(r, 50));
       await cmd.execute();
     }
   }
@@ -145,7 +156,7 @@
       inputValue = "";
       onclose();
       // Small delay to ensure UI closes before action runs
-      await new Promise(r => setTimeout(r, 50));
+      await new Promise((r) => setTimeout(r, 50));
       await item.action();
     }
   }
@@ -166,7 +177,7 @@
     stepStack = [];
     inputValue = "";
     onclose();
-    await new Promise(r => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 50));
     await cmd.onInput(text);
   }
 
@@ -183,7 +194,12 @@
       }
       return;
     }
-    if (e.key === "Enter" && inDrillStep && inputValue.trim() && currentStep?.sourceCmd?.onInput) {
+    if (
+      e.key === "Enter" &&
+      inDrillStep &&
+      inputValue.trim() &&
+      currentStep?.sourceCmd?.onInput
+    ) {
       e.preventDefault();
       e.stopPropagation();
       void handleInputSubmit();
@@ -201,7 +217,9 @@
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     class="fixed inset-0 z-50 flex items-start justify-center bg-black/65 pt-[18vh] backdrop-blur-md"
-    onclick={(e) => { if (e.target === e.currentTarget) onclose(); }}
+    onclick={(e) => {
+      if (e.target === e.currentTarget) onclose();
+    }}
     transition:fade={{ duration: 120 }}
   >
     <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -215,15 +233,18 @@
         <div class="flex items-center gap-1.5 px-5 pt-4 pb-0 text-[11px]">
           <button
             class="text-text-muted hover:text-text-primary bg-transparent border-none cursor-pointer p-0 font-sans"
-            onclick={goBack}
-          >Commands</button>
+            onclick={goBack}>Commands</button
+          >
           {#each stepStack as step, i}
             <span class="text-text-muted">/</span>
             {#if i < stepStack.length - 1}
               <button
                 class="text-text-muted hover:text-text-primary bg-transparent border-none cursor-pointer p-0 font-sans"
-                onclick={() => { stepStack = stepStack.slice(0, i + 1); inputValue = ""; }}
-              >{step.label}</button>
+                onclick={() => {
+                  stepStack = stepStack.slice(0, i + 1);
+                  inputValue = "";
+                }}>{step.label}</button
+              >
             {:else}
               <span class="text-text-primary">{step.label}</span>
             {/if}
@@ -231,11 +252,7 @@
         </div>
       {/if}
 
-      <Command.Root
-        shouldFilter={!inDrillStep}
-        loop={true}
-        vimBindings={true}
-      >
+      <Command.Root shouldFilter={!inDrillStep} loop={true} vimBindings={true}>
         <div
           class="flex items-center gap-2 border-b border-border-subtle bg-bg-surface/55 px-5 py-4"
         >
@@ -243,13 +260,16 @@
             <button
               class="text-text-muted hover:text-text-primary bg-transparent border-none cursor-pointer p-0 text-sm"
               onclick={goBack}
-              title="Back"
-            >&#8592;</button>
+              title="Back">&#8592;</button
+            >
           {/if}
           <Command.Input
             bind:value={inputValue}
             onkeydown={handleKeyDown}
-            placeholder={inDrillStep ? (currentStep?.sourceCmd?.inputPlaceholder ?? `Search ${currentStep?.label}...`) : "Type a command..."}
+            placeholder={inDrillStep
+              ? (currentStep?.sourceCmd?.inputPlaceholder ??
+                `Search ${currentStep?.label}...`)
+              : "Type a command..."}
             class="flex-1 border-none bg-transparent text-sm text-text-primary outline-none placeholder:text-text-muted"
           />
         </div>
@@ -267,14 +287,23 @@
 
           {#if inDrillStep && currentStep}
             {#each currentStep.items as item (item.id)}
-              {@const matches = !inputValue || item.label.toLowerCase().includes(inputValue.toLowerCase()) || (item.description ?? "").toLowerCase().includes(inputValue.toLowerCase())}
+              {@const matches =
+                !inputValue ||
+                item.label.toLowerCase().includes(inputValue.toLowerCase()) ||
+                (item.description ?? "")
+                  .toLowerCase()
+                  .includes(inputValue.toLowerCase())}
               {#if matches}
-              <Command.Item
-                value={item.id}
-                keywords={[item.label, item.description ?? ""].filter(Boolean)}
-                onSelect={() => handleItemSelect(item)}
-                aria-disabled={item.disabledReason ? "true" : undefined}
-                class="cmd-item {item.disabledReason ? 'cmd-item-disabled' : ''}"
+                <Command.Item
+                  value={item.id}
+                  keywords={[item.label, item.description ?? ""].filter(
+                    Boolean,
+                  )}
+                  onSelect={() => handleItemSelect(item)}
+                  aria-disabled={item.disabledReason ? "true" : undefined}
+                  class="cmd-item {item.disabledReason
+                    ? 'cmd-item-disabled'
+                    : ''}"
                 >
                   {#if item.icon && iconMap[item.icon]}
                     {@const IconComponent = iconMap[item.icon]}
@@ -283,11 +312,14 @@
                   <div class="flex-1 min-w-0">
                     <div class="text-text-primary text-sm">{item.label}</div>
                     {#if item.disabledReason || item.description}
-                      <div class="text-text-muted text-xs truncate mt-0.5">{item.disabledReason ?? item.description}</div>
+                      <div class="text-text-muted text-xs truncate mt-0.5">
+                        {item.disabledReason ?? item.description}
+                      </div>
                     {/if}
                   </div>
                   {#if item.substeps}
-                    <span class="text-text-muted text-xs shrink-0">&#8594;</span>
+                    <span class="text-text-muted text-xs shrink-0">&#8594;</span
+                    >
                   {/if}
                 </Command.Item>
               {/if}
@@ -295,7 +327,9 @@
           {:else}
             {#each availableCommands as [category, commands] (category)}
               <Command.Group>
-                <Command.GroupHeading class="px-3 py-2 text-[10px] font-medium uppercase tracking-[0.22em] text-text-muted">
+                <Command.GroupHeading
+                  class="px-3 py-2 text-[10px] font-medium uppercase tracking-[0.22em] text-text-muted"
+                >
                   {category}
                 </Command.GroupHeading>
                 <Command.GroupItems>
@@ -305,20 +339,28 @@
                       value={cmd.label}
                       onSelect={() => handleCommandSelect(cmd)}
                       aria-disabled={disabledReason ? "true" : undefined}
-                      class="cmd-item {disabledReason ? 'cmd-item-disabled' : ''}"
+                      class="cmd-item {disabledReason
+                        ? 'cmd-item-disabled'
+                        : ''}"
                     >
                       <div class="flex-1 min-w-0">
                         <span class="text-text-primary">{cmd.label}</span>
                         {#if disabledReason}
-                          <div class="text-text-muted text-xs truncate mt-0.5">{disabledReason}</div>
+                          <div class="text-text-muted text-xs truncate mt-0.5">
+                            {disabledReason}
+                          </div>
                         {/if}
                       </div>
                       {#if cmd.getItems}
-                        <span class="text-text-muted text-xs shrink-0">&#8594;</span>
+                        <span class="text-text-muted text-xs shrink-0"
+                          >&#8594;</span
+                        >
                       {/if}
                       {@const shortcut = resolveShortcut(cmd, $keymapState)}
                       {#if shortcut}
-                        <kbd class="text-[11px] font-mono text-text-muted bg-bg-elevated px-1.5 py-0.5 rounded border border-border-subtle shrink-0">
+                        <kbd
+                          class="text-[11px] font-mono text-text-muted bg-bg-elevated px-1.5 py-0.5 rounded border border-border-subtle shrink-0"
+                        >
                           {formatShortcut(shortcut)}
                         </kbd>
                       {/if}
@@ -344,7 +386,10 @@
     gap: 12px;
     cursor: pointer;
     font-size: 14px;
-    transition: background 0.1s, border-color 0.1s, transform 0.1s;
+    transition:
+      background 0.1s,
+      border-color 0.1s,
+      transform 0.1s;
   }
   :global(.cmd-item:hover) {
     background: color-mix(in srgb, var(--color-bg-hover) 82%, transparent);

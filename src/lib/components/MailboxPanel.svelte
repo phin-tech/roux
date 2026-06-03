@@ -143,9 +143,7 @@
         // styling. Cheap (in-memory backend); fine for inboxes with
         // dozens of events.
         const states = await Promise.all(
-          evs.map((e) =>
-            mailboxReadState(e.id, alias).catch(() => null),
-          ),
+          evs.map((e) => mailboxReadState(e.id, alias).catch(() => null)),
         );
         if (
           !visible ||
@@ -388,27 +386,31 @@
             : 'text-text-muted hover:text-text-primary'}"
           onclick={() => (view = "mailbox")}
           title="Mailbox view — events addressed to the selected alias"
-        >Inbox</button>
+          >Inbox</button
+        >
         <button
           class="rounded px-2 py-0.5 text-[11px] {view === 'firehose'
             ? 'bg-bg-hover text-text-primary'
             : 'text-text-muted hover:text-text-primary'}"
           onclick={() => (view = "firehose")}
           title="Firehose view — every event in the store, newest first"
-        >All</button>
+          >All</button
+        >
         <button
           class="rounded px-2 py-0.5 text-[11px] {view === 'subscriptions'
             ? 'bg-bg-hover text-text-primary'
             : 'text-text-muted hover:text-text-primary'}"
           onclick={() => (view = "subscriptions")}
           title="Bus subscriptions — alias receives matching topic events"
-        >Subs</button>
+          >Subs</button
+        >
       </div>
       <button
         class="cursor-pointer rounded border border-transparent bg-transparent px-2 py-0.5 text-[10px] text-text-muted hover:border-border-subtle hover:bg-bg-hover hover:text-text-primary"
         onclick={() => (composeOpen = !composeOpen)}
         title={composeOpen ? "Cancel" : "Compose"}
-      >{composeOpen ? "cancel" : "+ new"}</button>
+        >{composeOpen ? "cancel" : "+ new"}</button
+      >
       {#if onTogglePin}
         <PinButton {pinned} ontoggle={onTogglePin} />
       {/if}
@@ -491,14 +493,16 @@
         <button
           type="submit"
           class="cursor-pointer rounded border border-accent-dim bg-accent/20 px-2 py-1 text-[11px] text-text-primary hover:bg-accent/30 disabled:opacity-50"
-          disabled={posting}
-        >{posting ? "Sending…" : "Send"}</button>
+          disabled={posting}>{posting ? "Sending…" : "Send"}</button
+        >
       </div>
     </form>
   {/if}
 
   {#if view === "mailbox"}
-    <div class="flex shrink-0 items-center gap-2 border-b border-border-subtle p-1.5">
+    <div
+      class="flex shrink-0 items-center gap-2 border-b border-border-subtle p-1.5"
+    >
       {#if sortedAliases.length > 0}
         <select
           class="min-w-0 flex-1 rounded border border-border-subtle bg-bg-deep px-2 py-1 text-[11px] text-text-primary"
@@ -517,7 +521,9 @@
         </select>
         {@const selectedUnread = unreadFor(selectedAlias, selectedProjectId)}
         {#if selectedUnread > 0}
-          <span class="shrink-0 rounded bg-accent px-1.5 py-0.5 text-[9px] text-bg-deep">
+          <span
+            class="shrink-0 rounded bg-accent px-1.5 py-0.5 text-[9px] text-bg-deep"
+          >
             {selectedUnread}
           </span>
         {/if}
@@ -555,7 +561,9 @@
             >
           {/if}
           {#if isAcked}
-            <span class="text-[10px] text-green" title={state?.ackResult ?? "Acked"}
+            <span
+              class="text-[10px] text-green"
+              title={state?.ackResult ?? "Acked"}
               >✓ ack{state?.ackResult ? `: ${state.ackResult}` : ""}</span
             >
           {:else if isRead}
@@ -580,25 +588,27 @@
           <button
             class="cursor-pointer rounded border border-transparent bg-transparent px-1.5 py-0.5 text-[10px] text-text-muted hover:border-border-subtle hover:bg-bg-hover hover:text-text-primary disabled:opacity-40"
             onclick={() => handleMarkRead(e.id)}
-            disabled={isRead}
-          >mark read</button>
+            disabled={isRead}>mark read</button
+          >
           <button
             class="cursor-pointer rounded border border-transparent bg-transparent px-1.5 py-0.5 text-[10px] text-text-muted hover:border-border-subtle hover:bg-bg-hover hover:text-text-primary disabled:opacity-40"
             onclick={() => handleAck(e.id)}
-            disabled={isAcked}
-          >ack</button>
+            disabled={isAcked}>ack</button
+          >
           <button
             class="cursor-pointer rounded border border-transparent bg-transparent px-1.5 py-0.5 text-[10px] text-text-muted hover:border-border-subtle hover:bg-bg-hover hover:text-text-primary"
             onclick={() => handleDismiss(e.id)}
             title="Hide this event from your inbox view. The event itself is preserved; other recipients keep seeing it."
-          >dismiss</button>
+            >dismiss</button
+          >
           {#if recipientHasPane(e.to, e.projectId)}
             <button
               class="cursor-pointer rounded border border-accent-dim/60 bg-accent/10 px-1.5 py-0.5 text-[10px] text-accent hover:bg-accent/20 disabled:opacity-50"
               onclick={() => handleDeliver(e.id)}
               disabled={deliveringId === e.id}
               title="Type this message into the recipient's pane and ack it. Bypasses the agent's drain step — use when you want immediate delivery."
-            >{deliveringId === e.id ? "delivering…" : "deliver →"}</button>
+              >{deliveringId === e.id ? "delivering…" : "deliver →"}</button
+            >
           {/if}
         </footer>
       </article>
@@ -608,7 +618,9 @@
       {#if recipientThreads.length === 0}
         <div
           class="flex h-full items-center justify-center text-sm text-text-muted"
-        >No {unreadOnly ? "unread" : ""} mail for {selectedAlias}</div>
+        >
+          No {unreadOnly ? "unread" : ""} mail for {selectedAlias}
+        </div>
       {:else}
         {#each recipientThreads as thread (thread.id)}
           <div class="mb-2 flex flex-col gap-1">
@@ -622,7 +634,9 @@
     </div>
 
     {#if deliverError}
-      <div class="shrink-0 border-t border-red-500/40 bg-red-500/10 px-2 py-1 text-[10px] text-red-300">
+      <div
+        class="shrink-0 border-t border-red-500/40 bg-red-500/10 px-2 py-1 text-[10px] text-red-300"
+      >
         {deliverError}
       </div>
     {/if}
@@ -637,7 +651,8 @@
           class="ml-auto cursor-pointer rounded border border-transparent bg-transparent px-2 py-0.5 text-[10px] text-text-muted hover:border-border-subtle hover:bg-bg-hover hover:text-text-primary"
           onclick={handleClearRead}
           title="Hide read mail from this view. Underlying events are preserved for audit."
-        >clear read</button>
+          >clear read</button
+        >
       {/if}
     </div>
   {:else if view === "firehose"}
@@ -646,7 +661,9 @@
       {#if firehoseEvents.length === 0}
         <div
           class="flex h-full items-center justify-center text-sm text-text-muted"
-        >No events</div>
+        >
+          No events
+        </div>
       {:else}
         {#each firehoseEvents as e (e.id)}
           <article
@@ -662,8 +679,7 @@
               {#if e.from}<span class="truncate text-text-muted"
                   >from {e.from}</span
                 >{/if}
-              {#if e.to}<span class="truncate text-text-muted"
-                  >→ {e.to}</span
+              {#if e.to}<span class="truncate text-text-muted">→ {e.to}</span
                 >{/if}
               {#if e.topic}<span class="truncate text-text-muted"
                   >· {e.topic}</span
@@ -676,21 +692,25 @@
               {e.subject ?? e.body}
             </p>
             {#if e.retractedAt != null}
-              <span class="text-[9px] text-text-muted/70 italic">retracted</span>
+              <span class="text-[9px] text-text-muted/70 italic">retracted</span
+              >
             {:else if e.from === selectedAlias}
               <button
                 class="self-start cursor-pointer rounded border border-transparent bg-transparent px-1.5 py-0 text-[9px] text-text-muted hover:border-border-subtle hover:bg-bg-hover hover:text-text-primary disabled:opacity-50"
                 onclick={() => handleRetract(e)}
                 disabled={retractingId === e.id}
                 title="Unsend this event. Allowed only if no recipient has acked yet."
-              >{retractingId === e.id ? "unsending…" : "unsend"}</button>
+                >{retractingId === e.id ? "unsending…" : "unsend"}</button
+              >
             {/if}
           </article>
         {/each}
       {/if}
     </div>
     {#if retractError}
-      <div class="shrink-0 border-t border-red-500/40 bg-red-500/10 px-2 py-1 text-[10px] text-red-300">
+      <div
+        class="shrink-0 border-t border-red-500/40 bg-red-500/10 px-2 py-1 text-[10px] text-red-300"
+      >
         {retractError}
       </div>
     {/if}
@@ -723,15 +743,21 @@
         />
       </div>
       <div class="flex items-center gap-2 text-[10px] text-text-muted/80">
-        <span>* matches one segment, ** matches many. Patterns and aliases are lowercase, hyphens allowed.</span>
+        <span
+          >* matches one segment, ** matches many. Patterns and aliases are
+          lowercase, hyphens allowed.</span
+        >
         <button
           type="submit"
           class="ml-auto cursor-pointer rounded border border-accent-dim bg-accent/20 px-2 py-1 text-[11px] text-text-primary hover:bg-accent/30 disabled:opacity-50"
           disabled={subSubmitting}
-        >{subSubmitting ? "Adding…" : "Subscribe"}</button>
+          >{subSubmitting ? "Adding…" : "Subscribe"}</button
+        >
       </div>
       {#if subError}
-        <div class="rounded border border-red-500/40 bg-red-500/10 px-2 py-1 text-[10px] text-red-300">
+        <div
+          class="rounded border border-red-500/40 bg-red-500/10 px-2 py-1 text-[10px] text-red-300"
+        >
           {subError}
         </div>
       {/if}
@@ -741,19 +767,24 @@
       {#if $subscriptions.length === 0}
         <div
           class="flex h-full items-center justify-center text-center text-sm text-text-muted"
-        >No subscriptions yet. Add one above to push topic events into
-          an alias's mailbox.</div>
+        >
+          No subscriptions yet. Add one above to push topic events into an
+          alias's mailbox.
+        </div>
       {:else}
         {#each $subscriptions as s (s.id)}
           <article
             class="mb-1 flex items-center gap-2 rounded border border-border-subtle bg-bg-surface/30 px-2 py-1.5"
           >
-            <span class="rounded bg-bg-hover px-1.5 py-0.5 text-[10px] text-text-primary"
+            <span
+              class="rounded bg-bg-hover px-1.5 py-0.5 text-[10px] text-text-primary"
               >@{s.alias}</span
             >
             <code class="text-[11px] text-text-secondary">{s.pattern}</code>
             {#if s.projectId}
-              <span class="text-[9px] text-text-muted">scope: {s.projectId}</span>
+              <span class="text-[9px] text-text-muted"
+                >scope: {s.projectId}</span
+              >
             {:else}
               <span class="text-[9px] text-text-muted/70">scope: global</span>
             {/if}
@@ -765,7 +796,8 @@
               onclick={() => handleUnsubscribe(s.id)}
               disabled={deletingSubId === s.id}
               title="Remove this subscription"
-            >{deletingSubId === s.id ? "…" : "remove"}</button>
+              >{deletingSubId === s.id ? "…" : "remove"}</button
+            >
           </article>
         {/each}
       {/if}

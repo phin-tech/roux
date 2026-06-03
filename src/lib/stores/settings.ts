@@ -50,7 +50,7 @@ export async function initSettings(): Promise<RouxSettings> {
 
 export function updateSetting<K extends keyof RouxSettings>(
   key: K,
-  value: RouxSettings[K]
+  value: RouxSettings[K],
 ) {
   updateSettingsDraft((s) => ({ ...s, [key]: value }));
 }
@@ -83,7 +83,10 @@ export function setStartupTarget(target: StartupTarget): void {
       ...s,
       startupTarget: target,
       startupExternalToolId,
-      kanban: { ...kanbanSettings(s), startupSidebar: legacyKanbanStartupForTarget(target) },
+      kanban: {
+        ...kanbanSettings(s),
+        startupSidebar: legacyKanbanStartupForTarget(target),
+      },
     };
   });
 }
@@ -114,10 +117,14 @@ function nextStartupExternalToolId(current: RouxSettings): string | null {
   const tools = (current.externalTools ?? []).filter(
     (tool) => tool.enabled !== false && !(tool.requiresSession ?? false),
   );
-  return tools.some((tool) => tool.id === currentId) ? currentId : (tools[0]?.id ?? null);
+  return tools.some((tool) => tool.id === currentId)
+    ? currentId
+    : (tools[0]?.id ?? null);
 }
 
-function legacyKanbanStartupForTarget(target: StartupTarget): KanbanSettings["startupSidebar"] {
+function legacyKanbanStartupForTarget(
+  target: StartupTarget,
+): KanbanSettings["startupSidebar"] {
   switch (target) {
     case "sessionsSidebar":
       return "sessions";

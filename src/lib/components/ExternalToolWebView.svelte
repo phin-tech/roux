@@ -59,7 +59,8 @@
     launchedAtMs: number;
   }
 
-  const KEEP_ACTIVE_BACKGROUND_THROTTLING = "disabled" as BackgroundThrottlingPolicy;
+  const KEEP_ACTIVE_BACKGROUND_THROTTLING =
+    "disabled" as BackgroundThrottlingPolicy;
 
   let { run }: Props = $props();
   let host = $state<HTMLDivElement | null>(null);
@@ -127,13 +128,20 @@
   });
 
   $effect(() => {
-    if (run.status !== "ready" || run.webEmbedder !== "iframe" || !run.rendered?.url) return;
+    if (
+      run.status !== "ready" ||
+      run.webEmbedder !== "iframe" ||
+      !run.rendered?.url
+    )
+      return;
     const frame = requestAnimationFrame(() => iframe?.focus());
     return () => cancelAnimationFrame(frame);
   });
 
   $effect(() => {
-    void syncWebviewPaletteVisibility($commandSurface.open && $commandSurface.mode === "palette");
+    void syncWebviewPaletteVisibility(
+      $commandSurface.open && $commandSurface.mode === "palette",
+    );
   });
 
   $effect(() => {
@@ -163,7 +171,12 @@
   });
 
   function ensureReadyWebview(key: string): void {
-    if (run.status !== "ready" || run.webEmbedder !== "webview" || webview || creatingWebviewKey) {
+    if (
+      run.status !== "ready" ||
+      run.webEmbedder !== "webview" ||
+      webview ||
+      creatingWebviewKey
+    ) {
       return;
     }
     const snapshot = pollingSnapshot(key);
@@ -197,7 +210,9 @@
       }
 
       try {
-        const processSnapshot = await readExternalToolProcess(snapshot.run).catch(() => null);
+        const processSnapshot = await readExternalToolProcess(
+          snapshot.run,
+        ).catch(() => null);
         if (!pollIsCurrent(snapshot)) return;
         if (processSnapshot && !processSnapshot.record.running) {
           markExternalToolExited(
@@ -220,7 +235,11 @@
         }
       } catch (err) {
         if (pollIsCurrent(snapshot)) {
-          await failExternalToolRun(snapshot.runId, snapshot.runtimeId, formatError(err));
+          await failExternalToolRun(
+            snapshot.runId,
+            snapshot.runtimeId,
+            formatError(err),
+          );
         }
         return;
       }
@@ -238,13 +257,17 @@
       return;
     }
     const retained = snapshot.run.keepWebviewAlive
-      ? takeRetainedExternalToolWebview(snapshot.runId, nativeWebviewCacheKey(snapshot))
+      ? takeRetainedExternalToolWebview(
+          snapshot.runId,
+          nativeWebviewCacheKey(snapshot),
+        )
       : null;
     if (retained) {
       const current = retained.webview;
       webview = current;
       webviewLabel = retained.label;
-      const hiddenForPalette = $commandSurface.open && $commandSurface.mode === "palette";
+      const hiddenForPalette =
+        $commandSurface.open && $commandSurface.mode === "palette";
       webviewHiddenForPalette = hiddenForPalette;
       try {
         if (!hiddenForPalette) {
@@ -349,7 +372,10 @@
   }
 
   function nativeWebviewCacheKey(
-    snapshot: Pick<PollSnapshot, "runId" | "runtimeId" | "url" | "launchedAtMs">,
+    snapshot: Pick<
+      PollSnapshot,
+      "runId" | "runtimeId" | "url" | "launchedAtMs"
+    >,
   ): string {
     return `${snapshot.runId}:${snapshot.runtimeId ?? ""}:${snapshot.url}:${snapshot.launchedAtMs}`;
   }
@@ -386,7 +412,9 @@
           .catch((err) => settle(() => reject(err)));
 
         void next
-          .once<unknown>("tauri://error", (event) => settle(() => reject(event.payload)))
+          .once<unknown>("tauri://error", (event) =>
+            settle(() => reject(event.payload)),
+          )
           .then((unlisten) => {
             if (settled) unlisten();
             else unlisteners.push(unlisten);
@@ -456,7 +484,8 @@
       do {
         pendingPaletteHidden = null;
         await applyWebviewPaletteVisibility(nextHidden);
-        if (pendingPaletteHidden == null || pendingPaletteHidden === nextHidden) break;
+        if (pendingPaletteHidden == null || pendingPaletteHidden === nextHidden)
+          break;
         nextHidden = pendingPaletteHidden;
       } while (true);
     } finally {
@@ -495,7 +524,9 @@
     }
   }
 
-  function closeWebview({ closeRetained = true }: { closeRetained?: boolean } = {}): void {
+  function closeWebview({
+    closeRetained = true,
+  }: { closeRetained?: boolean } = {}): void {
     const current = webview;
     const label = webviewLabel ?? current?.label ?? null;
     webview = null;
@@ -620,10 +651,18 @@
 <div class="flex h-full min-h-0 flex-col bg-bg-base">
   <div class="relative min-h-0 flex-1">
     {#if run.status === "error"}
-      <div class="absolute inset-0 z-10 flex items-center justify-center bg-bg-deep p-6">
-        <div class="w-full max-w-2xl rounded border border-red/30 bg-red/10 p-4">
-          <div class="text-sm font-semibold text-red">Failed to launch {run.toolName}</div>
-          <div class="mt-2 whitespace-pre-wrap break-words font-mono text-[11px] text-text-secondary">
+      <div
+        class="absolute inset-0 z-10 flex items-center justify-center bg-bg-deep p-6"
+      >
+        <div
+          class="w-full max-w-2xl rounded border border-red/30 bg-red/10 p-4"
+        >
+          <div class="text-sm font-semibold text-red">
+            Failed to launch {run.toolName}
+          </div>
+          <div
+            class="mt-2 whitespace-pre-wrap break-words font-mono text-[11px] text-text-secondary"
+          >
             {run.error}
           </div>
           <button
@@ -636,7 +675,9 @@
         </div>
       </div>
     {:else if run.status === "starting" || run.status === "launching"}
-      <div class="absolute inset-0 z-10 flex items-center justify-center text-sm text-text-muted">
+      <div
+        class="absolute inset-0 z-10 flex items-center justify-center text-sm text-text-muted"
+      >
         Loading {run.rendered?.url ?? run.toolName}...
       </div>
     {/if}
@@ -654,11 +695,15 @@
 
   {#if run.logsOpen || run.status === "error"}
     <div class="h-40 shrink-0 border-t border-border-subtle bg-bg-deep">
-      <div class="flex h-7 items-center justify-between border-b border-hairline px-3 text-[11px] text-text-muted">
+      <div
+        class="flex h-7 items-center justify-between border-b border-hairline px-3 text-[11px] text-text-muted"
+      >
         <span>Process Logs</span>
         {#if outputTruncated}<span>truncated</span>{/if}
       </div>
-      <pre class="app-scrollbar h-[calc(100%-1.75rem)] overflow-auto whitespace-pre-wrap break-words p-3 font-mono text-[11px] text-text-secondary">{logs || "No output yet."}</pre>
+      <pre
+        class="app-scrollbar h-[calc(100%-1.75rem)] overflow-auto whitespace-pre-wrap break-words p-3 font-mono text-[11px] text-text-secondary">{logs ||
+          "No output yet."}</pre>
     </div>
   {/if}
 </div>

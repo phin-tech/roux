@@ -41,7 +41,9 @@ vi.mock("$lib/stores/libraryWindow", () => ({
 }));
 
 vi.mock("$lib/stores/libraryVariablePrompt", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("$lib/stores/libraryVariablePrompt")>()),
+  ...(await importOriginal<
+    typeof import("$lib/stores/libraryVariablePrompt")
+  >()),
   requestLibraryVariables: vi.fn(),
 }));
 
@@ -88,7 +90,9 @@ describe("LibraryPanel", () => {
       item: promptItem,
       body: "Release {{ feature }}",
     });
-    vi.mocked(requestLibraryVariables).mockResolvedValue({ feature: "Library sync" });
+    vi.mocked(requestLibraryVariables).mockResolvedValue({
+      feature: "Library sync",
+    });
     vi.mocked(renderLibraryPrompt).mockResolvedValue({
       itemId: promptItem.id,
       content: "Release Library sync",
@@ -110,7 +114,10 @@ describe("LibraryPanel", () => {
     await fireEvent.click(sendButton);
 
     await waitFor(() => {
-      expect(readLibraryItem).toHaveBeenCalledWith("fixture.release-note", "session-1");
+      expect(readLibraryItem).toHaveBeenCalledWith(
+        "fixture.release-note",
+        "session-1",
+      );
       expect(requestLibraryVariables).toHaveBeenCalledWith({
         title: "Draft Release Note",
         variables: promptItem.variables,
@@ -121,7 +128,10 @@ describe("LibraryPanel", () => {
         sessionId: "session-1",
         variables: { feature: "Library sync" },
       });
-      expect(writeToSession).toHaveBeenCalledWith("session-1", "Release Library sync\r");
+      expect(writeToSession).toHaveBeenCalledWith(
+        "session-1",
+        "Release Library sync\r",
+      );
     });
   });
 
@@ -153,7 +163,10 @@ describe("LibraryPanel", () => {
     });
 
     await screen.findByText("Draft Release Note");
-    const row = screen.getByText("Draft Release Note").closest("li")?.querySelector("[draggable='true']");
+    const row = screen
+      .getByText("Draft Release Note")
+      .closest("li")
+      ?.querySelector("[draggable='true']");
     expect(row).toBeTruthy();
 
     const values = new Map<string, string>();
@@ -176,7 +189,7 @@ describe("LibraryPanel", () => {
   it("sanitizes selected markdown previews before injecting html", async () => {
     vi.mocked(readLibraryItem).mockResolvedValue({
       item: promptItem,
-      body: "# Safe\n<img src=x onerror=\"alert(1)\"><script>alert(2)</script>",
+      body: '# Safe\n<img src=x onerror="alert(1)"><script>alert(2)</script>',
     });
 
     render(LibraryPanel, {
@@ -211,13 +224,17 @@ describe("LibraryPanel", () => {
     await fireEvent.click(await screen.findByText("Draft Release Note"));
     await screen.findByText("Old body");
 
-    vi.mocked(listLibraryItems).mockResolvedValueOnce([{ ...promptItem, title: "Draft Release Note" }]);
+    vi.mocked(listLibraryItems).mockResolvedValueOnce([
+      { ...promptItem, title: "Draft Release Note" },
+    ]);
     vi.mocked(readLibraryItem).mockResolvedValueOnce({
       item: promptItem,
       body: "Updated body",
     });
 
-    await fireEvent.click(screen.getByRole("button", { name: "Refresh library" }));
+    await fireEvent.click(
+      screen.getByRole("button", { name: "Refresh library" }),
+    );
 
     await screen.findByText("Updated body");
     expect(screen.queryByText("Old body")).toBeNull();
@@ -236,7 +253,9 @@ describe("LibraryPanel", () => {
       branch: "main",
     };
     vi.mocked(listLibrarySources).mockResolvedValue([source]);
-    vi.mocked(setLibrarySources).mockRejectedValue(new Error("could not save sources"));
+    vi.mocked(setLibrarySources).mockRejectedValue(
+      new Error("could not save sources"),
+    );
 
     render(LibraryPanel, {
       props: {
@@ -245,7 +264,9 @@ describe("LibraryPanel", () => {
       },
     });
 
-    await fireEvent.click(await screen.findByRole("button", { name: /Sources/ }));
+    await fireEvent.click(
+      await screen.findByRole("button", { name: /Sources/ }),
+    );
     await screen.findByText("Team Library");
     await fireEvent.click(screen.getByRole("button", { name: "Remove" }));
 
@@ -289,11 +310,18 @@ describe("LibraryPanel", () => {
     });
 
     await fireEvent.click(await screen.findByText("Draft Release Note"));
-    const tone = await waitFor(() => document.querySelector<HTMLSelectElement>("select"));
+    const tone = await waitFor(() =>
+      document.querySelector<HTMLSelectElement>("select"),
+    );
     expect(tone).toBeTruthy();
-    expect(Array.from(tone!.options).map((option) => option.value)).toEqual(["friendly", "direct"]);
+    expect(Array.from(tone!.options).map((option) => option.value)).toEqual([
+      "friendly",
+      "direct",
+    ]);
 
-    const count = document.querySelector<HTMLInputElement>("input[type='number']");
+    const count = document.querySelector<HTMLInputElement>(
+      "input[type='number']",
+    );
     expect(count?.step).toBe("1");
     await fireEvent.input(count!, { target: { value: "1.5" } });
     await fireEvent.click(screen.getByRole("button", { name: "Send" }));

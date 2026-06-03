@@ -13,7 +13,11 @@ vi.mock("../paneAtPoint", () => ({
 import { writeToSession } from "$lib/tauri";
 import { paneAtPoint } from "../paneAtPoint";
 import { handleFileDrop } from "../handleFileDrop";
-import { paneInstances, resetInstances, type PaneInstance } from "$lib/panes/instances";
+import {
+  paneInstances,
+  resetInstances,
+  type PaneInstance,
+} from "$lib/panes/instances";
 import { focusedPaneId, resetFocus } from "$lib/panes/focus";
 
 function makePane(id: string, ptyId: string | null): PaneInstance {
@@ -21,9 +25,7 @@ function makePane(id: string, ptyId: string | null): PaneInstance {
     id,
     type: "shell",
     ptyId: ptyId ?? "",
-    terminalState: ptyId
-      ? { kind: "attached", ptyId }
-      : { kind: "empty" },
+    terminalState: ptyId ? { kind: "attached", ptyId } : { kind: "empty" },
     unlisteners: [],
   };
 }
@@ -95,7 +97,10 @@ describe("handleFileDrop", () => {
   });
 
   it("falls back to the focused pane when the pane under cursor has no attached PTY", async () => {
-    setPanes([makePane("pane-empty", null), makePane("pane-focus", "pty-focus")]);
+    setPanes([
+      makePane("pane-empty", null),
+      makePane("pane-focus", "pty-focus"),
+    ]);
     focusedPaneId.set("pane-focus");
     vi.mocked(paneAtPoint).mockReturnValue("pane-empty");
 

@@ -38,11 +38,15 @@ interface CloseOpts {
   preserveWorkItemBoundSession?: boolean;
 }
 
-export async function closeSession(session: Session, opts?: CloseOpts): Promise<boolean> {
+export async function closeSession(
+  session: Session,
+  opts?: CloseOpts,
+): Promise<boolean> {
   const s = get(settings);
   const force = opts?.force ?? false;
   const action: CloseAction = opts?.action ?? "archive";
-  const preserveWorkItemBoundSession = opts?.preserveWorkItemBoundSession ?? true;
+  const preserveWorkItemBoundSession =
+    opts?.preserveWorkItemBoundSession ?? true;
 
   // Thinking/generating confirm — preserved from the old flow. Always the
   // same one-confirm prompt; no secondary destructive confirm stacked on
@@ -76,7 +80,11 @@ export async function closeSession(session: Session, opts?: CloseOpts): Promise<
   const isWorkItemBoundSession = get(workItems).some(
     (item) => item.sessionId === session.id,
   );
-  if (action === "archive" && preserveWorkItemBoundSession && isWorkItemBoundSession) {
+  if (
+    action === "archive" &&
+    preserveWorkItemBoundSession &&
+    isWorkItemBoundSession
+  ) {
     detachSessionPanes(session.id);
     removeSession(session.id);
     return true;
@@ -102,7 +110,8 @@ export async function closeSession(session: Session, opts?: CloseOpts): Promise<
   let worktreeStillOnDisk = session.isWorktree;
   if (session.isWorktree) {
     const mode =
-      s.worktreeCleanupOnClose ?? (s.cleanupWorktreesOnClose ? "always" : "prompt");
+      s.worktreeCleanupOnClose ??
+      (s.cleanupWorktreesOnClose ? "always" : "prompt");
     if (mode === "always") {
       try {
         await removeWorktree(session.repoRoot, session.worktreePath);

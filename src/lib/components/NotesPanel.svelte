@@ -37,7 +37,7 @@
   let scope = $state<NotesScope>("session");
 
   const viewMode = $derived<NotesViewMode>(
-    sessionId ? ($notesUiState.viewModeBySession[sessionId] ?? "read") : "read"
+    sessionId ? ($notesUiState.viewModeBySession[sessionId] ?? "read") : "read",
   );
 
   const projectEnabled = $derived(!!projectId);
@@ -92,13 +92,15 @@
         {projectName}
         {repoRoot}
         {scope}
-        viewMode={viewMode}
+        {viewMode}
         onScopeChange={handleScopeChange}
         onViewModeChange={handleViewModeChange}
       />
     </div>
   {:else}
-    <div class="flex flex-1 items-center justify-center px-6 text-center text-sm text-text-secondary">
+    <div
+      class="flex flex-1 items-center justify-center px-6 text-center text-sm text-text-secondary"
+    >
       Open a session to use notes.
     </div>
   {/if}

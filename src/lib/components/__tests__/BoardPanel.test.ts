@@ -107,23 +107,39 @@ function workItem(overrides: Partial<WorkItem> = {}): WorkItem {
 
 function seedColumns(items: WorkItem[]) {
   const map = new Map<string, WorkItem[]>();
-  for (const col of ["todo", "ready", "doing", "review", "done"]) map.set(col, []);
+  for (const col of ["todo", "ready", "doing", "review", "done"])
+    map.set(col, []);
   for (const item of items) map.get(item.status)?.push(item);
-  (itemsByColumn as ReturnType<typeof import("svelte/store").writable>).set(map);
+  (itemsByColumn as ReturnType<typeof import("svelte/store").writable>).set(
+    map,
+  );
 }
 
 describe("BoardPanel", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     seedColumns([]);
-    (activePlanningRunByItem as ReturnType<typeof import("svelte/store").writable>).set(new Map());
-    (runsByItem as ReturnType<typeof import("svelte/store").writable>).set(new Map());
+    (
+      activePlanningRunByItem as ReturnType<
+        typeof import("svelte/store").writable
+      >
+    ).set(new Map());
+    (runsByItem as ReturnType<typeof import("svelte/store").writable>).set(
+      new Map(),
+    );
   });
 
   it("Start delegates to daemon start without issuing a second move", async () => {
-    seedColumns([
-      workItem({ id: "wi-1", status: "todo", projectId: "proj-1", sessionId: null }),
-    ].map((item) => ({ ...item, agentProfile: "claude" } as WorkItem)));
+    seedColumns(
+      [
+        workItem({
+          id: "wi-1",
+          status: "todo",
+          projectId: "proj-1",
+          sessionId: null,
+        }),
+      ].map((item) => ({ ...item, agentProfile: "claude" }) as WorkItem),
+    );
     render(BoardPanel, { visible: true, onclose: vi.fn() });
 
     await fireEvent.click(screen.getByLabelText("Start work item"));
@@ -144,9 +160,16 @@ describe("BoardPanel", () => {
     vi.mocked(startWorkItem).mockRejectedValueOnce(
       new Error("project not found"),
     );
-    seedColumns([
-      workItem({ id: "wi-1", status: "todo", projectId: "proj-1", sessionId: null }),
-    ].map((item) => ({ ...item, agentProfile: "claude" } as WorkItem)));
+    seedColumns(
+      [
+        workItem({
+          id: "wi-1",
+          status: "todo",
+          projectId: "proj-1",
+          sessionId: null,
+        }),
+      ].map((item) => ({ ...item, agentProfile: "claude" }) as WorkItem),
+    );
     render(BoardPanel, { visible: true, onclose: vi.fn() });
 
     await fireEvent.click(screen.getByLabelText("Start work item"));
@@ -161,7 +184,12 @@ describe("BoardPanel", () => {
   });
 
   it("opens the session prompt when Start is clicked on an unprojected card", async () => {
-    const item = workItem({ id: "wi-1", title: "Wire task start", projectId: null, sessionId: null });
+    const item = workItem({
+      id: "wi-1",
+      title: "Wire task start",
+      projectId: null,
+      sessionId: null,
+    });
     seedColumns([item]);
     render(BoardPanel, { visible: true, onclose: vi.fn() });
 
@@ -202,7 +230,11 @@ describe("BoardPanel", () => {
     await fireEvent.click(screen.getByText("Accept done"));
 
     expect(acceptWorkItemReview).toHaveBeenCalledWith("wi-review");
-    expect(moveWorkItem).not.toHaveBeenCalledWith("wi-review", "done", expect.any(Number));
+    expect(moveWorkItem).not.toHaveBeenCalledWith(
+      "wi-review",
+      "done",
+      expect.any(Number),
+    );
   });
 
   it("opens a delete dialog from the right-click menu and deletes only the card", async () => {
@@ -214,16 +246,24 @@ describe("BoardPanel", () => {
       clientX: 64,
       clientY: 96,
     });
-    await fireEvent.click(screen.getByRole("menuitem", { name: "Delete card" }));
+    await fireEvent.click(
+      screen.getByRole("menuitem", { name: "Delete card" }),
+    );
     expect(screen.getByRole("dialog", { name: "Delete card" })).toBeTruthy();
 
-    await fireEvent.click(screen.getByRole("button", { name: "Delete card only" }));
+    await fireEvent.click(
+      screen.getByRole("button", { name: "Delete card only" }),
+    );
 
     expect(deleteWorkItemWithMode).toHaveBeenCalledWith(item, "card-only");
   });
 
   it("can delete a card and stop its linked terminal from the delete dialog", async () => {
-    const item = workItem({ id: "wi-delete", title: "Stop me", sessionId: "sess-1" });
+    const item = workItem({
+      id: "wi-delete",
+      title: "Stop me",
+      sessionId: "sess-1",
+    });
     seedColumns([item]);
     render(BoardPanel, { visible: true, onclose: vi.fn() });
 
@@ -231,9 +271,16 @@ describe("BoardPanel", () => {
       clientX: 64,
       clientY: 96,
     });
-    await fireEvent.click(screen.getByRole("menuitem", { name: "Delete card" }));
-    await fireEvent.click(screen.getByRole("button", { name: "Delete card and stop terminal" }));
+    await fireEvent.click(
+      screen.getByRole("menuitem", { name: "Delete card" }),
+    );
+    await fireEvent.click(
+      screen.getByRole("button", { name: "Delete card and stop terminal" }),
+    );
 
-    expect(deleteWorkItemWithMode).toHaveBeenCalledWith(item, "card-and-stop-session");
+    expect(deleteWorkItemWithMode).toHaveBeenCalledWith(
+      item,
+      "card-and-stop-session",
+    );
   });
 });

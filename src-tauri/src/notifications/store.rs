@@ -153,9 +153,8 @@ impl NotificationStore {
     /// `update_by_dedup_key` semantics — a dedup key is a handle to a
     /// live notification, not to user-acknowledged history.
     pub fn remove_by_dedup_key(&mut self, key: &str) -> Option<String> {
-        let pos = self.entries.iter().rposition(|n| {
-            !n.read && n.dedup_key.as_deref() == Some(key)
-        })?;
+        let pos =
+            self.entries.iter().rposition(|n| !n.read && n.dedup_key.as_deref() == Some(key))?;
         self.entries.remove(pos).map(|n| n.id)
     }
 

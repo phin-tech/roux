@@ -158,7 +158,8 @@ export const DEFAULT_SETTINGS: RouxSettings = {
       name: "Difit",
       enabled: true,
       surface: "web",
-      commandTemplate: "difit . --host 127.0.0.1 --port {{ port }} --no-open --keep-alive",
+      commandTemplate:
+        "difit . --host 127.0.0.1 --port {{ port }} --no-open --keep-alive",
       cwdTemplate: "{{ session.worktree_path }}",
       requiresSession: true,
       urlTemplate: "http://127.0.0.1:{{ port }}",

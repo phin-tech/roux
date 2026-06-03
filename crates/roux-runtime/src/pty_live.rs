@@ -5,9 +5,7 @@ use std::time::Instant;
 use portable_pty::MasterPty;
 use thiserror::Error;
 
-use crate::pty_output::{
-    PtyOutputDelivery, PtyOutputDeliveryState,
-};
+use crate::pty_output::{PtyOutputDelivery, PtyOutputDeliveryState};
 use crate::pty_ready_gate::ShellReadyGate;
 use crate::pty_registry::PtySessionRegistryEntry;
 use crate::pty_session::PtySessionMetadata;
@@ -36,11 +34,7 @@ impl<Sink, Logger> PtyOutputState<Sink, Logger> {
     }
 
     fn new_with_logger(logger: Arc<Mutex<Logger>>) -> Self {
-        Self {
-            channel: None,
-            delivery: PtyOutputDeliveryState::default(),
-            logger: Some(logger),
-        }
+        Self { channel: None, delivery: PtyOutputDeliveryState::default(), logger: Some(logger) }
     }
 }
 
@@ -215,10 +209,7 @@ impl portable_pty::ChildKiller for WaitedChild {
     }
 
     fn clone_killer(&self) -> Box<dyn portable_pty::ChildKiller + Send + Sync> {
-        Box::new(Self {
-            killer: Arc::clone(&self.killer),
-            exit_state: self.exit_state.clone(),
-        })
+        Box::new(Self { killer: Arc::clone(&self.killer), exit_state: self.exit_state.clone() })
     }
 }
 

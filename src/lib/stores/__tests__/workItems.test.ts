@@ -88,7 +88,9 @@ function makeRun(overrides: Partial<WorkItemRun> = {}): WorkItemRun {
   };
 }
 
-function makeDecision(overrides: Partial<WorkItemDecision> = {}): WorkItemDecision {
+function makeDecision(
+  overrides: Partial<WorkItemDecision> = {},
+): WorkItemDecision {
   return {
     id: "dec-1",
     runId: "run-1",
@@ -145,7 +147,12 @@ describe("workItems store", () => {
     it("updates status and sortOrder", () => {
       const item = makeItem({ status: "todo", sortOrder: 0 });
       workItems.set([item]);
-      applyWorkItemEvent({ type: "moved", id: item.id, status: "doing", sortOrder: 1 });
+      applyWorkItemEvent({
+        type: "moved",
+        id: item.id,
+        status: "doing",
+        sortOrder: 1,
+      });
       const result = get(workItems)[0];
       expect(result.status).toBe("doing");
       expect(result.sortOrder).toBe(1);
@@ -168,7 +175,11 @@ describe("workItems store", () => {
     it("binds sessionId to item", () => {
       const item = makeItem({ sessionId: null });
       workItems.set([item]);
-      applyWorkItemEvent({ type: "sessionBound", id: item.id, sessionId: "sess-1" });
+      applyWorkItemEvent({
+        type: "sessionBound",
+        id: item.id,
+        sessionId: "sess-1",
+      });
       expect(get(workItems)[0].sessionId).toBe("sess-1");
     });
   });
@@ -204,10 +215,11 @@ describe("workItems store", () => {
       ]);
 
       expect(get(latestRunByItem).get("wi-1")?.id).toBe("run-1");
-      expect(get(runsByItem).get("wi-1")?.map((run) => run.id)).toEqual([
-        "run-1",
-        "run-2",
-      ]);
+      expect(
+        get(runsByItem)
+          .get("wi-1")
+          ?.map((run) => run.id),
+      ).toEqual(["run-1", "run-2"]);
     });
 
     it("updates a run from daemon runUpdated events", () => {
@@ -248,7 +260,9 @@ describe("workItems store", () => {
     });
 
     it("removes a resolved decision from pending card state", () => {
-      workItemRuns.set([makeRun({ id: "run-1", workItemId: "wi-1", status: "blocked" })]);
+      workItemRuns.set([
+        makeRun({ id: "run-1", workItemId: "wi-1", status: "blocked" }),
+      ]);
       workItemDecisions.set([makeDecision()]);
 
       applyWorkItemEvent({
@@ -265,7 +279,9 @@ describe("workItems store", () => {
     });
 
     it("removes a timed out decision from pending card state", () => {
-      workItemRuns.set([makeRun({ id: "run-1", workItemId: "wi-1", status: "blocked" })]);
+      workItemRuns.set([
+        makeRun({ id: "run-1", workItemId: "wi-1", status: "blocked" }),
+      ]);
       workItemDecisions.set([makeDecision({ timeoutAt: 3 })]);
 
       applyWorkItemEvent({
@@ -284,7 +300,9 @@ describe("workItems store", () => {
     });
 
     it("keeps a run blocked while another decision on the run is pending", () => {
-      workItemRuns.set([makeRun({ id: "run-1", workItemId: "wi-1", status: "blocked" })]);
+      workItemRuns.set([
+        makeRun({ id: "run-1", workItemId: "wi-1", status: "blocked" }),
+      ]);
       workItemDecisions.set([
         makeDecision({ id: "dec-1" }),
         makeDecision({ id: "dec-2", question: "Choose again?" }),
@@ -305,7 +323,9 @@ describe("workItems store", () => {
     });
 
     it("does not revive a terminal run when its decision resolves", () => {
-      workItemRuns.set([makeRun({ id: "run-1", workItemId: "wi-1", status: "done" })]);
+      workItemRuns.set([
+        makeRun({ id: "run-1", workItemId: "wi-1", status: "done" }),
+      ]);
       workItemDecisions.set([makeDecision()]);
 
       applyWorkItemEvent({
@@ -322,7 +342,9 @@ describe("workItems store", () => {
     });
 
     it("does not revive a review run when its decision resolves", () => {
-      workItemRuns.set([makeRun({ id: "run-1", workItemId: "wi-1", status: "review" })]);
+      workItemRuns.set([
+        makeRun({ id: "run-1", workItemId: "wi-1", status: "review" }),
+      ]);
       workItemDecisions.set([makeDecision()]);
 
       applyWorkItemEvent({
@@ -400,7 +422,11 @@ describe("workItems store", () => {
 
   describe("acceptWorkItemReview", () => {
     it("stores the daemon-accepted card and run", async () => {
-      const item = makeItem({ id: "wi-1", status: "review", sessionId: "sess-1" });
+      const item = makeItem({
+        id: "wi-1",
+        status: "review",
+        sessionId: "sess-1",
+      });
       workItems.set([item]);
       workItemRuns.set([makeRun({ id: "run-1", status: "review" })]);
       vi.mocked(tauriWorkItemReviewAccept).mockResolvedValueOnce({
@@ -408,7 +434,9 @@ describe("workItems store", () => {
         run: makeRun({ id: "run-1", status: "done", endedAt: 5 }),
       });
 
-      await expect(acceptWorkItemReview("wi-1")).resolves.toMatchObject({ status: "done" });
+      await expect(acceptWorkItemReview("wi-1")).resolves.toMatchObject({
+        status: "done",
+      });
 
       expect(tauriWorkItemReviewAccept).toHaveBeenCalledWith("wi-1");
       expect(get(workItems)[0].status).toBe("done");

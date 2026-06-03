@@ -115,7 +115,8 @@
   }
 
   const hasMissingInstallable = $derived(
-    status?.items.some((i) => i.installable && i.status !== "installed") ?? false,
+    status?.items.some((i) => i.installable && i.status !== "installed") ??
+      false,
   );
 
   $effect(() => {
@@ -130,7 +131,9 @@
     {#if (status?.notices?.length ?? 0) > 0}
       <div class="flex flex-col gap-2">
         {#each status?.notices ?? [] as notice}
-          <div class="rounded border border-amber/30 bg-amber/10 px-3 py-2 text-xs leading-relaxed text-text-primary">
+          <div
+            class="rounded border border-amber/30 bg-amber/10 px-3 py-2 text-xs leading-relaxed text-text-primary"
+          >
             {notice}
           </div>
         {/each}
@@ -140,16 +143,24 @@
       {#if loading}
         <div class="py-4 text-sm text-text-muted">Checking…</div>
       {:else if !status}
-        <div class="py-4 text-sm text-red-400">{error || "Failed to load status"}</div>
+        <div class="py-4 text-sm text-red-400">
+          {error || "Failed to load status"}
+        </div>
       {:else}
         {#each status.items as item (item.id)}
           <div class="flex items-center justify-between gap-3 py-3">
             <div class="min-w-0 flex-1">
-              <div class="text-sm font-medium text-text-primary">{item.label}</div>
+              <div class="text-sm font-medium text-text-primary">
+                {item.label}
+              </div>
               <div class="flex items-center gap-2 text-xs">
-                <span class={statusColor(item.status)}>{statusLabel(item.status)}</span>
+                <span class={statusColor(item.status)}
+                  >{statusLabel(item.status)}</span
+                >
                 {#if item.detail}
-                  <span class="truncate text-text-muted" title={item.detail}>— {item.detail}</span>
+                  <span class="truncate text-text-muted" title={item.detail}
+                    >— {item.detail}</span
+                  >
                 {/if}
               </div>
             </div>
@@ -204,7 +215,9 @@
         >
           <span class="text-xl">&#9095;</span>
         </div>
-        <h2 class="mb-1 text-base font-semibold tracking-tight text-text-primary">
+        <h2
+          class="mb-1 text-base font-semibold tracking-tight text-text-primary"
+        >
           Welcome to Roux
         </h2>
         <p class="text-xs text-text-muted">
@@ -216,7 +229,9 @@
         {@render rows()}
       </div>
 
-      <div class="flex items-center justify-end gap-2 border-t border-hairline px-6 py-4">
+      <div
+        class="flex items-center justify-end gap-2 border-t border-hairline px-6 py-4"
+      >
         <button
           class="ui-btn-ghost rounded-lg px-4 py-2 text-sm"
           onclick={() => ondone?.()}

@@ -91,9 +91,7 @@ pub fn validate_topic(topic: &str) -> Result<String, PatternError> {
 }
 
 fn is_literal_segment(s: &str) -> bool {
-    !s.is_empty()
-        && s.chars()
-            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+    !s.is_empty() && s.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
 }
 
 /// True when `topic` matches `pattern`. Both are dot-separated. `pattern`
@@ -298,18 +296,9 @@ mod tests {
 
     #[test]
     fn validate_pattern_rejects_empty_segments() {
-        assert_eq!(
-            validate_topic_pattern("repo-a..build"),
-            Err(PatternError::EmptySegment),
-        );
-        assert_eq!(
-            validate_topic_pattern(".repo-a"),
-            Err(PatternError::EmptySegment),
-        );
-        assert_eq!(
-            validate_topic_pattern("repo-a."),
-            Err(PatternError::EmptySegment),
-        );
+        assert_eq!(validate_topic_pattern("repo-a..build"), Err(PatternError::EmptySegment),);
+        assert_eq!(validate_topic_pattern(".repo-a"), Err(PatternError::EmptySegment),);
+        assert_eq!(validate_topic_pattern("repo-a."), Err(PatternError::EmptySegment),);
     }
 
     #[test]
@@ -320,10 +309,7 @@ mod tests {
             validate_topic_pattern("repo-a.foo*"),
             Err(PatternError::InvalidSegment(_)),
         ));
-        assert!(matches!(
-            validate_topic_pattern("**foo"),
-            Err(PatternError::InvalidSegment(_)),
-        ));
+        assert!(matches!(validate_topic_pattern("**foo"), Err(PatternError::InvalidSegment(_)),));
     }
 
     #[test]
@@ -346,14 +332,8 @@ mod tests {
 
     #[test]
     fn validate_topic_rejects_wildcards() {
-        assert!(matches!(
-            validate_topic("repo-a.*"),
-            Err(PatternError::InvalidSegment(_)),
-        ));
-        assert!(matches!(
-            validate_topic("**"),
-            Err(PatternError::InvalidSegment(_)),
-        ));
+        assert!(matches!(validate_topic("repo-a.*"), Err(PatternError::InvalidSegment(_)),));
+        assert!(matches!(validate_topic("**"), Err(PatternError::InvalidSegment(_)),));
     }
 
     #[test]

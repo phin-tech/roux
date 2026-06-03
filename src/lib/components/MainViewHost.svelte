@@ -1,5 +1,9 @@
 <script lang="ts">
-  import { mainViewRoute, closeMainView, openMainView } from "$lib/stores/mainView";
+  import {
+    mainViewRoute,
+    closeMainView,
+    openMainView,
+  } from "$lib/stores/mainView";
   import { sessionDisplayName, sessionList } from "$lib/stores/sessions";
   import {
     closeExternalToolRun,
@@ -24,7 +28,9 @@
       : null,
   );
   let externalToolRun = $derived(
-    route?.kind === "externalTool" ? ($externalToolRuns.get(route.runId) ?? null) : null,
+    route?.kind === "externalTool"
+      ? ($externalToolRuns.get(route.runId) ?? null)
+      : null,
   );
   let title = $derived.by(() => {
     if (!route) return "";
@@ -53,7 +59,9 @@
         if (!externalToolRun) return "Run no longer available";
         return [
           externalToolRun.surface,
-          externalToolRun.sessionId ? `session ${externalToolRun.sessionId.slice(0, 8)}` : "global",
+          externalToolRun.sessionId
+            ? `session ${externalToolRun.sessionId.slice(0, 8)}`
+            : "global",
           externalToolRun.status,
         ].join(" · ");
       case "preferences":
@@ -117,8 +125,14 @@
       {#if externalToolRun.surface === "web"}
         <button
           type="button"
-          class="flex h-6 w-6 items-center justify-center rounded text-text-muted transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 {externalToolRun.logsOpen ? 'bg-bg-hover text-text-primary' : ''}"
-          onclick={() => setExternalToolLogsOpen(externalToolRun!.id, !externalToolRun!.logsOpen)}
+          class="flex h-6 w-6 items-center justify-center rounded text-text-muted transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 {externalToolRun.logsOpen
+            ? 'bg-bg-hover text-text-primary'
+            : ''}"
+          onclick={() =>
+            setExternalToolLogsOpen(
+              externalToolRun!.id,
+              !externalToolRun!.logsOpen,
+            )}
           aria-label={`${externalToolRun.logsOpen ? "Hide" : "Show"} ${externalToolRun.toolName} logs`}
           title="Logs"
         >

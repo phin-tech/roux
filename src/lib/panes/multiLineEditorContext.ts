@@ -54,7 +54,11 @@ export function buildMultiLineEditorContextChips(
     },
   ];
 
-  const cwd = opts.pane?.workingDir || opts.session?.worktreePath || opts.session?.repoRoot || "";
+  const cwd =
+    opts.pane?.workingDir ||
+    opts.session?.worktreePath ||
+    opts.session?.repoRoot ||
+    "";
   if (cwd) {
     chips.push({
       kind: "cwd",
@@ -83,7 +87,9 @@ export function buildMultiLineEditorContextChips(
             opts.metadata.ahead > 0 ? `${opts.metadata.ahead} ahead` : null,
             opts.metadata.behind > 0 ? `${opts.metadata.behind} behind` : null,
             opts.metadata.locked ? "Locked" : null,
-          ].filter(Boolean).join(", "),
+          ]
+            .filter(Boolean)
+            .join(", "),
           tone: opts.metadata.dirty || opts.metadata.locked ? "warn" : "muted",
         });
       }

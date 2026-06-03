@@ -19,10 +19,26 @@ function command(overrides: Partial<Command>): Command {
 
 describe("main-view key gate", () => {
   it("blocks pane commands by category or id prefix", () => {
-    expect(commandBlockedByMainView(command({ id: "pane.split-right", category: "Panes" }))).toBe(true);
-    expect(commandBlockedByMainView(command({ id: "pane.open-doc", category: "Documents" }))).toBe(true);
-    expect(commandBlockedByMainView(command({ id: "session.next", category: "Sessions" }))).toBe(false);
-    expect(commandBlockedByMainView(command({ id: "ui.toggle-board", category: "App" }))).toBe(false);
+    expect(
+      commandBlockedByMainView(
+        command({ id: "pane.split-right", category: "Panes" }),
+      ),
+    ).toBe(true);
+    expect(
+      commandBlockedByMainView(
+        command({ id: "pane.open-doc", category: "Documents" }),
+      ),
+    ).toBe(true);
+    expect(
+      commandBlockedByMainView(
+        command({ id: "session.next", category: "Sessions" }),
+      ),
+    ).toBe(false);
+    expect(
+      commandBlockedByMainView(
+        command({ id: "ui.toggle-board", category: "App" }),
+      ),
+    ).toBe(false);
   });
 
   it("detects editable targets that should own Escape", () => {
@@ -64,7 +80,9 @@ describe("main-view key gate", () => {
     root.appendChild(child);
 
     expect(eventTargetIsInsideMainView(child)).toBe(true);
-    expect(eventTargetIsInsideMainView(document.createElement("button"))).toBe(false);
+    expect(eventTargetIsInsideMainView(document.createElement("button"))).toBe(
+      false,
+    );
   });
 
   it("lets non-editable main-view focus continue to app shortcut handling", () => {

@@ -4,7 +4,9 @@ use crate::aliases::ProjectFilter;
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum AddError {
-    #[error("subscription already exists for alias '{alias}' pattern '{pattern}' in this project scope")]
+    #[error(
+        "subscription already exists for alias '{alias}' pattern '{pattern}' in this project scope"
+    )]
     Duplicate { alias: String, pattern: String },
 }
 
@@ -103,11 +105,7 @@ impl SubscriptionStore {
     /// Patterns subscribed to by `alias` in scopes compatible with
     /// `event_project_id`. Hot path for `EventStore::list_for_recipient`
     /// and `recipient_owns` — keep cheap (string clones only).
-    pub fn patterns_for_alias(
-        &self,
-        alias: &str,
-        event_project_id: Option<&str>,
-    ) -> Vec<String> {
+    pub fn patterns_for_alias(&self, alias: &str, event_project_id: Option<&str>) -> Vec<String> {
         self.entries
             .iter()
             .filter(|s| s.alias == alias)
@@ -179,9 +177,7 @@ mod tests {
     fn add_allows_same_pattern_in_different_project_scopes() {
         let mut store = SubscriptionStore::new();
         store.add(sub("s1", "auditor", "*.completed", None)).unwrap();
-        store
-            .add(sub("s2", "auditor", "*.completed", Some("p1")))
-            .unwrap();
+        store.add(sub("s2", "auditor", "*.completed", Some("p1"))).unwrap();
         assert_eq!(store.len(), 2);
     }
 

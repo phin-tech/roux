@@ -36,12 +36,7 @@ pub enum PtyMetadataCommand {
     SetUnreadOutput { pty_id: String, value: bool },
     SetBellPending { pty_id: String, value: bool },
     SetName { pty_id: String, name: Option<String> },
-    MarkExitedIfGenerationMatches {
-        pty_id: String,
-        generation: u64,
-        code: Option<i32>,
-        at_ms: u64,
-    },
+    MarkExitedIfGenerationMatches { pty_id: String, generation: u64, code: Option<i32>, at_ms: u64 },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -104,12 +99,7 @@ pub fn apply_metadata_command_at(
             metadata.set_name(name.as_deref());
             PtyMetadataCommandResult::Applied
         }
-        PtyMetadataCommand::MarkExitedIfGenerationMatches {
-            generation,
-            code,
-            at_ms,
-            ..
-        } => {
+        PtyMetadataCommand::MarkExitedIfGenerationMatches { generation, code, at_ms, .. } => {
             if *generation != session_generation {
                 return PtyMetadataCommandResult::StaleGeneration;
             }
@@ -186,14 +176,12 @@ pub fn plan_lifecycle_metadata_command(
                 at_ms: now_ms,
             }
         }
-        PtyLifecycleEvent::OutputWhileDetached { pty_id } => PtyMetadataCommand::SetUnreadOutput {
-            pty_id: pty_id.clone(),
-            value: true,
-        },
-        PtyLifecycleEvent::BellWhileDetached { pty_id } => PtyMetadataCommand::SetBellPending {
-            pty_id: pty_id.clone(),
-            value: true,
-        },
+        PtyLifecycleEvent::OutputWhileDetached { pty_id } => {
+            PtyMetadataCommand::SetUnreadOutput { pty_id: pty_id.clone(), value: true }
+        }
+        PtyLifecycleEvent::BellWhileDetached { pty_id } => {
+            PtyMetadataCommand::SetBellPending { pty_id: pty_id.clone(), value: true }
+        }
     }
 }
 
@@ -202,14 +190,7 @@ pub fn plan_lifecycle_effects(
     metadata_result: PtyMetadataCommandResult,
     pty_info: Option<&PtyInfo>,
 ) -> PtyLifecycleEffects {
-    let PtyLifecycleEvent::Exited {
-        pty_id,
-        session_id,
-        code,
-        reason,
-        generation,
-    } = event
-    else {
+    let PtyLifecycleEvent::Exited { pty_id, session_id, code, reason, generation } = event else {
         return PtyLifecycleEffects::default();
     };
 
@@ -309,8 +290,7 @@ mod tests {
         })
         .unwrap();
 
-        tx.send(PtyLifecycleEvent::OutputWhileDetached { pty_id: "pty-2".to_string() })
-            .unwrap();
+        tx.send(PtyLifecycleEvent::OutputWhileDetached { pty_id: "pty-2".to_string() }).unwrap();
 
         let evt1 = rx.recv().unwrap();
         assert!(matches!(evt1, PtyLifecycleEvent::Exited { pty_id, .. } if pty_id == "pty-1"));
@@ -326,11 +306,9 @@ mod tests {
         let (tx, rx) = channel::<PtyLifecycleEvent>();
         let tx2 = tx.clone();
 
-        tx.send(PtyLifecycleEvent::BellWhileDetached { pty_id: "pty-1".to_string() })
-            .unwrap();
+        tx.send(PtyLifecycleEvent::BellWhileDetached { pty_id: "pty-1".to_string() }).unwrap();
 
-        tx2.send(PtyLifecycleEvent::BellWhileDetached { pty_id: "pty-2".to_string() })
-            .unwrap();
+        tx2.send(PtyLifecycleEvent::BellWhileDetached { pty_id: "pty-2".to_string() }).unwrap();
 
         drop(tx);
         drop(tx2);
@@ -390,10 +368,7 @@ mod tests {
             apply_metadata_command_at(
                 &mut metadata,
                 7,
-                &PtyMetadataCommand::SetUnreadOutput {
-                    pty_id: "pty-a".to_string(),
-                    value: true,
-                },
+                &PtyMetadataCommand::SetUnreadOutput { pty_id: "pty-a".to_string(), value: true },
                 44,
             ),
             PtyMetadataCommandResult::Applied
@@ -403,10 +378,7 @@ mod tests {
         apply_metadata_command_at(
             &mut metadata,
             7,
-            &PtyMetadataCommand::SetBellPending {
-                pty_id: "pty-a".to_string(),
-                value: true,
-            },
+            &PtyMetadataCommand::SetBellPending { pty_id: "pty-a".to_string(), value: true },
             44,
         );
         assert!(metadata.bell_pending);
@@ -488,10 +460,7 @@ mod tests {
         );
 
         assert_eq!(result, PtyMetadataCommandResult::Applied);
-        assert!(matches!(
-            metadata.status,
-            PtyStatus::Exited { code: Some(2), at_ms: 99 }
-        ));
+        assert!(matches!(metadata.status, PtyStatus::Exited { code: Some(2), at_ms: 99 }));
         assert_eq!(
             metadata.exit_info,
             Some(PtyExitInfo { code: Some(2), at_ms: 99, was_attached: true })
@@ -544,10 +513,7 @@ mod tests {
                 &PtyLifecycleEvent::OutputWhileDetached { pty_id: "pty-b".to_string() },
                 123,
             ),
-            PtyMetadataCommand::SetUnreadOutput {
-                pty_id: "pty-b".to_string(),
-                value: true,
-            }
+            PtyMetadataCommand::SetUnreadOutput { pty_id: "pty-b".to_string(), value: true }
         );
 
         assert_eq!(
@@ -555,10 +521,7 @@ mod tests {
                 &PtyLifecycleEvent::BellWhileDetached { pty_id: "pty-c".to_string() },
                 123,
             ),
-            PtyMetadataCommand::SetBellPending {
-                pty_id: "pty-c".to_string(),
-                value: true,
-            }
+            PtyMetadataCommand::SetBellPending { pty_id: "pty-c".to_string(), value: true }
         );
     }
 

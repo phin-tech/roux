@@ -46,7 +46,12 @@ describe("collectPaneTree", () => {
     const sid = "s2";
     createPane({ id: "a", type: "shell", ptyId: "pty-a" });
     createPane({ id: "b", type: "shell", ptyId: "pty-b" });
-    createPane({ id: "c", type: "command", ptyId: "pty-c", command: "npm test" });
+    createPane({
+      id: "c",
+      type: "command",
+      ptyId: "pty-c",
+      command: "npm test",
+    });
     initSessionLayout(sid, "a");
 
     // Split a → horizontal [a, b]

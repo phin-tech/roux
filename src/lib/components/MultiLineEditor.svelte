@@ -16,7 +16,11 @@
   import { setLogicalFocus, focusedPaneId } from "$lib/panes/focus";
   import { get } from "svelte/store";
   import { getInstance, getAttachedPtyId } from "$lib/panes/instances";
-  import { hasPrimaryModifier, formatShortcut, isMacPlatform } from "$lib/platform";
+  import {
+    hasPrimaryModifier,
+    formatShortcut,
+    isMacPlatform,
+  } from "$lib/platform";
   import { settings } from "$lib/stores/settings";
   import { activeSession } from "$lib/stores/sessions";
   import { worktreeMetadataFor } from "$lib/stores/worktreeMetadata";
@@ -33,7 +37,10 @@
     type TextEditState,
   } from "$lib/panes/textEditing";
   import { suggestCommandCorrection } from "$lib/panes/commandCorrections";
-  import { buildMultiLineEditorContextChips, type MultiLineContextChipTone } from "$lib/panes/multiLineEditorContext";
+  import {
+    buildMultiLineEditorContextChips,
+    type MultiLineContextChipTone,
+  } from "$lib/panes/multiLineEditorContext";
 
   interface Props {
     paneId: string;
@@ -76,23 +83,31 @@
   // Track the pane that should regain logical focus when the editor closes,
   // even if the store state races with a pane change.
   let disabledPaneId: string | null = null;
-  const isVisible = $derived($multiLineEditor.open && $multiLineEditor.paneId === hostPaneId);
+  const isVisible = $derived(
+    $multiLineEditor.open && $multiLineEditor.paneId === hostPaneId,
+  );
   const commandCorrection = $derived(
-    $multiLineEditor.target === "shell" ? suggestCommandCorrection(draftText) : null,
+    $multiLineEditor.target === "shell"
+      ? suggestCommandCorrection(draftText)
+      : null,
   );
   const editorPane = $derived($paneInstances.get(hostPaneId) ?? null);
   const sessionMetadata = $derived(
-    $activeSession?.worktreePath ? worktreeMetadataFor($activeSession.worktreePath) : null,
+    $activeSession?.worktreePath
+      ? worktreeMetadataFor($activeSession.worktreePath)
+      : null,
   );
   const wtMeta = $derived(sessionMetadata ? $sessionMetadata : null);
   const profileName = $derived(profileLabel(editorPane));
-  const contextChips = $derived(buildMultiLineEditorContextChips({
-    pane: editorPane,
-    session: $activeSession,
-    target: $multiLineEditor.target,
-    metadata: wtMeta,
-    profileName,
-  }));
+  const contextChips = $derived(
+    buildMultiLineEditorContextChips({
+      pane: editorPane,
+      session: $activeSession,
+      target: $multiLineEditor.target,
+      metadata: wtMeta,
+      profileName,
+    }),
+  );
 
   $effect(() => {
     const state = $multiLineEditor;
@@ -121,7 +136,11 @@
     }
 
     window.addEventListener(MULTI_LINE_EDITOR_FOCUS_EVENT, handleFocusRequest);
-    return () => window.removeEventListener(MULTI_LINE_EDITOR_FOCUS_EVENT, handleFocusRequest);
+    return () =>
+      window.removeEventListener(
+        MULTI_LINE_EDITOR_FOCUS_EVENT,
+        handleFocusRequest,
+      );
   });
 
   function focusEditor(): void {
@@ -270,7 +289,9 @@
     await waitForTerminalInputTurn();
     controller.input("\r");
     controller.scrollToBottom();
-    requestAnimationFrame(() => getTerminalController(paneId)?.scrollToBottom());
+    requestAnimationFrame(() =>
+      getTerminalController(paneId)?.scrollToBottom(),
+    );
     focusEditor();
     return true;
   }
@@ -317,7 +338,12 @@
       return;
     }
 
-    if (e.key === "Enter" && hasPrimaryModifier(e) && !e.shiftKey && !e.altKey) {
+    if (
+      e.key === "Enter" &&
+      hasPrimaryModifier(e) &&
+      !e.shiftKey &&
+      !e.altKey
+    ) {
       e.preventDefault();
       e.stopPropagation();
       void submitInsert();
@@ -329,12 +355,23 @@
     const key = e.key.toLowerCase();
     const hasSelection = state.selectionStart !== state.selectionEnd;
 
-    if (e.key === "Enter" && !hasPrimaryModifier(e) && (e.shiftKey || e.ctrlKey || e.altKey)) {
+    if (
+      e.key === "Enter" &&
+      !hasPrimaryModifier(e) &&
+      (e.shiftKey || e.ctrlKey || e.altKey)
+    ) {
       handleTextEdit(e, insertAtSelection(state, "\n"));
       return;
     }
 
-    if (e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && key === "c" && !hasSelection) {
+    if (
+      e.ctrlKey &&
+      !e.metaKey &&
+      !e.altKey &&
+      !e.shiftKey &&
+      key === "c" &&
+      !hasSelection
+    ) {
       handleTextEdit(e, clearBuffer(state));
       return;
     }
@@ -351,7 +388,13 @@
       return;
     }
 
-    if (e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey && e.key === "Backspace") {
+    if (
+      e.altKey &&
+      !e.metaKey &&
+      !e.ctrlKey &&
+      !e.shiftKey &&
+      e.key === "Backspace"
+    ) {
       handleTextEdit(e, deleteWordLeft(state));
       return;
     }
@@ -366,12 +409,22 @@
       return;
     }
 
-    if (hasPrimaryModifier(e) && !e.shiftKey && !e.altKey && e.key === "Backspace") {
+    if (
+      hasPrimaryModifier(e) &&
+      !e.shiftKey &&
+      !e.altKey &&
+      e.key === "Backspace"
+    ) {
       handleTextEdit(e, deleteToLineStart(state));
       return;
     }
 
-    if (hasPrimaryModifier(e) && !e.shiftKey && !e.altKey && e.key === "Delete") {
+    if (
+      hasPrimaryModifier(e) &&
+      !e.shiftKey &&
+      !e.altKey &&
+      e.key === "Delete"
+    ) {
       handleTextEdit(e, deleteToLineEnd(state));
       return;
     }
@@ -387,7 +440,9 @@
       onkeydown={handleKeyDown}
     >
       <!-- Header -->
-      <div class="flex h-7 select-none items-center justify-between gap-2 border-b border-border-subtle bg-bg-surface/25 px-2">
+      <div
+        class="flex h-7 select-none items-center justify-between gap-2 border-b border-border-subtle bg-bg-surface/25 px-2"
+      >
         <div class="flex min-w-0 items-center gap-1.5">
           <button
             type="button"
@@ -426,7 +481,9 @@
               onclick={() => void applyCurrentCorrection()}
             >
               <span class="shrink-0 text-text-muted">Fix</span>
-              <span class="min-w-0 truncate font-mono">{commandCorrection.label}</span>
+              <span class="min-w-0 truncate font-mono"
+                >{commandCorrection.label}</span
+              >
             </button>
           {/if}
         </div>
@@ -439,10 +496,15 @@
               <Keyboard class="h-3 w-3" />
             </Tooltip.Trigger>
             <Tooltip.Portal>
-              <Tooltip.Content sideOffset={6} class="mle-tooltip mle-tooltip-grid">
+              <Tooltip.Content
+                sideOffset={6}
+                class="mle-tooltip mle-tooltip-grid"
+              >
                 <div class="mle-tooltip-title">Shortcuts</div>
                 {#each modalShortcuts as entry (entry.shortcut)}
-                  <kbd class="mle-tooltip-kbd">{formatShortcut(entry.shortcut)}</kbd>
+                  <kbd class="mle-tooltip-kbd"
+                    >{formatShortcut(entry.shortcut)}</kbd
+                  >
                   <span>{entry.action}</span>
                 {/each}
               </Tooltip.Content>

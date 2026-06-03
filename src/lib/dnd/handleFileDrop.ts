@@ -21,8 +21,7 @@ export async function handleFileDrop(event: FileDropEvent): Promise<void> {
   if (event.paths.length === 0) return;
 
   const hitPaneId = paneAtPoint(event.position.x, event.position.y);
-  const ptyId =
-    ptyForPaneId(hitPaneId) ?? ptyForPaneId(get(focusedPaneId));
+  const ptyId = ptyForPaneId(hitPaneId) ?? ptyForPaneId(get(focusedPaneId));
   if (!ptyId) return;
 
   await writeToSession(ptyId, formatPathsForTerminal(event.paths));

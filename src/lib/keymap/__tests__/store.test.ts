@@ -44,10 +44,7 @@ function emptyParsed(): ParsedKeymap {
   };
 }
 
-function tree(
-  name: string,
-  hud: HudMode | null = null,
-): KeymapTree {
+function tree(name: string, hud: HudMode | null = null): KeymapTree {
   return { name, sticky: false, passthrough: false, hud, binds: [] };
 }
 
@@ -141,10 +138,7 @@ describe("HUD modes", () => {
     seedKeymap({
       ...emptyParsed(),
       hudDefault: { kind: "always" },
-      trees: [
-        tree("a", { kind: "delayed", ms: 500 }),
-        tree("b"),
-      ],
+      trees: [tree("a", { kind: "delayed", ms: 500 }), tree("b")],
     });
     enterTree("a");
     expect(get(hudVisible)).toBe(false);

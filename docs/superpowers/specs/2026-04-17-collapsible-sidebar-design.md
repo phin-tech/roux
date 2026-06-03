@@ -38,12 +38,14 @@ Today `settings.sidebarCollapsed` fully hides the left sidebar. That makes the s
 ### Components
 
 **New — `src/lib/components/CollapsedSidebar.svelte`**
+
 - Renders the rail container (44px fixed width, full height, matching `SessionTabs` background).
 - Top: `>` toggle button that calls `updateSetting("sidebarCollapsed", false)`.
 - Below: vertically stacked `SessionDot` per session, iterating `getGroupedSessions(...)` in the same order used by `SessionTabs`.
 - A 1px divider between groups.
 
 **New — `src/lib/components/SessionDot.svelte`**
+
 - ~28px circle, first letter of the session name as content.
 - Props: `session`, `active: boolean`, `onselect: () => void`.
 - Active: filled background + accent ring.
@@ -52,15 +54,18 @@ Today `settings.sidebarCollapsed` fully hides the left sidebar. That makes the s
 - `title` attribute = session name.
 
 **Modified — `src/lib/components/Layout.svelte`**
+
 - Replace the current `{#if !$settings.sidebarCollapsed}` hide branch with a conditional that renders either `SessionTabs` (expanded) or `CollapsedSidebar` (rail).
 - Render the drag handle only in expanded mode.
 - Apply `sidebarWidth` only in expanded mode; use fixed 44px in rail mode.
 
 **Modified — `src/lib/components/SessionTabs.svelte`**
+
 - Add a `<` toggle button in the header row next to "Sessions" that calls `updateSetting("sidebarCollapsed", true)`.
 - No other behavior changes.
 
 **Modified — `src/lib/commands/ui.ts`**
+
 - No change needed. Existing `ui.toggle-sidebar` flips the same boolean, which now semantically swaps between expanded and rail.
 
 ### State

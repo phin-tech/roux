@@ -1,13 +1,24 @@
 import { get } from "svelte/store";
 import { registry } from "./registry";
 import { queries } from "$lib/queries";
-import { addSession, setActiveSession, triggerRename, setSessionProject, sessionState } from "$lib/stores/sessions";
+import {
+  addSession,
+  setActiveSession,
+  triggerRename,
+  setSessionProject,
+  sessionState,
+} from "$lib/stores/sessions";
 import { projects } from "$lib/stores/projects";
 import { settings } from "$lib/stores/settings";
 import { defaultAgentProfileId } from "$lib/panes/defaultAgent";
 import { getVisualSessionOrder } from "$lib/sessions/order";
 import { initSessionWithProfile } from "$lib/panes/actions";
-import { createSessionShell, openInEditor, listProjects, setSessionProject as tauriSetSessionProject } from "$lib/tauri";
+import {
+  createSessionShell,
+  openInEditor,
+  listProjects,
+  setSessionProject as tauriSetSessionProject,
+} from "$lib/tauri";
 import type { SpawnProfileRef } from "$lib/panes/profiles";
 import { closeSession } from "$lib/sessions/close";
 import { reconnectSession } from "$lib/sessions/reconnect";
@@ -32,10 +43,11 @@ async function createWorktreeClaudeSession(
   const profileRef: SpawnProfileRef = { kind: "registered", id: profileId };
   const profile = resolveProfileRef(profileRef);
 
-  const newSession = await createSessionShell(
-    repo, name, null, branch,
-    { profile: profileId, base, fetchFirst },
-  );
+  const newSession = await createSessionShell(repo, name, null, branch, {
+    profile: profileId,
+    base,
+    fetchFirst,
+  });
   addSession(newSession);
   const mainPaneId = initSessionWithProfile(newSession.id, profileRef);
   const { connectPaneTerminal } = await import("$lib/panes/terminals");
@@ -62,7 +74,13 @@ function registerWorktreeChild(opts: {
       const repo = session.repoRoot;
       const name = repo.split("/").pop() + "-" + branch;
       const base = opts.resolveBase();
-      await createWorktreeClaudeSession(repo, name, branch.trim(), base, opts.fetchFirst);
+      await createWorktreeClaudeSession(
+        repo,
+        name,
+        branch.trim(),
+        base,
+        opts.fetchFirst,
+      );
     },
   });
 }
@@ -123,7 +141,12 @@ export function registerSessionCommands() {
     getItems: async () => {
       const projectList = await listProjects();
       const session = queries.activeSession();
-      const items: { id: string; label: string; description?: string; action: () => void }[] = [];
+      const items: {
+        id: string;
+        label: string;
+        description?: string;
+        action: () => void;
+      }[] = [];
       if (session?.projectId) {
         items.push({
           id: "__remove__",

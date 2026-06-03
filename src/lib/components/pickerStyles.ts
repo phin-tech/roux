@@ -25,7 +25,10 @@ export const pickerSideButtonClass =
   "cursor-pointer rounded-md border border-border-subtle bg-bg-surface px-2 py-1 text-[11px] text-text-secondary hover:bg-bg-hover hover:text-text-primary disabled:opacity-50";
 
 /** True when focus is moving to something outside `el` (or focus is lost with no next target). */
-export function focusLeavingElement(el: HTMLElement, related: EventTarget | null): boolean {
+export function focusLeavingElement(
+  el: HTMLElement,
+  related: EventTarget | null,
+): boolean {
   if (related == null) return true;
   if (!(related instanceof Node)) return true;
   return !el.contains(related);

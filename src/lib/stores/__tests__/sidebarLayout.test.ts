@@ -107,7 +107,11 @@ describe("sidebarLayout", () => {
   it("rejects non-finite splitRatio (Infinity) and falls back to default", async () => {
     window.localStorage.setItem(
       "roux.sidebar.dock",
-      JSON.stringify({ width: 400, splitRatio: Number.POSITIVE_INFINITY, railSide: "right" }),
+      JSON.stringify({
+        width: 400,
+        splitRatio: Number.POSITIVE_INFINITY,
+        railSide: "right",
+      }),
     );
     const { sidebarLayout } = await freshModule();
     expect(Number.isFinite(get(sidebarLayout).splitRatio)).toBe(true);
@@ -148,5 +152,4 @@ describe("sidebarLayout", () => {
     const { sidebarLayout } = await freshModule();
     expect(get(sidebarLayout).hidden).toBe(true);
   });
-
 });

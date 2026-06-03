@@ -7,7 +7,9 @@ vi.mock("$lib/tauri", () => ({
   writeToSession: vi.fn().mockResolvedValue(undefined),
   onSessionExit: vi.fn().mockResolvedValue(() => {}),
   attachPtyOutput: vi.fn().mockResolvedValue(undefined),
-  createPtyOutputChannel: vi.fn((callback: (data: Uint8Array) => void) => ({ callback })),
+  createPtyOutputChannel: vi.fn((callback: (data: Uint8Array) => void) => ({
+    callback,
+  })),
   discoverTasks: vi.fn().mockResolvedValue([]),
   loadTaskOverrides: vi.fn().mockResolvedValue({}),
   saveTaskOverrides: vi.fn().mockResolvedValue(undefined),
@@ -16,7 +18,12 @@ vi.mock("$lib/tauri", () => ({
 }));
 
 import { runTask, expandTask } from "../runner";
-import { spawnTask, onSessionExit, attachPtyOutput, createPtyOutputChannel } from "$lib/tauri";
+import {
+  spawnTask,
+  onSessionExit,
+  attachPtyOutput,
+  createPtyOutputChannel,
+} from "$lib/tauri";
 import { taskRuns } from "$lib/stores/tasks";
 import { sessionLayouts, resetLayouts } from "$lib/panes/layout";
 import { resetFocus } from "$lib/panes/focus";

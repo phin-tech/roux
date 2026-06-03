@@ -1,4 +1,8 @@
-import { commands, type UpdateChannel, type UpdaterError as BackendError } from "$lib/bindings";
+import {
+  commands,
+  type UpdateChannel,
+  type UpdaterError as BackendError,
+} from "$lib/bindings";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { relaunch } from "@tauri-apps/plugin-process";
 
@@ -41,7 +45,8 @@ function classifyBackendError(err: BackendError): UpdaterError {
 function classifyTransportError(err: unknown): UpdaterError {
   const message = err instanceof Error ? err.message : String(err ?? "");
   if (/signature/i.test(message)) return "signature-invalid";
-  if (/network|connect|dns|request|http|timeout/i.test(message)) return "network";
+  if (/network|connect|dns|request|http|timeout/i.test(message))
+    return "network";
   return "unknown";
 }
 
@@ -102,29 +107,32 @@ export async function installUpdate(
   let unlisten: UnlistenFn | null = null;
 
   try {
-    unlisten = await listen<ProgressPayload>("updater://progress", ({ payload }) => {
-      switch (payload.phase) {
-        case "started": {
-          contentLength = payload.contentLength ?? null;
-          downloaded = 0;
-          onProgress(contentLength && contentLength > 0 ? 0 : null);
-          break;
-        }
-        case "progress": {
-          downloaded += payload.chunkLength;
-          if (contentLength && contentLength > 0) {
-            onProgress(downloaded / contentLength);
-          } else {
-            onProgress(null);
+    unlisten = await listen<ProgressPayload>(
+      "updater://progress",
+      ({ payload }) => {
+        switch (payload.phase) {
+          case "started": {
+            contentLength = payload.contentLength ?? null;
+            downloaded = 0;
+            onProgress(contentLength && contentLength > 0 ? 0 : null);
+            break;
           }
-          break;
+          case "progress": {
+            downloaded += payload.chunkLength;
+            if (contentLength && contentLength > 0) {
+              onProgress(downloaded / contentLength);
+            } else {
+              onProgress(null);
+            }
+            break;
+          }
+          case "finished": {
+            onProgress(1);
+            break;
+          }
         }
-        case "finished": {
-          onProgress(1);
-          break;
-        }
-      }
-    });
+      },
+    );
 
     const result = await commands.installUpdate(opts.channel);
     if (result.status === "error") {

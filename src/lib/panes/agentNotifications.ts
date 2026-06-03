@@ -97,9 +97,9 @@ async function fireCompletionNotification(
 
   const sessionId = findSessionForPane(paneId);
   const paneIsVisible =
-    sessionId !== null
-    && get(activeSessionId) === sessionId
-    && get(focusedPaneId) === paneId;
+    sessionId !== null &&
+    get(activeSessionId) === sessionId &&
+    get(focusedPaneId) === paneId;
   if (paneIsVisible) return;
 
   const instance = get(paneInstances).get(paneId);
@@ -134,7 +134,9 @@ async function fireCompletionNotification(
       ],
       dedupKey,
     });
-    log(`agentNotifications: fired generating→idle notification for pane ${paneId}`);
+    log(
+      `agentNotifications: fired generating→idle notification for pane ${paneId}`,
+    );
   } catch (e) {
     logError("agentNotifications: notificationsPush failed", e);
   }

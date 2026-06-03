@@ -10,23 +10,14 @@
 use std::sync::{mpsc, Arc};
 use std::thread;
 
-pub use roux_runtime::pty_lifecycle::{ExitReason, PtyLifecycleEvent, PtyMetadataCommand};
 use roux_runtime::pty_lifecycle as runtime_lifecycle;
-use roux_runtime::pty_lifecycle::{
-    PtyLifecycleEffects, PtyMetadataCommandResult, PtyTaskHookKind,
-};
+pub use roux_runtime::pty_lifecycle::{ExitReason, PtyLifecycleEvent, PtyMetadataCommand};
+use roux_runtime::pty_lifecycle::{PtyLifecycleEffects, PtyMetadataCommandResult, PtyTaskHookKind};
 
 pub enum PtyLifecycleCommand {
-    Register {
-        pty_id: String,
-        session: Box<crate::pty::PtySession>,
-    },
-    Kill {
-        pty_id: String,
-    },
-    KillSessionPtys {
-        session_id: String,
-    },
+    Register { pty_id: String, session: Box<crate::pty::PtySession> },
+    Kill { pty_id: String },
+    KillSessionPtys { session_id: String },
     Metadata(PtyMetadataCommand),
 }
 
@@ -42,10 +33,9 @@ impl std::fmt::Debug for PtyLifecycleCommand {
                 f.debug_struct("Register").field("pty_id", pty_id).finish()
             }
             Self::Kill { pty_id } => f.debug_struct("Kill").field("pty_id", pty_id).finish(),
-            Self::KillSessionPtys { session_id } => f
-                .debug_struct("KillSessionPtys")
-                .field("session_id", session_id)
-                .finish(),
+            Self::KillSessionPtys { session_id } => {
+                f.debug_struct("KillSessionPtys").field("session_id", session_id).finish()
+            }
             Self::Metadata(command) => f.debug_tuple("Metadata").field(command).finish(),
         }
     }
@@ -251,7 +241,8 @@ mod tests {
         // Should receive both events
         let mut ids = vec![];
         while let Ok(evt) = rx.recv() {
-            if let PtyLifecycleMessage::Event(PtyLifecycleEvent::BellWhileDetached { pty_id }) = evt {
+            if let PtyLifecycleMessage::Event(PtyLifecycleEvent::BellWhileDetached { pty_id }) = evt
+            {
                 ids.push(pty_id);
             }
         }

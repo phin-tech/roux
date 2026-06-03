@@ -1,6 +1,9 @@
 import { render, screen, waitFor } from "@testing-library/svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { externalToolRuns, type ExternalToolRun } from "$lib/stores/externalTools";
+import {
+  externalToolRuns,
+  type ExternalToolRun,
+} from "$lib/stores/externalTools";
 
 const tauriMock = vi.hoisted(() => ({
   daemonProcessKill: vi.fn().mockResolvedValue(undefined),
@@ -118,7 +121,9 @@ describe("ExternalToolMainView", () => {
     const { unmount } = render(ExternalToolMainView, { runId: run.id });
 
     expect(screen.getByText("Process Logs")).toBeTruthy();
-    await waitFor(() => expect(screen.getByText(/startup failed/)).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByText(/startup failed/)).toBeTruthy(),
+    );
 
     unmount();
   });

@@ -1,0 +1,16 @@
+# Build output & dependencies
+node_modules/
+dist/
+site/
+target/
+src-tauri/target/
+
+# Local tooling artifacts (untracked)
+.codebase-memory/
+
+# Generated files
+src/lib/bindings.ts
+
+# Lockfiles
+package-lock.json
+Cargo.lock

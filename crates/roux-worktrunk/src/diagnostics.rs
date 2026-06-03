@@ -105,8 +105,7 @@ pub fn list_logs(
     env: &[(String, OsString)],
 ) -> Result<WtLogs, WtError> {
     let mut cmd = Command::new(&wt.path);
-    cmd.current_dir(repo_path)
-        .args(["config", "state", "logs", "--format=json"]);
+    cmd.current_dir(repo_path).args(["config", "state", "logs", "--format=json"]);
     for (k, v) in env {
         cmd.env(k, v);
     }
@@ -127,8 +126,7 @@ pub fn show_config(
     env: &[(String, OsString)],
 ) -> Result<WtConfigShow, WtError> {
     let mut cmd = Command::new(&wt.path);
-    cmd.current_dir(repo_path)
-        .args(["config", "show", "--format=json"]);
+    cmd.current_dir(repo_path).args(["config", "show", "--format=json"]);
     for (k, v) in env {
         cmd.env(k, v);
     }
@@ -139,8 +137,7 @@ pub fn show_config(
             stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
         });
     }
-    serde_json::from_slice::<WtConfigShow>(&out.stdout)
-        .map_err(|source| WtError::Parse { source })
+    serde_json::from_slice::<WtConfigShow>(&out.stdout).map_err(|source| WtError::Parse { source })
 }
 
 /// Read a log file's contents, capped at `max_bytes` to protect the UI
@@ -152,11 +149,8 @@ pub fn read_log_file(path: &Path, max_bytes: u64) -> std::io::Result<Option<Stri
             let mut content = std::fs::read(path)?;
             if (content.len() as u64) > max_bytes {
                 content.truncate(max_bytes as usize);
-                let suffix = format!(
-                    "\n\n… truncated at {} bytes ({} total)\n",
-                    max_bytes,
-                    meta.len()
-                );
+                let suffix =
+                    format!("\n\n… truncated at {} bytes ({} total)\n", max_bytes, meta.len());
                 content.extend_from_slice(suffix.as_bytes());
             }
             Ok(Some(String::from_utf8_lossy(&content).into_owned()))

@@ -290,9 +290,17 @@ async function buildFileMenu(ctx: BuildContext): Promise<Submenu> {
     await Submenu.new({
       text: "New Worktree",
       items: [
-        await cmdItem(ctx, "session.new-worktree-from-current", "From Current Branch"),
+        await cmdItem(
+          ctx,
+          "session.new-worktree-from-current",
+          "From Current Branch",
+        ),
         await cmdItem(ctx, "session.new-worktree-from-main", "From Main"),
-        await cmdItem(ctx, "session.new-worktree-from-origin-main", "From origin/main"),
+        await cmdItem(
+          ctx,
+          "session.new-worktree-from-origin-main",
+          "From origin/main",
+        ),
       ],
     }),
     await sep(),
@@ -379,7 +387,9 @@ async function buildViewMenu(ctx: BuildContext): Promise<Submenu> {
 async function buildSessionMenu(ctx: BuildContext): Promise<Submenu> {
   const focusItems: MenuItem[] = [];
   for (let i = 1; i <= 10; i++) {
-    focusItems.push(await cmdItem(ctx, `session.focus-index-${i}`, `Session ${i}`));
+    focusItems.push(
+      await cmdItem(ctx, `session.focus-index-${i}`, `Session ${i}`),
+    );
   }
   return Submenu.new({
     text: "Session",
@@ -424,8 +434,16 @@ async function buildPaneMenu(ctx: BuildContext): Promise<Submenu> {
     await cmdItem(ctx, "pane.split-claude", "Claude"),
     await cmdItem(ctx, "pane.split-codex", "Codex"),
     await sep(),
-    await cmdItem(ctx, "pane.split-horizontal-with-profile", "Split Right with Profile\u2026"),
-    await cmdItem(ctx, "pane.split-vertical-with-profile", "Split Down with Profile\u2026"),
+    await cmdItem(
+      ctx,
+      "pane.split-horizontal-with-profile",
+      "Split Right with Profile\u2026",
+    ),
+    await cmdItem(
+      ctx,
+      "pane.split-vertical-with-profile",
+      "Split Down with Profile\u2026",
+    ),
   ];
 
   return Submenu.new({
@@ -433,7 +451,10 @@ async function buildPaneMenu(ctx: BuildContext): Promise<Submenu> {
     items: [
       await cmdItem(ctx, "pane.split-horizontal", "Split Right"),
       await cmdItem(ctx, "pane.split-vertical", "Split Down"),
-      await Submenu.new({ text: "Split with Profile", items: splitWithProfileItems }),
+      await Submenu.new({
+        text: "Split with Profile",
+        items: splitWithProfileItems,
+      }),
       await sep(),
       await Submenu.new({ text: "Focus", items: focusItems }),
       await Submenu.new({ text: "Move", items: moveItems }),
@@ -471,7 +492,11 @@ async function buildToolsMenu(ctx: BuildContext): Promise<Submenu> {
       await sep(),
       await cmdItem(ctx, "keymap.reload", "Reload Keymap"),
       await cmdItem(ctx, "keymap.open-in-editor", "Open Keybindings in Editor"),
-      await cmdItem(ctx, "keymap.reset-to-default", "Reset Keybindings to Default…"),
+      await cmdItem(
+        ctx,
+        "keymap.reset-to-default",
+        "Reset Keybindings to Default…",
+      ),
     ],
   });
 }
@@ -489,7 +514,10 @@ async function buildHelpMenu(ctx: BuildContext): Promise<Submenu> {
     await cmdItem(ctx, "help.report-issue", "Report an Issue"),
   ];
   if (!ctx.isMac) {
-    items.push(await sep(), await PredefinedMenuItem.new({ item: { About: null } }));
+    items.push(
+      await sep(),
+      await PredefinedMenuItem.new({ item: { About: null } }),
+    );
   }
   return Submenu.new({ text: "Help", items });
 }
@@ -525,7 +553,10 @@ async function cmdItem(
   return item;
 }
 
-async function focusPaneItem(ctx: BuildContext, slot: number): Promise<MenuItem> {
+async function focusPaneItem(
+  ctx: BuildContext,
+  slot: number,
+): Promise<MenuItem> {
   const commandId = `pane.focus-index-${slot}`;
   const accelerator = toTauriAccelerator(shortcutFor(commandId)) ?? undefined;
   const resolveText = () => paneFocusLabel(slot);

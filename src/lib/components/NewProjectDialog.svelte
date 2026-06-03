@@ -15,7 +15,10 @@
   import { sessionState } from "$lib/stores/sessions";
   import { listGitReposInRoots } from "$lib/tauri";
   import RepoAutoComplete from "./RepoAutoComplete.svelte";
-  import { buildQuickPickOptions, type RepoQuickPickOption } from "$lib/repos/quickPick";
+  import {
+    buildQuickPickOptions,
+    type RepoQuickPickOption,
+  } from "$lib/repos/quickPick";
   import {
     buildProjectPromptPreviewContext,
     renderProjectPromptTemplate,
@@ -122,7 +125,9 @@
   });
 
   async function loadDiscoveredRepos() {
-    const roots = ($settings.repoRoots ?? []).map((r) => r.trim()).filter(Boolean);
+    const roots = ($settings.repoRoots ?? [])
+      .map((r) => r.trim())
+      .filter(Boolean);
     if (roots.length === 0) {
       discoveredRepos = [];
       return;
@@ -144,7 +149,9 @@
   // Quick-pick options shown in the autocomplete: only repos discovered
   // under settings roots that aren't already attached to this project.
   let repoOptions = $derived<RepoQuickPickOption[]>(
-    buildQuickPickOptions(discoveredRepos.filter((r) => !repoRoots.includes(r))),
+    buildQuickPickOptions(
+      discoveredRepos.filter((r) => !repoRoots.includes(r)),
+    ),
   );
   let hasConfiguredRoots = $derived(($settings.repoRoots ?? []).length > 0);
 
@@ -158,17 +165,25 @@
   const isEdit = $derived(project !== null);
   const profiles: SpawnProfile[] = $derived($profileList);
   const defaultProfileId = $derived(
-    profiles.some((profile) => profile.id === effectiveDefaultAgentProfileId($settings))
+    profiles.some(
+      (profile) => profile.id === effectiveDefaultAgentProfileId($settings),
+    )
       ? effectiveDefaultAgentProfileId($settings)
       : (profiles[0]?.id ?? "claude"),
   );
-  const effectiveDefaultProfile = $derived(defaultProfileChoice || defaultProfileId);
+  const effectiveDefaultProfile = $derived(
+    defaultProfileChoice || defaultProfileId,
+  );
   const selectedPreviewBlueprint = $derived(
-    blueprints.find((bp) => bp.id === promptPreviewBlueprintId) ?? blueprints[0] ?? null,
+    blueprints.find((bp) => bp.id === promptPreviewBlueprintId) ??
+      blueprints[0] ??
+      null,
   );
 
   $effect(() => {
-    const hasSelection = blueprints.some((bp) => bp.id === promptPreviewBlueprintId);
+    const hasSelection = blueprints.some(
+      (bp) => bp.id === promptPreviewBlueprintId,
+    );
     if (!hasSelection) promptPreviewBlueprintId = blueprints[0]?.id ?? "";
   });
 
@@ -216,11 +231,14 @@
 
   // Live preview of the names Generate will produce, so the user can see
   // their template applied before clicking the button.
-  let previewNames = $derived(reposWithoutBlueprint.map((r) => renderTemplate(nameTemplate, r)));
+  let previewNames = $derived(
+    reposWithoutBlueprint.map((r) => renderTemplate(nameTemplate, r)),
+  );
 
   function generateFromRepos() {
     if (reposWithoutBlueprint.length === 0) {
-      error = "Every repo already has a session — remove one first to regenerate.";
+      error =
+        "Every repo already has a session — remove one first to regenerate.";
       return;
     }
     const branch = defaultBranch.trim();
@@ -269,12 +287,14 @@
   async function addContextPath() {
     const trimmed = newPathDraft.trim();
     if (trimmed) {
-      if (!contextPaths.includes(trimmed)) contextPaths = [...contextPaths, trimmed];
+      if (!contextPaths.includes(trimmed))
+        contextPaths = [...contextPaths, trimmed];
       newPathDraft = "";
       return;
     }
     const picked = await pickFile();
-    if (picked && !contextPaths.includes(picked)) contextPaths = [...contextPaths, picked];
+    if (picked && !contextPaths.includes(picked))
+      contextPaths = [...contextPaths, picked];
   }
 
   function removeContextPath(p: string) {
@@ -308,7 +328,9 @@
   }
 
   function updateBlueprint(id: string, patch: Partial<SessionBlueprint>) {
-    blueprints = blueprints.map((bp) => (bp.id === id ? { ...bp, ...patch } : bp));
+    blueprints = blueprints.map((bp) =>
+      bp.id === id ? { ...bp, ...patch } : bp,
+    );
   }
 
   async function previewProjectPrompt() {
@@ -442,8 +464,7 @@
 
   const sectionLabel =
     "text-[11px] font-semibold uppercase tracking-wider text-text-muted";
-  const fieldLabel =
-    "text-[10px] uppercase tracking-wider text-text-muted";
+  const fieldLabel = "text-[10px] uppercase tracking-wider text-text-muted";
   const inputClass =
     "w-full rounded-md border border-border-subtle bg-bg-deep px-3 py-2 text-[13px] text-text-primary outline-none focus:border-accent-dim";
   const smallInput =
@@ -472,13 +493,13 @@
           {isEdit ? "Edit project" : "New project"}
         </h2>
         <p class="mt-1 text-[12px] text-text-muted">
-          Tag sessions across one or more repos. Set defaults once, then generate or hand-tune.
+          Tag sessions across one or more repos. Set defaults once, then
+          generate or hand-tune.
         </p>
       </div>
 
       <div class="app-scrollbar flex-1 overflow-y-auto px-6 py-5">
         <div class="flex flex-col gap-6">
-
           <!-- Name -->
           <div class="flex flex-col gap-1.5">
             <label for="np-name" class={sectionLabel}>Name</label>
@@ -498,7 +519,10 @@
               <ul class="flex flex-col gap-1">
                 {#each repoRoots as root (root)}
                   <li class={chipRow}>
-                    <span class="truncate font-mono text-[12px] text-text-primary">{root}</span>
+                    <span
+                      class="truncate font-mono text-[12px] text-text-primary"
+                      >{root}</span
+                    >
                     <button
                       class="text-[11px] text-text-muted opacity-0 transition-opacity hover:text-red group-hover:opacity-100"
                       onclick={() => removeRepoRoot(root)}
@@ -527,25 +551,42 @@
                 Configure repo roots in Settings to enable the quick-pick.
               </p>
             {:else if !discoveryLoading && discoveredRepos.length === 0}
-              <p class="text-[11px] text-text-muted">No git repositories found under configured roots.</p>
+              <p class="text-[11px] text-text-muted">
+                No git repositories found under configured roots.
+              </p>
             {/if}
           </div>
 
           <!-- Default session config + Generate -->
-          <div class="flex flex-col gap-3 rounded-md border border-border-subtle bg-bg-deep/40 p-3">
+          <div
+            class="flex flex-col gap-3 rounded-md border border-border-subtle bg-bg-deep/40 p-3"
+          >
             <div class="flex items-baseline justify-between gap-3">
               <span class={sectionLabel}>Defaults</span>
               <span class="text-[10px] text-text-muted">
                 tokens:
-                <code class="rounded bg-bg-deep px-1 py-0.5 font-mono text-[10px]">{`{{repo}}`}</code>
-                <code class="ml-1 rounded bg-bg-deep px-1 py-0.5 font-mono text-[10px]">{`{{branch}}`}</code>
-                <code class="ml-1 rounded bg-bg-deep px-1 py-0.5 font-mono text-[10px]">{`{{project}}`}</code>
+                <code
+                  class="rounded bg-bg-deep px-1 py-0.5 font-mono text-[10px]"
+                  >{`{{repo}}`}</code
+                >
+                <code
+                  class="ml-1 rounded bg-bg-deep px-1 py-0.5 font-mono text-[10px]"
+                  >{`{{branch}}`}</code
+                >
+                <code
+                  class="ml-1 rounded bg-bg-deep px-1 py-0.5 font-mono text-[10px]"
+                  >{`{{project}}`}</code
+                >
               </span>
             </div>
             <div class="grid grid-cols-[1.4fr_1fr] gap-2">
               <label class="flex flex-col gap-1">
                 <span class={fieldLabel}>name template</span>
-                <input class={smallInput} bind:value={nameTemplate} placeholder={namePlaceholder} />
+                <input
+                  class={smallInput}
+                  bind:value={nameTemplate}
+                  placeholder={namePlaceholder}
+                />
               </label>
               <label class="flex flex-col gap-1">
                 <span class={fieldLabel}>profile</span>
@@ -576,17 +617,27 @@
               {#if defaultBranch.trim()}
                 <label class="col-span-2 flex items-center gap-2">
                   <input type="checkbox" bind:checked={defaultFetchFirst} />
-                  <span class="text-[12px] text-text-primary">fetch origin before resolving base</span>
+                  <span class="text-[12px] text-text-primary"
+                    >fetch origin before resolving base</span
+                  >
                 </label>
               {/if}
             </div>
-            <div class="flex items-center justify-between gap-3 border-t border-hairline pt-3">
+            <div
+              class="flex items-center justify-between gap-3 border-t border-hairline pt-3"
+            >
               <p class="min-w-0 flex-1 truncate text-[11px] text-text-muted">
                 {#if reposWithoutBlueprint.length > 0}
-                  {reposWithoutBlueprint.length} new session{reposWithoutBlueprint.length === 1 ? "" : "s"}:
-                  <span class="font-mono text-text-secondary">{previewNames.join(", ")}</span>
+                  {reposWithoutBlueprint.length} new session{reposWithoutBlueprint.length ===
+                  1
+                    ? ""
+                    : "s"}:
+                  <span class="font-mono text-text-secondary"
+                    >{previewNames.join(", ")}</span
+                  >
                 {:else if repoRoots.length > 0}
-                  Every repo already has a session — remove a row below to regenerate.
+                  Every repo already has a session — remove a row below to
+                  regenerate.
                 {:else}
                   Add a repo above to enable generation.
                 {/if}
@@ -606,25 +657,35 @@
             <div class="flex items-baseline justify-between">
               <span class={sectionLabel}>Sessions</span>
               <span class="text-[10px] text-text-muted">
-                {blueprints.length} configured · {isEdit ? "edit templates" : "spawned on create"}
+                {blueprints.length} configured · {isEdit
+                  ? "edit templates"
+                  : "spawned on create"}
               </span>
             </div>
             {#if blueprints.length > 0}
-              <ul class="flex flex-col divide-y divide-hairline rounded-md border border-border-subtle bg-bg-deep/40">
+              <ul
+                class="flex flex-col divide-y divide-hairline rounded-md border border-border-subtle bg-bg-deep/40"
+              >
                 {#each blueprints as bp (bp.id)}
                   <li class="flex flex-col gap-1.5 px-2.5 py-2">
                     <div class="flex items-center gap-2">
                       <input
                         class={smallInput + " min-w-0 flex-[1.4]"}
                         value={bp.name}
-                        oninput={(e) => updateBlueprint(bp.id, { name: e.currentTarget.value })}
+                        oninput={(e) =>
+                          updateBlueprint(bp.id, {
+                            name: e.currentTarget.value,
+                          })}
                         placeholder="name"
                         aria-label="name"
                       />
                       <select
                         class={smallInput + " min-w-0 flex-[1.5]"}
                         value={bp.repoRoot}
-                        onchange={(e) => updateBlueprint(bp.id, { repoRoot: e.currentTarget.value })}
+                        onchange={(e) =>
+                          updateBlueprint(bp.id, {
+                            repoRoot: e.currentTarget.value,
+                          })}
                         aria-label="repo"
                       >
                         {#each repoRoots as root (root)}
@@ -634,14 +695,20 @@
                       <input
                         class={smallInput + " min-w-0 flex-1"}
                         value={bp.branch ?? ""}
-                        oninput={(e) => updateBlueprint(bp.id, { branch: e.currentTarget.value })}
+                        oninput={(e) =>
+                          updateBlueprint(bp.id, {
+                            branch: e.currentTarget.value,
+                          })}
                         placeholder="branch"
                         aria-label="branch"
                       />
                       <select
                         class={smallInput + " min-w-0 flex-1"}
                         value={bp.spawnProfile}
-                        onchange={(e) => updateBlueprint(bp.id, { spawnProfile: e.currentTarget.value })}
+                        onchange={(e) =>
+                          updateBlueprint(bp.id, {
+                            spawnProfile: e.currentTarget.value,
+                          })}
                         aria-label="profile"
                       >
                         {#each profiles as p (p.id)}
@@ -657,13 +724,18 @@
                       </button>
                     </div>
                     {#if bp.branch}
-                      <div class="flex items-center gap-3 pl-1 text-[11px] text-text-muted">
+                      <div
+                        class="flex items-center gap-3 pl-1 text-[11px] text-text-muted"
+                      >
                         <label class="flex items-center gap-1.5">
                           <span>base</span>
                           <input
                             class={smallInput + " w-44"}
                             value={bp.base ?? ""}
-                            oninput={(e) => updateBlueprint(bp.id, { base: e.currentTarget.value })}
+                            oninput={(e) =>
+                              updateBlueprint(bp.id, {
+                                base: e.currentTarget.value,
+                              })}
                             placeholder="origin/main"
                           />
                         </label>
@@ -671,47 +743,69 @@
                           <input
                             type="checkbox"
                             checked={bp.fetchFirst ?? false}
-                            onchange={(e) => updateBlueprint(bp.id, { fetchFirst: e.currentTarget.checked })}
+                            onchange={(e) =>
+                              updateBlueprint(bp.id, {
+                                fetchFirst: e.currentTarget.checked,
+                              })}
                           />
                           <span>fetch first</span>
                         </label>
                       </div>
                     {/if}
                     {#if !isEdit}
-                      <label class="flex cursor-pointer items-center gap-1.5 pl-1 text-[10px] text-text-muted">
+                      <label
+                        class="flex cursor-pointer items-center gap-1.5 pl-1 text-[10px] text-text-muted"
+                      >
                         <input
                           type="checkbox"
                           checked={isKeptAsTemplate(bp.id)}
-                          onchange={(e) => setKeepAsTemplate(bp.id, e.currentTarget.checked)}
+                          onchange={(e) =>
+                            setKeepAsTemplate(bp.id, e.currentTarget.checked)}
                         />
-                        <span>also save as template (re-spawn later from sidebar)</span>
+                        <span
+                          >also save as template (re-spawn later from sidebar)</span
+                        >
                       </label>
                     {/if}
                   </li>
                 {/each}
               </ul>
             {/if}
-            <button class={ghostBtn + " self-start"} onclick={addBlueprint}>+ Add session</button>
+            <button class={ghostBtn + " self-start"} onclick={addBlueprint}
+              >+ Add session</button
+            >
           </div>
 
           <!-- Project prompt -->
           <div class="flex flex-col gap-2">
             <div class="flex items-baseline justify-between gap-3">
-              <label for="np-project-prompt" class={sectionLabel}>Project prompt</label>
+              <label for="np-project-prompt" class={sectionLabel}
+                >Project prompt</label
+              >
               <span class="text-[10px] text-text-muted">
-                appended via <code class="rounded bg-bg-deep px-1 py-0.5 font-mono text-[10px]">--append-system-prompt</code> (Claude) /
-                <code class="ml-1 rounded bg-bg-deep px-1 py-0.5 font-mono text-[10px]">-c instructions=…</code> (Codex)
+                appended via <code
+                  class="rounded bg-bg-deep px-1 py-0.5 font-mono text-[10px]"
+                  >--append-system-prompt</code
+                >
+                (Claude) /
+                <code
+                  class="ml-1 rounded bg-bg-deep px-1 py-0.5 font-mono text-[10px]"
+                  >-c instructions=…</code
+                > (Codex)
               </span>
             </div>
             <textarea
               id="np-project-prompt"
-              class={inputClass + " min-h-[88px] resize-y font-mono text-[12px]"}
+              class={inputClass +
+                " min-h-[88px] resize-y font-mono text-[12px]"}
               bind:value={projectPrompt}
               placeholder="Extra instructions to inject at the top of every spawned agent's system prompt"
               rows="4"
             ></textarea>
             {#if projectPrompt.trim()}
-              <div class="rounded-md border border-border-subtle/70 bg-bg-deep/60 p-2">
+              <div
+                class="rounded-md border border-border-subtle/70 bg-bg-deep/60 p-2"
+              >
                 <div class="flex flex-wrap items-center gap-2">
                   {#if blueprints.length > 1}
                     <select
@@ -720,15 +814,20 @@
                       disabled={promptPreviewing}
                     >
                       {#each blueprints as bp (bp.id)}
-                        <option value={bp.id}>{bp.name || "Untitled session"}</option>
+                        <option value={bp.id}
+                          >{bp.name || "Untitled session"}</option
+                        >
                       {/each}
                     </select>
                   {:else if selectedPreviewBlueprint}
                     <span class="truncate text-[11px] text-text-muted">
-                      Preview: {selectedPreviewBlueprint.name || "Untitled session"}
+                      Preview: {selectedPreviewBlueprint.name ||
+                        "Untitled session"}
                     </span>
                   {:else}
-                    <span class="truncate text-[11px] text-text-muted">Preview: draft project</span>
+                    <span class="truncate text-[11px] text-text-muted"
+                      >Preview: draft project</span
+                    >
                   {/if}
                   <button
                     class={ghostBtn}
@@ -737,13 +836,18 @@
                   >
                     {promptPreviewing ? "Previewing…" : "Preview"}
                   </button>
-                  <span class="text-[11px] text-text-muted">Minijinja variables</span>
+                  <span class="text-[11px] text-text-muted"
+                    >Minijinja variables</span
+                  >
                 </div>
                 {#if promptPreviewError}
-                  <p class="mt-2 whitespace-pre-wrap text-[11px] text-red">{promptPreviewError}</p>
+                  <p class="mt-2 whitespace-pre-wrap text-[11px] text-red">
+                    {promptPreviewError}
+                  </p>
                 {/if}
                 {#if promptPreview}
-                  <pre class="mt-2 max-h-40 overflow-auto whitespace-pre-wrap rounded-md border border-border-subtle/60 bg-bg-surface/60 p-2 font-mono text-[11px] leading-relaxed text-text-primary">{promptPreview}</pre>
+                  <pre
+                    class="mt-2 max-h-40 overflow-auto whitespace-pre-wrap rounded-md border border-border-subtle/60 bg-bg-surface/60 p-2 font-mono text-[11px] leading-relaxed text-text-primary">{promptPreview}</pre>
                 {/if}
               </div>
             {/if}
@@ -754,14 +858,20 @@
             <div class="flex items-baseline justify-between gap-3">
               <span class={sectionLabel}>Context paths</span>
               <span class="text-[10px] text-text-muted">
-                exposed as <code class="rounded bg-bg-deep px-1 py-0.5 font-mono text-[10px]">$ROUX_PROJECT_CONTEXT_PATHS</code>
+                exposed as <code
+                  class="rounded bg-bg-deep px-1 py-0.5 font-mono text-[10px]"
+                  >$ROUX_PROJECT_CONTEXT_PATHS</code
+                >
               </span>
             </div>
             {#if contextPaths.length > 0}
               <ul class="flex flex-col gap-1">
                 {#each contextPaths as p (p)}
                   <li class={chipRow}>
-                    <span class="truncate font-mono text-[12px] text-text-primary">{p}</span>
+                    <span
+                      class="truncate font-mono text-[12px] text-text-primary"
+                      >{p}</span
+                    >
                     <button
                       class="text-[11px] text-text-muted opacity-0 transition-opacity hover:text-red group-hover:opacity-100"
                       onclick={() => removeContextPath(p)}

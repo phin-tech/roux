@@ -53,7 +53,14 @@ describe("task stores", () => {
           runner: "npm scripts",
           configFile: "package.json",
           tasks: [
-            { id: "npm:build", name: "build", description: "", runner: "npm", command: "npm run build", keepOpen: "on-error" },
+            {
+              id: "npm:build",
+              name: "build",
+              description: "",
+              runner: "npm",
+              command: "npm run build",
+              keepOpen: "on-error",
+            },
           ],
         },
       ];
@@ -149,12 +156,16 @@ describe("task stores", () => {
 
   describe("keepOpen overrides", () => {
     it("returns default when no override exists", () => {
-      expect(getEffectiveKeepOpen("/repo", "npm:build", "on-error")).toBe("on-error");
+      expect(getEffectiveKeepOpen("/repo", "npm:build", "on-error")).toBe(
+        "on-error",
+      );
     });
 
     it("returns override when set", () => {
       setKeepOpenOverride("/repo", "npm:build", "always");
-      expect(getEffectiveKeepOpen("/repo", "npm:build", "on-error")).toBe("always");
+      expect(getEffectiveKeepOpen("/repo", "npm:build", "on-error")).toBe(
+        "always",
+      );
     });
   });
 });

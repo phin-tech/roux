@@ -17,8 +17,15 @@
     TerminalDefaults,
     TerminalEnvRule,
   } from "$lib/bindings";
-  import { settings, updateSetting, updateSettingsDraft } from "$lib/stores/settings";
-  import { userTerminalThemes, loadUserTerminalThemes } from "$lib/stores/userTerminalThemes";
+  import {
+    settings,
+    updateSetting,
+    updateSettingsDraft,
+  } from "$lib/stores/settings";
+  import {
+    userTerminalThemes,
+    loadUserTerminalThemes,
+  } from "$lib/stores/userTerminalThemes";
   import { getAllTerminalThemeDefinitions } from "$lib/themes";
 
   type TerminalEnvRules = Record<string, TerminalEnvRule>;
@@ -46,11 +53,17 @@
             },
             allOf: [
               {
-                if: { properties: { mode: { const: "value" } }, required: ["mode"] },
+                if: {
+                  properties: { mode: { const: "value" } },
+                  required: ["mode"],
+                },
                 then: { required: ["value"] },
               },
               {
-                if: { properties: { mode: { const: "command" } }, required: ["mode"] },
+                if: {
+                  properties: { mode: { const: "command" } },
+                  required: ["mode"],
+                },
                 then: { required: ["command"] },
               },
             ],
@@ -60,7 +73,9 @@
     },
   });
 
-  let allTerminalThemes = $derived(getAllTerminalThemeDefinitions($userTerminalThemes));
+  let allTerminalThemes = $derived(
+    getAllTerminalThemeDefinitions($userTerminalThemes),
+  );
   let currentTerminalThemeId = $derived($settings.terminalTheme ?? "match-gui");
   let currentDef = $derived(
     allTerminalThemes.find((theme) => theme.id === currentTerminalThemeId),
@@ -145,7 +160,8 @@
       return;
     }
 
-    const env = Object.keys(json).length > 0 ? (json as TerminalEnvRules) : null;
+    const env =
+      Object.keys(json).length > 0 ? (json as TerminalEnvRules) : null;
     envError = null;
     lastEnvJson = serializeEnv(env);
     updateTerminalDefaults({ env });
@@ -173,7 +189,11 @@
   <div class="flex items-start justify-between gap-3">
     <div>
       <div class="text-[13px]">Terminal theme</div>
-      <div class="text-[11px] text-text-muted mt-0.5">Color palette for the xterm pane. Independent of the GUI theme. Save iTerm2 <code>.itermcolors</code> files into <code>~/.config/roux/themes/</code> to add your own.</div>
+      <div class="text-[11px] text-text-muted mt-0.5">
+        Color palette for the xterm pane. Independent of the GUI theme. Save
+        iTerm2 <code>.itermcolors</code> files into
+        <code>~/.config/roux/themes/</code> to add your own.
+      </div>
     </div>
     <div class="flex items-center gap-1">
       <select
@@ -217,18 +237,20 @@
       <button
         class="px-2 py-1 bg-bg-elevated border border-border rounded text-text-secondary text-[10px] cursor-pointer hover:bg-bg-hover"
         title="Open ~/.config/roux/themes/ in the file manager"
-        onclick={revealUserThemesDir}
-      >Reveal</button>
+        onclick={revealUserThemesDir}>Reveal</button
+      >
       <button
         class="px-2 py-1 bg-bg-elevated border border-border rounded text-text-secondary text-[10px] cursor-pointer hover:bg-bg-hover"
         title="Re-scan ~/.config/roux/themes/"
-        onclick={() => void loadUserTerminalThemes()}
-      >Reload</button>
+        onclick={() => void loadUserTerminalThemes()}>Reload</button
+      >
     </div>
   </div>
   {#if isMissingUserTheme}
     <p class="mt-2 text-[11px] text-amber-500/90">
-      This theme file isn't currently loaded. The setting is preserved — drop the file back into <code>~/.config/roux/themes/</code> and hit Reload, or pick a different theme.
+      This theme file isn't currently loaded. The setting is preserved — drop
+      the file back into <code>~/.config/roux/themes/</code> and hit Reload, or pick
+      a different theme.
     </p>
   {:else if currentDef?.description}
     <p class="mt-2 text-[11px] text-text-muted">{currentDef.description}</p>
@@ -240,7 +262,8 @@
     class="bg-bg-deep border border-border rounded px-2 py-1 text-xs text-text-primary outline-none w-20 text-right focus:border-accent-dim"
     type="number"
     value={$settings.fontSize}
-    oninput={(e) => updateSetting("fontSize", parseInt(e.currentTarget.value) || 14)}
+    oninput={(e) =>
+      updateSetting("fontSize", parseInt(e.currentTarget.value) || 14)}
   />
 </div>
 <div class="flex items-center justify-between py-2">
@@ -257,18 +280,25 @@
     class="bg-bg-deep border border-border rounded px-2 py-1 text-xs text-text-primary outline-none w-24 text-right focus:border-accent-dim"
     type="number"
     value={$settings.scrollback}
-    oninput={(e) => updateSetting("scrollback", parseInt(e.currentTarget.value) || 5000)}
+    oninput={(e) =>
+      updateSetting("scrollback", parseInt(e.currentTarget.value) || 5000)}
   />
 </div>
 <div class="flex items-center justify-between py-2">
   <div>
     <div class="text-[13px]">GPU acceleration</div>
-    <div class="text-[11px] text-text-muted mt-0.5">Applies to terminals opened after this change.</div>
+    <div class="text-[11px] text-text-muted mt-0.5">
+      Applies to terminals opened after this change.
+    </div>
   </div>
   <select
     class="bg-bg-deep border border-border rounded px-2 py-1 text-xs text-text-primary outline-none cursor-pointer appearance-none pr-6"
     value={$settings.gpuAcceleration ?? "auto"}
-    onchange={(e) => updateSetting("gpuAcceleration", e.currentTarget.value as GpuAcceleration)}
+    onchange={(e) =>
+      updateSetting(
+        "gpuAcceleration",
+        e.currentTarget.value as GpuAcceleration,
+      )}
   >
     <option value="auto">Auto</option>
     <option value="on">On (WebGL)</option>
@@ -279,12 +309,17 @@
   <div class="flex items-start justify-between gap-3">
     <div>
       <div class="text-[13px] font-semibold">Terminal defaults</div>
-      <div class="mt-0.5 text-[11px] text-text-muted">Applies to newly spawned shells before profile-specific setup.</div>
+      <div class="mt-0.5 text-[11px] text-text-muted">
+        Applies to newly spawned shells before profile-specific setup.
+      </div>
     </div>
     <select
       class="bg-bg-deep border border-border rounded px-2 py-1 text-xs text-text-primary outline-none cursor-pointer appearance-none pr-6"
       value={terminalDefaults.splitProfileBehavior}
-      onchange={(e) => updateSplitProfileBehavior(e.currentTarget.value as SplitProfileBehavior)}
+      onchange={(e) =>
+        updateSplitProfileBehavior(
+          e.currentTarget.value as SplitProfileBehavior,
+        )}
       title="Plain split behavior"
     >
       <option value="plainShell">Plain shell</option>
@@ -295,7 +330,10 @@
   </div>
 
   <div class="mt-3 flex flex-col gap-1.5">
-    <label for="terminal-before-shell-starts" class="text-[11px] font-semibold uppercase tracking-wider text-text-muted">
+    <label
+      for="terminal-before-shell-starts"
+      class="text-[11px] font-semibold uppercase tracking-wider text-text-muted"
+    >
       Before shell starts
     </label>
     <textarea
@@ -310,14 +348,20 @@
 
   <div class="mt-3 flex flex-col gap-1.5">
     <div class="flex items-center justify-between gap-3">
-      <label for="terminal-env-rules" class="text-[11px] font-semibold uppercase tracking-wider text-text-muted">
+      <label
+        for="terminal-env-rules"
+        class="text-[11px] font-semibold uppercase tracking-wider text-text-muted"
+      >
         Environment
       </label>
       {#if envError}
         <span class="text-[11px] text-red">{envError}</span>
       {/if}
     </div>
-    <div id="terminal-env-rules" class="roux-json-editor h-56 overflow-hidden rounded-md border border-border bg-bg-deep">
+    <div
+      id="terminal-env-rules"
+      class="roux-json-editor h-56 overflow-hidden rounded-md border border-border bg-bg-deep"
+    >
       <JSONEditor
         content={envContent}
         mode={Mode.text}
@@ -335,12 +379,14 @@
     <div class="text-[13px] font-semibold">Shell</div>
   </div>
   <div class="mt-0.5 text-[11px] text-text-muted">
-    Shell used for terminal panes and login-shell PATH discovery
-    (for finding <code class="font-mono">gh</code>, <code class="font-mono">git</code>,
-    <code class="font-mono">wt</code>, etc. via Homebrew). Defaults to your OS login shell,
-    then <code class="font-mono">$SHELL</code>. Set this only if auto-detection chooses the
-    wrong shell. New terminal panes use the updated shell right away; restart Roux if
-    integration PATH discovery needs to be refreshed.
+    Shell used for terminal panes and login-shell PATH discovery (for finding <code
+      class="font-mono">gh</code
+    >, <code class="font-mono">git</code>,
+    <code class="font-mono">wt</code>, etc. via Homebrew). Defaults to your OS
+    login shell, then <code class="font-mono">$SHELL</code>. Set this only if
+    auto-detection chooses the wrong shell. New terminal panes use the updated
+    shell right away; restart Roux if integration PATH discovery needs to be
+    refreshed.
   </div>
   <div class="mt-3 flex items-center justify-between gap-2">
     <span class="text-[13px]">Binary path</span>
@@ -348,13 +394,14 @@
       <input
         class="bg-bg-deep border border-border rounded px-2 py-1 font-mono text-xs text-text-primary outline-none w-64 text-right focus:border-accent-dim"
         value={$settings.shellBinaryPath ?? ""}
-        oninput={(e) => updateSetting("shellBinaryPath", e.currentTarget.value || null)}
+        oninput={(e) =>
+          updateSetting("shellBinaryPath", e.currentTarget.value || null)}
         placeholder="/opt/homebrew/bin/fish"
       />
       <button
         class="px-2 py-1 bg-bg-elevated border border-border rounded text-text-secondary text-[10px] cursor-pointer hover:bg-bg-hover"
-        onclick={browseShellBinary}
-      >...</button>
+        onclick={browseShellBinary}>...</button
+      >
     </div>
   </div>
 </div>

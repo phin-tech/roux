@@ -47,7 +47,9 @@ export function clearDraggedWorkItem(): void {
   draggedWorkItem.set(null);
 }
 
-export function hasWorkItemDragData(dataTransfer: DataTransfer | null): boolean {
+export function hasWorkItemDragData(
+  dataTransfer: DataTransfer | null,
+): boolean {
   if (!dataTransfer) return false;
   return Array.from(dataTransfer.types).includes(WORK_ITEM_DRAG_MIME);
 }
@@ -65,7 +67,10 @@ export function readWorkItemDragData(
     if (typeof parsed.itemId !== "string" || parsed.itemId.trim() === "") {
       return null;
     }
-    if (typeof parsed.fromStatus !== "string" || !isWorkItemStatus(parsed.fromStatus)) {
+    if (
+      typeof parsed.fromStatus !== "string" ||
+      !isWorkItemStatus(parsed.fromStatus)
+    ) {
       return null;
     }
     return {

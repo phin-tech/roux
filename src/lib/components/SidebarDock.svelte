@@ -36,9 +36,7 @@
     onNewSession: () => void;
   }
 
-  let {
-    onNewSession,
-  }: Props = $props();
+  let { onNewSession }: Props = $props();
 
   type Slot = "hidden" | "solo" | "pinned-half" | "active-half";
 
@@ -66,9 +64,7 @@
     splitDragging = false;
   }
 
-  function installDragHandlers(
-    onMove: (ev: MouseEvent) => void,
-  ): void {
+  function installDragHandlers(onMove: (ev: MouseEvent) => void): void {
     const onUp = () => endDrag();
     const onKey = (ev: KeyboardEvent) => {
       if (ev.key === "Escape") endDrag();
@@ -200,8 +196,10 @@
   let activeSessionData = $derived($activeSession);
   let notesSessionData = $derived(
     $notesOverrideSessionId
-      ? ($sessionList.find((s) => s.id === $notesOverrideSessionId)
-        ?? $archivedSessionsState.sessions.find((s) => s.id === $notesOverrideSessionId))
+      ? ($sessionList.find((s) => s.id === $notesOverrideSessionId) ??
+          $archivedSessionsState.sessions.find(
+            (s) => s.id === $notesOverrideSessionId,
+          ))
       : activeSessionData,
   );
 </script>
@@ -213,7 +211,9 @@
     onmousedown={onWidthDragStart}
   >
     <div
-      class="min-h-0 max-w-[0.5px] min-w-[0.5px] flex-1 transition-all duration-150 {widthDragging ? 'bg-white/30' : 'bg-white/20 group-hover:bg-white/40'}"
+      class="min-h-0 max-w-[0.5px] min-w-[0.5px] flex-1 transition-all duration-150 {widthDragging
+        ? 'bg-white/30'
+        : 'bg-white/20 group-hover:bg-white/40'}"
     ></div>
   </div>
 {/snippet}
@@ -244,7 +244,9 @@
               {visible}
               sessionId={notesSessionData?.id ?? null}
               projectId={notesSessionData?.projectId ?? null}
-              projectName={$projects.find((p) => p.id === notesSessionData?.projectId)?.name ?? null}
+              projectName={$projects.find(
+                (p) => p.id === notesSessionData?.projectId,
+              )?.name ?? null}
               repoRoot={notesSessionData?.repoRoot ?? null}
               onclose={onCloseFor(id)}
               pinned={$pinnedSidebar === id}
@@ -313,7 +315,9 @@
           onmousedown={onSplitDragStart}
         >
           <div
-            class="h-px w-full translate-y-[2px] transition-all duration-150 {splitDragging ? 'bg-white/30' : 'bg-white/20 hover:bg-white/40'}"
+            class="h-px w-full translate-y-[2px] transition-all duration-150 {splitDragging
+              ? 'bg-white/30'
+              : 'bg-white/20 hover:bg-white/40'}"
           ></div>
         </div>
       {/if}

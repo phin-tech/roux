@@ -29,9 +29,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "externalBin": [
-      "binaries/roux"
-    ],
+    "externalBin": ["binaries/roux"],
     "windows": {
       "nsis": {
         "installMode": "currentUser"

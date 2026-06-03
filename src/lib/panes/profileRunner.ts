@@ -52,7 +52,8 @@ export async function runProfileInPane(
   opts: RunProfileOptions = {},
 ): Promise<void> {
   const cwdOverride = profile.cwdOverride?.trim() ?? "";
-  const hasSetup = !!profile.setupCommand && profile.setupCommand.trim().length > 0;
+  const hasSetup =
+    !!profile.setupCommand && profile.setupCommand.trim().length > 0;
   const baseStartup = profile.startupCommand ?? "";
   const startupCommand = appendAgentSystemPrompt(
     baseStartup,
@@ -81,13 +82,16 @@ export async function runProfileInPane(
   }
 
   if (hasSetup) {
-    log(`runProfileInPane(${ptyId}): typing setup command for profile "${profile.id}"`);
+    log(
+      `runProfileInPane(${ptyId}): typing setup command for profile "${profile.id}"`,
+    );
     await writeToSession(ptyId, profile.setupCommand!);
     await writeToSession(ptyId, "\n");
   }
 
   if (hasStartup) {
-    const suffix = (profile.startupBehavior ?? "autoRun") === "typeOnly" ? "" : "\n";
+    const suffix =
+      (profile.startupBehavior ?? "autoRun") === "typeOnly" ? "" : "\n";
     log(
       `runProfileInPane(${ptyId}): typing startup command for profile "${profile.id}" (behavior=${profile.startupBehavior ?? "autoRun"})`,
     );

@@ -26,7 +26,7 @@ preset "default"
 
 ## Mixing a preset with your own overrides
 
-Anything you put after the `preset` line *overrides* that preset, key by key:
+Anything you put after the `preset` line _overrides_ that preset, key by key:
 
 ```kdl
 preset "tmux"
@@ -45,7 +45,7 @@ Composition rules:
 
 - **`bind "X" "command.id"`** — overrides the preset's binding for `X`, or adds it if the preset didn't have one.
 - **`unbind "X"`** — drops a top-level direct bind inherited from the preset.
-- **`tree "name" { ... }`** — replaces the *whole* preset tree of that name. To tweak a single chord inside a preset tree, redeclare the entire tree.
+- **`tree "name" { ... }`** — replaces the _whole_ preset tree of that name. To tweak a single chord inside a preset tree, redeclare the entire tree.
 - **`prefix "X" tree="..."`** — overrides the preset's prefix for that key.
 
 ## Two notations: physical and character
@@ -168,73 +168,73 @@ Bindings target commands by id. The complete, always-current list is the command
 
 ### Panes
 
-| Id | What it does |
-|---|---|
-| `pane.focus-left` / `-down` / `-up` / `-right` | Move focus between panes |
-| `pane.focus-index-1` … `pane.focus-index-10` | Focus the Nth pane (visible DFS order) |
-| `pane.focus-next` | Focus the next pane in traversal order |
-| `pane.split-horizontal` / `pane.split-vertical` | Split the focused pane |
-| `pane.split-claude` / `pane.split-codex` | Split with a Claude or Codex pane |
-| `pane.split-horizontal-with-profile` / `pane.split-vertical-with-profile` | Split and pick a spawn profile |
-| `pane.close` | Close the focused pane |
-| `pane.rename` | Open the inline rename input |
-| `pane.toggle-fullscreen` / `pane.toggle-stack` | Layout toggles |
-| `pane.resize-left` / `-down` / `-up` / `-right` | Resize splits |
-| `pane.move-left` / `-down` / `-up` / `-right` | Reorder panes |
-| `pane.open-doc` | Open a markdown doc as a pane |
-| `pane.run-command` | Run an ad-hoc command in a new pane |
+| Id                                                                        | What it does                           |
+| ------------------------------------------------------------------------- | -------------------------------------- |
+| `pane.focus-left` / `-down` / `-up` / `-right`                            | Move focus between panes               |
+| `pane.focus-index-1` … `pane.focus-index-10`                              | Focus the Nth pane (visible DFS order) |
+| `pane.focus-next`                                                         | Focus the next pane in traversal order |
+| `pane.split-horizontal` / `pane.split-vertical`                           | Split the focused pane                 |
+| `pane.split-claude` / `pane.split-codex`                                  | Split with a Claude or Codex pane      |
+| `pane.split-horizontal-with-profile` / `pane.split-vertical-with-profile` | Split and pick a spawn profile         |
+| `pane.close`                                                              | Close the focused pane                 |
+| `pane.rename`                                                             | Open the inline rename input           |
+| `pane.toggle-fullscreen` / `pane.toggle-stack`                            | Layout toggles                         |
+| `pane.resize-left` / `-down` / `-up` / `-right`                           | Resize splits                          |
+| `pane.move-left` / `-down` / `-up` / `-right`                             | Reorder panes                          |
+| `pane.open-doc`                                                           | Open a markdown doc as a pane          |
+| `pane.run-command`                                                        | Run an ad-hoc command in a new pane    |
 
 ### Sessions
 
-| Id | What it does |
-|---|---|
-| `session.new` / `session.close` / `session.reconnect` | Lifecycle |
-| `session.next` / `session.prev` | Cycle sessions in sidebar order |
-| `session.focus-index-1` … `session.focus-index-10` | Jump to the Nth session |
-| `session.switch` | Open a fuzzy session picker |
-| `session.rename` | Rename the active session |
-| `session.open-in-editor` | Open the session worktree in your configured editor |
-| `session.new-worktree` | Create a new worktree session |
-| `session.set-project` | Tag the active session with a project |
+| Id                                                    | What it does                                        |
+| ----------------------------------------------------- | --------------------------------------------------- |
+| `session.new` / `session.close` / `session.reconnect` | Lifecycle                                           |
+| `session.next` / `session.prev`                       | Cycle sessions in sidebar order                     |
+| `session.focus-index-1` … `session.focus-index-10`    | Jump to the Nth session                             |
+| `session.switch`                                      | Open a fuzzy session picker                         |
+| `session.rename`                                      | Rename the active session                           |
+| `session.open-in-editor`                              | Open the session worktree in your configured editor |
+| `session.new-worktree`                                | Create a new worktree session                       |
+| `session.set-project`                                 | Tag the active session with a project               |
 
 ### App and UI
 
-| Id | What it does |
-|---|---|
-| `app.command-palette` | Open the palette |
-| `app.leader-mode` | Open the leader HUD (default tree) |
-| `app.settings` | Open settings |
-| `app.quit` | Quit Roux |
-| `app.check-updates` | Check for an update |
-| `ui.toggle-notes` / `ui.toggle-notifications` / `ui.toggle-watches` / `ui.toggle-library` | Sidebar panels |
-| `ui.toggle-sidebar` / `ui.toggle-task-panel` | Layout panels |
-| `ui.group-by` | Toggle session grouping (repo / project) |
+| Id                                                                                        | What it does                             |
+| ----------------------------------------------------------------------------------------- | ---------------------------------------- |
+| `app.command-palette`                                                                     | Open the palette                         |
+| `app.leader-mode`                                                                         | Open the leader HUD (default tree)       |
+| `app.settings`                                                                            | Open settings                            |
+| `app.quit`                                                                                | Quit Roux                                |
+| `app.check-updates`                                                                       | Check for an update                      |
+| `ui.toggle-notes` / `ui.toggle-notifications` / `ui.toggle-watches` / `ui.toggle-library` | Sidebar panels                           |
+| `ui.toggle-sidebar` / `ui.toggle-task-panel`                                              | Layout panels                            |
+| `ui.group-by`                                                                             | Toggle session grouping (repo / project) |
 
 ### Library
 
-| Id | What it does |
-|---|---|
-| `library.search-prompts` | Search Library prompts and send one to the active pane |
-| `library.search-skills` | Search Library skills and send one to the active pane |
-| `library.copy-prompt-to-clipboard` | Search Library prompts and copy one to the clipboard |
-| `library.copy-skill-to-clipboard` | Search Library skills and copy one to the clipboard |
-| `library.open-manager` | Open the Library manager |
+| Id                                 | What it does                                           |
+| ---------------------------------- | ------------------------------------------------------ |
+| `library.search-prompts`           | Search Library prompts and send one to the active pane |
+| `library.search-skills`            | Search Library skills and send one to the active pane  |
+| `library.copy-prompt-to-clipboard` | Search Library prompts and copy one to the clipboard   |
+| `library.copy-skill-to-clipboard`  | Search Library skills and copy one to the clipboard    |
+| `library.open-manager`             | Open the Library manager                               |
 
 ### Tasks and watches
 
-| Id | What it does |
-|---|---|
-| `task.run` / `task.rerun` | Run / rerun a discovered task |
-| `watch.add` | Add a watch (picks kind) |
+| Id                                         | What it does                     |
+| ------------------------------------------ | -------------------------------- |
+| `task.run` / `task.rerun`                  | Run / rerun a discovered task    |
+| `watch.add`                                | Add a watch (picks kind)         |
 | `watch.add-github` / `watch.add-github-pr` | Add a GitHub Actions or PR watch |
-| `watch.add-http` | Add an HTTP health watch |
-| `watch.add-shell` | Add a shell-command watch |
+| `watch.add-http`                           | Add an HTTP health watch         |
+| `watch.add-shell`                          | Add a shell-command watch        |
 
 ### Keymap
 
-| Id | What it does |
-|---|---|
-| `keymap.reload` | Re-read `~/.config/roux/keymap.kdl` |
+| Id                 | What it does                                                   |
+| ------------------ | -------------------------------------------------------------- |
+| `keymap.reload`    | Re-read `~/.config/roux/keymap.kdl`                            |
 | `keymap.exit-tree` | Exit the active tree (bind inside a sticky / passthrough tree) |
 
 ## Built-in presets
@@ -247,7 +247,7 @@ Mirrors the hardcoded shortcuts from earlier Roux versions — ++cmd+;++ leader,
 
 Tmux-style: ++ctrl+b++ prefix; `%` / `"` for splits; `hjkl` / `o` for pane focus; `c` / `n` / `p` for session new/next/previous; `x` to close, `z` for fullscreen, `?` for the palette, `d` for quit. Delayed HUD so chords feel fast.
 
-### `zellij` *(planned)*
+### `zellij` _(planned)_
 
 Schema supports it (sticky and passthrough trees), but no preset KDL ships in v1. If you want it sooner, the schema is documented above and you can author it yourself in the meantime.
 
@@ -260,6 +260,7 @@ If a binding references a command id that doesn't exist (typo, removed command),
 ## Examples
 
 ### Vim-style mode prefix
+
 Trigger a sticky resize mode with ++ctrl+r++ that stays armed until ++escape++:
 
 ```kdl
@@ -276,6 +277,7 @@ prefix "Ctrl+KeyR" tree="resize"
 ```
 
 ### Quick session switcher with no prefix
+
 Bind ++ctrl+tab++ / ++ctrl+shift+tab++ to cycle sessions directly:
 
 ```kdl
@@ -285,6 +287,7 @@ bind "Ctrl+Shift+Tab" "session.prev"
 ```
 
 ### Hide the HUD entirely (silent power-user mode)
+
 You know your bindings; no help needed:
 
 ```kdl

@@ -38,7 +38,9 @@ export async function createProjectFull(
     patch.contextPaths !== undefined ||
     patch.sessionBlueprints !== undefined ||
     patch.projectPrompt !== undefined;
-  const final = hasPatch ? await tauriUpdateProject(created.id, patch) : created;
+  const final = hasPatch
+    ? await tauriUpdateProject(created.id, patch)
+    : created;
   projects.update((ps) => [...ps, final]);
   return final;
 }
@@ -61,9 +63,7 @@ export async function removeProject(id: string): Promise<void> {
 
 export async function renameProject(id: string, name: string): Promise<void> {
   await tauriRenameProject(id, name);
-  projects.update((ps) =>
-    ps.map((p) => (p.id === id ? { ...p, name } : p))
-  );
+  projects.update((ps) => ps.map((p) => (p.id === id ? { ...p, name } : p)));
 }
 
 /** Synchronously look up a project by id from the store snapshot.

@@ -2,10 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Notification } from "$lib/types";
 import { notifications } from "$lib/stores/notifications";
 import { dispatchNotificationAction } from "../dispatchAction";
-import {
-  notificationsMarkRead,
-  openPathInFinder,
-} from "$lib/tauri";
+import { notificationsMarkRead, openPathInFinder } from "$lib/tauri";
 
 vi.mock("@tauri-apps/plugin-opener", () => ({
   openUrl: vi.fn(),

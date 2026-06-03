@@ -12,7 +12,9 @@ export async function deleteWorkItemWithMode(
   mode: WorkItemDeleteMode,
 ): Promise<void> {
   if (mode === "card-and-stop-session" && item.sessionId) {
-    const session = get(sessionState).sessions.find((s) => s.id === item.sessionId);
+    const session = get(sessionState).sessions.find(
+      (s) => s.id === item.sessionId,
+    );
     if (session) {
       await closeSession(session, {
         force: true,

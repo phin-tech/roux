@@ -1,25 +1,10 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { get } from "svelte/store";
-import {
-  sessionLayouts,
-  resetLayouts,
-} from "$lib/panes/layout";
-import {
-  focusedPaneId,
-  resetFocus,
-} from "$lib/panes/focus";
-import {
-  resetInstances,
-} from "$lib/panes/instances";
-import {
-  initSession,
-  splitPane,
-} from "$lib/panes/actions";
-import {
-  sessionState,
-  addSession,
-  setActiveSession,
-} from "../sessions";
+import { sessionLayouts, resetLayouts } from "$lib/panes/layout";
+import { focusedPaneId, resetFocus } from "$lib/panes/focus";
+import { resetInstances } from "$lib/panes/instances";
+import { initSession, splitPane } from "$lib/panes/actions";
+import { sessionState, addSession, setActiveSession } from "../sessions";
 import type { RouxCommand } from "$lib/tauri";
 
 /**

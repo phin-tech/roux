@@ -26,7 +26,7 @@
   {title}
   aria-label={label}
   {tabindex}
-  onclick={onclick}
+  {onclick}
 >
   <X {size} />
 </button>

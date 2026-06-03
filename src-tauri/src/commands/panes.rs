@@ -109,13 +109,10 @@ mod tests {
 
     /// Helper: build a closure over a static pty→session table so the
     /// tests don't need a live PtyManager.
-    fn pty_lookup(table: &'static [(&'static str, &'static str)]) -> impl Fn(&str) -> Option<String> {
-        move |pty_id| {
-            table
-                .iter()
-                .find(|(p, _)| *p == pty_id)
-                .map(|(_, s)| s.to_string())
-        }
+    fn pty_lookup(
+        table: &'static [(&'static str, &'static str)],
+    ) -> impl Fn(&str) -> Option<String> {
+        move |pty_id| table.iter().find(|(p, _)| *p == pty_id).map(|(_, s)| s.to_string())
     }
 
     #[tokio::test]
@@ -166,12 +163,8 @@ mod tests {
         let (sessions, _sjoin) =
             session_service::spawn_with_path(vec![], dir.path().join("sessions.json"));
 
-        let project = pty_project_scope(
-            &sessions,
-            pty_lookup(&[("pty-X", "missing-sess")]),
-            "pty-X",
-        )
-        .await;
+        let project =
+            pty_project_scope(&sessions, pty_lookup(&[("pty-X", "missing-sess")]), "pty-X").await;
         assert!(project.is_none());
     }
 
@@ -237,12 +230,7 @@ mod tests {
 
         // Second call: PTY now registered, project resolves to proj-A.
         alias_mgr
-            .try_auto_claim_from_pane_name(
-                "pane-A",
-                Some("reviewer"),
-                Some("proj-A".into()),
-                None,
-            )
+            .try_auto_claim_from_pane_name("pane-A", Some("reviewer"), Some("proj-A".into()), None)
             .expect("re-claim under project scope succeeds");
 
         // The new project-scoped binding is held by pane-A.
@@ -268,12 +256,7 @@ mod tests {
         let alias_dir = tempfile::tempdir().unwrap();
         let alias_mgr = AliasManager::load_from(alias_dir.path().join("aliases.json"));
         alias_mgr
-            .try_auto_claim_from_pane_name(
-                "pane-A",
-                Some("reviewer"),
-                Some("proj-A".into()),
-                None,
-            )
+            .try_auto_claim_from_pane_name("pane-A", Some("reviewer"), Some("proj-A".into()), None)
             .expect("pane-A claims first");
         let second = alias_mgr.try_auto_claim_from_pane_name(
             "pane-B",

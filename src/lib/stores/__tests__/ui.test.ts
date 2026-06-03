@@ -216,9 +216,8 @@ describe("sidebar pin-slot state", () => {
 
   describe("collapse-to-icons: opening a panel unhides the dock", () => {
     it("openSidebar unhides the dock when collapsed", async () => {
-      const { sidebarLayout, hideSidebar, showSidebar } = await import(
-        "../sidebarLayout"
-      );
+      const { sidebarLayout, hideSidebar, showSidebar } =
+        await import("../sidebarLayout");
       showSidebar();
       hideSidebar();
       expect(get(sidebarLayout).hidden).toBe(true);
@@ -227,9 +226,8 @@ describe("sidebar pin-slot state", () => {
     });
 
     it("toggleSidebar activating a panel unhides the dock", async () => {
-      const { sidebarLayout, hideSidebar, showSidebar } = await import(
-        "../sidebarLayout"
-      );
+      const { sidebarLayout, hideSidebar, showSidebar } =
+        await import("../sidebarLayout");
       showSidebar();
       hideSidebar();
       expect(get(sidebarLayout).hidden).toBe(true);
@@ -248,9 +246,8 @@ describe("sidebar pin-slot state", () => {
     });
 
     it("pinSidebar unhides the dock when collapsed", async () => {
-      const { sidebarLayout, hideSidebar, showSidebar } = await import(
-        "../sidebarLayout"
-      );
+      const { sidebarLayout, hideSidebar, showSidebar } =
+        await import("../sidebarLayout");
       showSidebar();
       hideSidebar();
       pinSidebar("notes");

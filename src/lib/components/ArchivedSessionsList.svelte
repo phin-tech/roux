@@ -39,7 +39,10 @@
     onrestore,
   }: Props = $props();
   let loadError = $state<string | null>(null);
-  let actionError = $state<{ sessionId: string | null; message: string } | null>(null);
+  let actionError = $state<{
+    sessionId: string | null;
+    message: string;
+  } | null>(null);
   let bulkError = $state<string | null>(null);
   let menuOpenFor = $state<string | null>(null);
   let headerMenuOpen = $state(false);
@@ -119,7 +122,11 @@
   const selectableWorktreeEntries = $derived(
     selectedSessions
       .filter((s) => s.isWorktree && wtExistsFor(s.id))
-      .map((s) => ({ id: s.id, repoRoot: s.repoRoot, worktreePath: s.worktreePath })),
+      .map((s) => ({
+        id: s.id,
+        repoRoot: s.repoRoot,
+        worktreePath: s.worktreePath,
+      })),
   );
   const restorableSelected = $derived(
     selectedSessions.filter((s) => wtExistsFor(s.id)),
@@ -244,7 +251,10 @@
     try {
       await removeArchivedSessionForever(s.id);
     } catch (err) {
-      actionError = { sessionId: s.id, message: `Failed to delete history: ${err}` };
+      actionError = {
+        sessionId: s.id,
+        message: `Failed to delete history: ${err}`,
+      };
     }
   }
 
@@ -261,7 +271,10 @@
     try {
       await openPathInFinder(s.worktreePath);
     } catch (err) {
-      actionError = { sessionId: s.id, message: `Failed to reveal worktree: ${err}` };
+      actionError = {
+        sessionId: s.id,
+        message: `Failed to reveal worktree: ${err}`,
+      };
     }
   }
 
@@ -277,7 +290,10 @@
     try {
       await cleanArchivedWorktree(s.id, s.repoRoot, s.worktreePath);
     } catch (err) {
-      actionError = { sessionId: s.id, message: `Failed to remove worktree: ${err}` };
+      actionError = {
+        sessionId: s.id,
+        message: `Failed to remove worktree: ${err}`,
+      };
     }
   }
 
@@ -291,7 +307,11 @@
     oncollapsedchange?.(collapsed);
   }
 
-  function describeBulkResult(verb: string, succeeded: number, failures: { id: string; error: string }[]): string | null {
+  function describeBulkResult(
+    verb: string,
+    succeeded: number,
+    failures: { id: string; error: string }[],
+  ): string | null {
     if (failures.length === 0) return null;
     const sample = failures[0];
     if (failures.length === 1 && succeeded === 0) {
@@ -307,7 +327,11 @@
     bulkPending = true;
     try {
       const result = await bulkRestoreArchivedSessions(ids);
-      bulkError = describeBulkResult("restore", result.succeeded.length, result.failures);
+      bulkError = describeBulkResult(
+        "restore",
+        result.succeeded.length,
+        result.failures,
+      );
       const remaining = new Set(selected);
       for (const id of result.succeeded) remaining.delete(id);
       selected = remaining;
@@ -328,7 +352,9 @@
     bulkError = null;
     bulkPending = true;
     try {
-      const result = await bulkRemoveArchivedWorktrees(selectableWorktreeEntries);
+      const result = await bulkRemoveArchivedWorktrees(
+        selectableWorktreeEntries,
+      );
       bulkError = describeBulkResult(
         "remove worktrees",
         result.succeeded.length,
@@ -435,18 +461,34 @@
       onmousedown={onresizestart}
       title="Resize archived sessions"
     >
-      <div class="h-px w-full transition-colors duration-150 {resizing ? 'bg-white/30' : 'bg-white/15 group-hover:bg-white/35'}"></div>
+      <div
+        class="h-px w-full transition-colors duration-150 {resizing
+          ? 'bg-white/30'
+          : 'bg-white/15 group-hover:bg-white/35'}"
+      ></div>
     </div>
   {/if}
-  <div class="relative flex w-full shrink-0 items-center" data-archived-header-menu>
+  <div
+    class="relative flex w-full shrink-0 items-center"
+    data-archived-header-menu
+  >
     <button
       class="flex flex-1 cursor-pointer items-center gap-1.5 bg-transparent px-2 py-1.5 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
       onclick={toggleCollapsed}
       title="Archived sessions"
     >
-      <ChevronRight size={12} class="text-text-secondary transition-transform duration-150 {collapsed ? '' : 'rotate-90'}" />
-      <span class="text-[10px] font-semibold uppercase tracking-wider text-text-secondary">Archived</span>
-      <span class="text-[10px] text-text-muted/60">· {archivedList.length}</span>
+      <ChevronRight
+        size={12}
+        class="text-text-secondary transition-transform duration-150 {collapsed
+          ? ''
+          : 'rotate-90'}"
+      />
+      <span
+        class="text-[10px] font-semibold uppercase tracking-wider text-text-secondary"
+        >Archived</span
+      >
+      <span class="text-[10px] text-text-muted/60">· {archivedList.length}</span
+      >
     </button>
     {#if !collapsed}
       <button
@@ -477,7 +519,9 @@
             <Trash size={12} />
             <span>Remove all worktrees</span>
             {#if archivedWithWorktreeOnDisk.length > 0}
-              <span class="ml-auto text-[10px] text-text-muted">{archivedWithWorktreeOnDisk.length}</span>
+              <span class="ml-auto text-[10px] text-text-muted"
+                >{archivedWithWorktreeOnDisk.length}</span
+              >
             {/if}
           </button>
           <button
@@ -489,7 +533,9 @@
           >
             <FileX size={12} />
             <span>Clear all history</span>
-            <span class="ml-auto text-[10px] text-text-muted">{archivedList.length}</span>
+            <span class="ml-auto text-[10px] text-text-muted"
+              >{archivedList.length}</span
+            >
           </button>
         </div>
       {/if}
@@ -499,7 +545,10 @@
   {#if !collapsed}
     <div class="px-2 pt-1 pb-1.5">
       <div class="relative">
-        <Search size={11} class="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-text-muted" />
+        <Search
+          size={11}
+          class="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-text-muted"
+        />
         <input
           type="text"
           class="w-full rounded border border-border bg-bg-deep py-1 pl-6 pr-6 text-[11px] text-text-primary placeholder:text-text-muted outline-none focus:border-accent-dim"
@@ -575,7 +624,9 @@
 
     <div class="app-scrollbar min-h-0 flex-1 overflow-y-auto px-1 pb-2">
       {#if loadError}
-        <div class="mb-1 flex items-center gap-2 border border-red/30 bg-red/10 px-2 py-1 text-[11px] text-red">
+        <div
+          class="mb-1 flex items-center gap-2 border border-red/30 bg-red/10 px-2 py-1 text-[11px] text-red"
+        >
           <span class="min-w-0 flex-1 truncate">{loadError}</span>
           <button
             type="button"
@@ -589,8 +640,13 @@
         </div>
       {/if}
       {#if bulkError}
-        <div class="mb-1 flex items-center gap-2 border border-red/30 bg-red/10 px-2 py-1 text-[11px] text-red">
-          <span class="min-w-0 flex-1 truncate" data-testid="archived-bulk-error">{bulkError}</span>
+        <div
+          class="mb-1 flex items-center gap-2 border border-red/30 bg-red/10 px-2 py-1 text-[11px] text-red"
+        >
+          <span
+            class="min-w-0 flex-1 truncate"
+            data-testid="archived-bulk-error">{bulkError}</span
+          >
           <button
             type="button"
             class="flex h-4 w-4 shrink-0 cursor-pointer items-center justify-center text-red/80 hover:text-red focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-red/50"
@@ -624,7 +680,9 @@
           />
           <span>
             {#if filterText}
-              Select {filteredList.length} match{filteredList.length === 1 ? "" : "es"}
+              Select {filteredList.length} match{filteredList.length === 1
+                ? ""
+                : "es"}
             {:else}
               Select all
             {/if}
@@ -649,17 +707,24 @@
                 aria-label={`Select ${sessionDisplayName(s)}`}
                 data-testid="archived-row-checkbox"
               />
-              <span class="inline-block h-2 w-2 shrink-0 rounded-full bg-text-muted/40"></span>
-              <span class="min-w-0 flex-1 truncate text-[12px] font-medium text-text-primary">{sessionDisplayName(s)}</span>
-              <span class="shrink-0 whitespace-nowrap text-[10px] text-text-muted">
+              <span
+                class="inline-block h-2 w-2 shrink-0 rounded-full bg-text-muted/40"
+              ></span>
+              <span
+                class="min-w-0 flex-1 truncate text-[12px] font-medium text-text-primary"
+                >{sessionDisplayName(s)}</span
+              >
+              <span
+                class="shrink-0 whitespace-nowrap text-[10px] text-text-muted"
+              >
                 {s.endedAt ? formatRelative(s.endedAt) : "closed"}
               </span>
               <button
                 type="button"
                 class="inline-flex h-6 shrink-0 cursor-pointer items-center gap-1 rounded border px-2 text-[10px] font-medium whitespace-nowrap transition-colors duration-150
                   {wtExists
-                    ? 'border-accent-dim/50 bg-accent-dim/15 text-accent hover:bg-accent-dim/30'
-                    : 'border-border-subtle bg-transparent text-text-muted opacity-60'}
+                  ? 'border-accent-dim/50 bg-accent-dim/15 text-accent hover:bg-accent-dim/30'
+                  : 'border-border-subtle bg-transparent text-text-muted opacity-60'}
                   disabled:cursor-not-allowed"
                 disabled={!wtExists}
                 title={wtExists
@@ -684,8 +749,13 @@
                 <MoreHorizontal size={13} />
               </button>
             </div>
-            <div class="ml-9 mt-0.5 flex min-h-5 items-center gap-1.5 overflow-hidden text-[10px] text-text-muted">
-              <span class="min-w-0 truncate" title={`${s.branch} · ${s.worktreePath}`}>
+            <div
+              class="ml-9 mt-0.5 flex min-h-5 items-center gap-1.5 overflow-hidden text-[10px] text-text-muted"
+            >
+              <span
+                class="min-w-0 truncate"
+                title={`${s.branch} · ${s.worktreePath}`}
+              >
                 {s.branch}
                 {#if s.worktreePath}
                   <span class="text-text-muted/60">·</span>
@@ -694,14 +764,23 @@
               </span>
               {#if s.isWorktree}
                 <span
-                  class="shrink-0 rounded px-1 py-0.5 {wtExists ? 'bg-green/15 text-green' : 'bg-text-muted/15 text-text-muted'}"
-                  title={wtExists ? "Worktree still exists on disk" : "Worktree has been removed"}
-                >{wtExists ? "on disk" : "gone"}</span>
+                  class="shrink-0 rounded px-1 py-0.5 {wtExists
+                    ? 'bg-green/15 text-green'
+                    : 'bg-text-muted/15 text-text-muted'}"
+                  title={wtExists
+                    ? "Worktree still exists on disk"
+                    : "Worktree has been removed"}
+                  >{wtExists ? "on disk" : "gone"}</span
+                >
               {/if}
             </div>
             {#if actionError?.sessionId === s.id}
-              <div class="ml-9 mt-1 flex items-center gap-2 border border-red/30 bg-red/10 px-2 py-1 text-[10px] text-red">
-                <span class="min-w-0 flex-1 truncate">{actionError.message}</span>
+              <div
+                class="ml-9 mt-1 flex items-center gap-2 border border-red/30 bg-red/10 px-2 py-1 text-[10px] text-red"
+              >
+                <span class="min-w-0 flex-1 truncate"
+                  >{actionError.message}</span
+                >
                 <button
                   type="button"
                   class="flex h-4 w-4 shrink-0 cursor-pointer items-center justify-center text-red/80 hover:text-red focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-red/50"

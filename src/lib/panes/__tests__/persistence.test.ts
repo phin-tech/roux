@@ -120,10 +120,7 @@ describe("persistence — Tauri-backed API", () => {
         layout: {
           kind: "split",
           direction: "h",
-          children: [
-            { kind: "leaf", paneId: "s1-main" },
-            null,
-          ],
+          children: [{ kind: "leaf", paneId: "s1-main" }, null],
         },
         descriptors: [{ id: "s1-main", type: "shell", ptyId: "s1" }],
       } as unknown);
@@ -272,13 +269,9 @@ describe("persistence — Tauri-backed API", () => {
       await vi.advanceTimersByTimeAsync(1600);
       await vi.runAllTimersAsync();
 
-      const [sessionId, schemaVersion, layout, paneIds] = vi.mocked(saveLivePaneStateRaw)
-        .mock.calls[0] as [
-        string,
-        number,
-        LayoutNode,
-        string[],
-      ];
+      const [sessionId, schemaVersion, layout, paneIds] = vi.mocked(
+        saveLivePaneStateRaw,
+      ).mock.calls[0] as [string, number, LayoutNode, string[]];
       expect(sessionId).toBe("s1");
       expect(schemaVersion).toBe(5);
       expect(layout).toEqual({ kind: "leaf", paneId: "s1-shell" });
@@ -310,7 +303,7 @@ describe("persistence — Tauri-backed API", () => {
     it("does not save when the layout map republishes unchanged tree references", async () => {
       vi.mocked(saveLivePaneStateRaw).mockResolvedValue(undefined);
       sessionLayouts.set(
-        new Map([["s1", { kind: "leaf", paneId: "s1-main" }]])
+        new Map([["s1", { kind: "leaf", paneId: "s1-main" }]]),
       );
 
       initPersistence();
@@ -323,10 +316,12 @@ describe("persistence — Tauri-backed API", () => {
 
     it("only marks sessions whose layout tree changed as dirty", async () => {
       vi.mocked(saveLivePaneStateRaw).mockResolvedValue(undefined);
-      sessionLayouts.set(new Map([
-        ["s1", { kind: "leaf", paneId: "s1-main" }],
-        ["s2", { kind: "leaf", paneId: "s2-main" }],
-      ]));
+      sessionLayouts.set(
+        new Map([
+          ["s1", { kind: "leaf", paneId: "s1-main" }],
+          ["s2", { kind: "leaf", paneId: "s2-main" }],
+        ]),
+      );
 
       initPersistence();
       sessionLayouts.update((m) => {
@@ -367,7 +362,7 @@ describe("persistence — Tauri-backed API", () => {
       vi.mocked(saveLivePaneStateRaw).mockResolvedValue(undefined);
 
       sessionLayouts.set(
-        new Map([["s1", { kind: "leaf", paneId: "s1-shell" }]])
+        new Map([["s1", { kind: "leaf", paneId: "s1-shell" }]]),
       );
 
       initPersistence();
@@ -376,13 +371,9 @@ describe("persistence — Tauri-backed API", () => {
       await flushPaneState();
 
       expect(saveLivePaneStateRaw).toHaveBeenCalledTimes(1);
-      const [sessionId, schemaVersion, layout, paneIds] = vi.mocked(saveLivePaneStateRaw)
-        .mock.calls[0] as [
-        string,
-        number,
-        LayoutNode,
-        string[],
-      ];
+      const [sessionId, schemaVersion, layout, paneIds] = vi.mocked(
+        saveLivePaneStateRaw,
+      ).mock.calls[0] as [string, number, LayoutNode, string[]];
       expect(sessionId).toBe("s1");
       expect(schemaVersion).toBe(5);
       expect(layout).toEqual({ kind: "leaf", paneId: "s1-shell" });
@@ -405,7 +396,7 @@ describe("persistence — Tauri-backed API", () => {
       // this would schedule a save that clobbers the persisted full layout.
       vi.mocked(saveLivePaneStateRaw).mockResolvedValue(undefined);
       sessionLayouts.set(
-        new Map([["s1", { kind: "leaf", paneId: "s1-main" }]])
+        new Map([["s1", { kind: "leaf", paneId: "s1-main" }]]),
       );
 
       initPersistence();

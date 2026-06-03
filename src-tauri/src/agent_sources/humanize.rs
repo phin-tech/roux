@@ -84,9 +84,8 @@ pub fn humanize_attention(
         "WebFetch" => ("Fetch URL".to_string(), s(input, "url").map(|u| u.to_string())),
         "WebSearch" => ("Web search".to_string(), s(input, "query").map(|q| q.to_string())),
         "Task" => {
-            let body = s(input, "description")
-                .or_else(|| s(input, "prompt"))
-                .map(|t| truncate(t, 200));
+            let body =
+                s(input, "description").or_else(|| s(input, "prompt")).map(|t| truncate(t, 200));
             ("Run task".to_string(), body)
         }
         "TodoWrite" => ("Update todos".to_string(), None),

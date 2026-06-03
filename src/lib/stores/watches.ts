@@ -41,14 +41,16 @@ export function removeWatchFromStore(id: string): void {
 export function watchesForSession(sessionId: string) {
   return derived(watchState, ($watches) =>
     $watches.filter(
-      (w) => w.scope.type === "session" && w.scope.sessionId === sessionId
-    )
+      (w) => w.scope.type === "session" && w.scope.sessionId === sessionId,
+    ),
   );
 }
 
-export const failureCount = derived(watchState, ($watches) =>
-  $watches.filter((w) => {
-    if (!w.lastResult) return false;
-    return w.lastResult.outcome === "failure";
-  }).length
+export const failureCount = derived(
+  watchState,
+  ($watches) =>
+    $watches.filter((w) => {
+      if (!w.lastResult) return false;
+      return w.lastResult.outcome === "failure";
+    }).length,
 );

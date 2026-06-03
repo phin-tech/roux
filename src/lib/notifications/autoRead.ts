@@ -53,7 +53,9 @@ export function stopNotificationAutoRead(): void {
 function markRelevantNotificationsRead(): void {
   const focusedPane = get(focusedPaneId);
   const activeSession = get(activeSessionId);
-  const focusedPaneSession = focusedPane ? findSessionForPane(focusedPane) : null;
+  const focusedPaneSession = focusedPane
+    ? findSessionForPane(focusedPane)
+    : null;
   const snapshot = get(notifications);
   const unreadIds = new Set(snapshot.filter((n) => !n.read).map((n) => n.id));
   const liveIds = new Set(snapshot.map((n) => n.id));
@@ -66,7 +68,14 @@ function markRelevantNotificationsRead(): void {
 
   for (const notification of snapshot) {
     if (pendingRemoveIds.has(notification.id)) continue;
-    if (!matchesNavigationTarget(notification, activeSession, focusedPaneSession, focusedPane)) {
+    if (
+      !matchesNavigationTarget(
+        notification,
+        activeSession,
+        focusedPaneSession,
+        focusedPane,
+      )
+    ) {
       continue;
     }
 
@@ -137,4 +146,3 @@ function matchesNavigationTarget(
     return kind.type === "focusPane" && kind.paneId === paneId;
   });
 }
-

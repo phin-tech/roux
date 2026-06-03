@@ -84,19 +84,14 @@ pub enum UserThemeError {
 /// themes. Sorted by `id` for stable UI ordering. Files that fail to
 /// parse are returned as `Err` entries so the caller can log them while
 /// still surfacing the good ones.
-pub fn scan_user_terminal_themes(
-    dir: &Path,
-) -> Vec<Result<UserTerminalTheme, UserThemeError>> {
+pub fn scan_user_terminal_themes(dir: &Path) -> Vec<Result<UserTerminalTheme, UserThemeError>> {
     let entries = match fs::read_dir(dir) {
         Ok(e) => e,
         // Missing directory is normal (user hasn't created it yet); return
         // an empty list rather than an error.
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Vec::new(),
         Err(e) => {
-            return vec![Err(UserThemeError::Io {
-                path: dir.display().to_string(),
-                source: e,
-            })];
+            return vec![Err(UserThemeError::Io { path: dir.display().to_string(), source: e })];
         }
     };
 
@@ -126,41 +121,33 @@ fn parse_itermcolors_file(path: &Path) -> Result<UserTerminalTheme, UserThemeErr
     let stem = path
         .file_stem()
         .and_then(|s| s.to_str())
-        .ok_or_else(|| UserThemeError::InvalidFilename {
-            path: path.display().to_string(),
-        })?;
+        .ok_or_else(|| UserThemeError::InvalidFilename { path: path.display().to_string() })?;
     let id = format!("user:{stem}");
     let label = stem_to_label(stem);
 
-    let value = plist::Value::from_file(path).map_err(|e| UserThemeError::Plist {
-        path: path.display().to_string(),
-        source: e,
-    })?;
+    let value = plist::Value::from_file(path)
+        .map_err(|e| UserThemeError::Plist { path: path.display().to_string(), source: e })?;
     let palette = palette_from_plist(&value, path)?;
 
-    Ok(UserTerminalTheme {
-        id,
-        label,
-        palette,
-    })
+    Ok(UserTerminalTheme { id, label, palette })
 }
 
-fn palette_from_plist(value: &plist::Value, path: &Path) -> Result<TerminalThemePalette, UserThemeError> {
+fn palette_from_plist(
+    value: &plist::Value,
+    path: &Path,
+) -> Result<TerminalThemePalette, UserThemeError> {
     let dict = value.as_dictionary().ok_or_else(|| UserThemeError::MissingKey {
         path: path.display().to_string(),
         key: "<root dict>",
     })?;
     let read = |key: &'static str| -> Result<String, UserThemeError> {
-        let entry = dict.get(key).ok_or_else(|| UserThemeError::MissingKey {
+        let entry = dict
+            .get(key)
+            .ok_or_else(|| UserThemeError::MissingKey { path: path.display().to_string(), key })?;
+        let dict = entry.as_dictionary().ok_or_else(|| UserThemeError::InvalidColor {
             path: path.display().to_string(),
             key,
         })?;
-        let dict = entry
-            .as_dictionary()
-            .ok_or_else(|| UserThemeError::InvalidColor {
-                path: path.display().to_string(),
-                key,
-            })?;
         let comp = |k: &str| -> Result<f64, UserThemeError> {
             // iTerm2 usually writes <real>0.5</real> but occasionally
             // emits <integer>0</integer> / <integer>1</integer> for exact
@@ -208,11 +195,7 @@ fn palette_from_plist(value: &plist::Value, path: &Path) -> Result<TerminalTheme
 
 fn rgb_to_hex(r: f64, g: f64, b: f64) -> String {
     let to_byte = |c: f64| -> u8 {
-        let clamped = if c.is_nan() {
-            0.0
-        } else {
-            c.clamp(0.0, 1.0)
-        };
+        let clamped = if c.is_nan() { 0.0 } else { c.clamp(0.0, 1.0) };
         (clamped * 255.0).round() as u8
     };
     format!("#{:02x}{:02x}{:02x}", to_byte(r), to_byte(g), to_byte(b))

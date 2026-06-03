@@ -25,7 +25,10 @@ export function openLibraryNew(itemType: LibraryItemType): void {
   libraryWindow.set({ open: true, itemId: null, itemType, mode: "new" });
 }
 
-export function openLibraryEdit(itemId: string, itemType: LibraryItemType): void {
+export function openLibraryEdit(
+  itemId: string,
+  itemType: LibraryItemType,
+): void {
   libraryWindow.set({ open: true, itemId, itemType, mode: "edit" });
 }
 

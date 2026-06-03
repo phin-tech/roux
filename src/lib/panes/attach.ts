@@ -6,7 +6,12 @@
  * write the replay, subscribe to live output, and mark the PTY as read.
  */
 
-import { getInstance, updateInstance, replacePty, findPaneByPtyId } from "./instances";
+import {
+  getInstance,
+  updateInstance,
+  replacePty,
+  findPaneByPtyId,
+} from "./instances";
 import type { PaneInstance } from "./instances";
 import { getTerminalController } from "./terminalRuntime";
 import { connectPaneTerminal } from "./terminals";
@@ -74,7 +79,10 @@ export async function attachPtyToPane(
   };
 
   if (options.profile) {
-    const profileRef: SpawnProfileRef = { kind: "registered", id: options.profile };
+    const profileRef: SpawnProfileRef = {
+      kind: "registered",
+      id: options.profile,
+    };
     updates.spawnProfileRef = profileRef;
   }
 
@@ -112,7 +120,9 @@ export async function attachPtyToPane(
   // Mark as read so notification badges clear.
   await markPtyRead(ptyId).catch(() => {});
 
-  log(`attachPtyToPane: attached ${ptyId} to pane ${paneId}${options.profile ? ` (profile=${options.profile})` : ""}`);
+  log(
+    `attachPtyToPane: attached ${ptyId} to pane ${paneId}${options.profile ? ` (profile=${options.profile})` : ""}`,
+  );
 }
 
 /**

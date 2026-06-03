@@ -67,7 +67,9 @@ describe("CommandRegistry", () => {
       id: "test.cmd",
       label: "Test",
       category: "Test",
-      execute: () => { executed = true; },
+      execute: () => {
+        executed = true;
+      },
     });
 
     registry.execute("test.cmd");
@@ -135,8 +137,8 @@ describe("CommandRegistry", () => {
     registry.register({ id: "c", label: "C", category: "Alpha" });
 
     const available = registry.getAvailable();
-    const alphas = available.filter(c => c.category === "Alpha");
-    const betas = available.filter(c => c.category === "Beta");
+    const alphas = available.filter((c) => c.category === "Alpha");
+    const betas = available.filter((c) => c.category === "Beta");
 
     expect(alphas).toHaveLength(2);
     expect(betas).toHaveLength(1);

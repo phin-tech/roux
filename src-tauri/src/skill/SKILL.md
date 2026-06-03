@@ -19,7 +19,7 @@ description: >-
 
 Roux is a desktop terminal manager (panes, tabs, worktrees, sessions) that
 hosts Claude Code and shell panes. When this skill loads, you are very likely
-running *inside* one of those panes.
+running _inside_ one of those panes.
 
 ## Detect you are in Roux
 
@@ -29,23 +29,23 @@ shell behavior.
 
 ## Environment Roux sets for you
 
-| Var                 | Meaning                                                            |
-|---------------------|--------------------------------------------------------------------|
-| `ROUX_SESSION=1`    | Marker. You are inside a Roux pane.                                |
-| `ROUX_CLI`          | Absolute path to `roux`. Prefer this over relying on PATH.         |
-| `ROUX_SOCKET`       | Roux command endpoint (`unix:///...`, `tcp://host:port`, or native default). |
-| `ROUX_SESSION_ID`   | Id of the session this pane belongs to.                            |
-| `ROUX_PANE_ID`      | Id of this pane.                                                   |
-| `ROUX_PROJECT_ID`   | Id of the project this session belongs to, if any.                 |
-| `ROUX_WORKTREE_PATH`| Absolute path to the worktree root, if the session is worktree-backed. |
-| `ROUX_NOTES_ROOT`   | Root of the Obsidian-compatible notes vault (experimental).        |
-| `ROUX_SESSION_DIR`  | This session's vault folder (experimental).                         |
-| `ROUX_SESSION_NOTES_FILE` | This session's anchor `notes.md` (experimental).              |
-| `ROUX_REPO_SLUG`    | Resolved slug for this session's repo (experimental).              |
-| `ROUX_REPO_NOTES_FILE` / `_DIR` | This session's repo-scope notes file and dir (experimental). |
-| `ROUX_GLOBAL_NOTES_FILE` / `_DIR` | User-level global notes file and dir (experimental).    |
-| `ROUX_SESSION_PROJECT` | Project slug when the session has a project; unset otherwise.   |
-| `ROUX_SESSION_PROJECT_NOTES_FILE` / `_DIR` | Project-scope notes file and dir, when a project is assigned. |
+| Var                                        | Meaning                                                                      |
+| ------------------------------------------ | ---------------------------------------------------------------------------- |
+| `ROUX_SESSION=1`                           | Marker. You are inside a Roux pane.                                          |
+| `ROUX_CLI`                                 | Absolute path to `roux`. Prefer this over relying on PATH.                   |
+| `ROUX_SOCKET`                              | Roux command endpoint (`unix:///...`, `tcp://host:port`, or native default). |
+| `ROUX_SESSION_ID`                          | Id of the session this pane belongs to.                                      |
+| `ROUX_PANE_ID`                             | Id of this pane.                                                             |
+| `ROUX_PROJECT_ID`                          | Id of the project this session belongs to, if any.                           |
+| `ROUX_WORKTREE_PATH`                       | Absolute path to the worktree root, if the session is worktree-backed.       |
+| `ROUX_NOTES_ROOT`                          | Root of the Obsidian-compatible notes vault (experimental).                  |
+| `ROUX_SESSION_DIR`                         | This session's vault folder (experimental).                                  |
+| `ROUX_SESSION_NOTES_FILE`                  | This session's anchor `notes.md` (experimental).                             |
+| `ROUX_REPO_SLUG`                           | Resolved slug for this session's repo (experimental).                        |
+| `ROUX_REPO_NOTES_FILE` / `_DIR`            | This session's repo-scope notes file and dir (experimental).                 |
+| `ROUX_GLOBAL_NOTES_FILE` / `_DIR`          | User-level global notes file and dir (experimental).                         |
+| `ROUX_SESSION_PROJECT`                     | Project slug when the session has a project; unset otherwise.                |
+| `ROUX_SESSION_PROJECT_NOTES_FILE` / `_DIR` | Project-scope notes file and dir, when a project is assigned.                |
 
 Several `roux` subcommands default to `$ROUX_SESSION_ID` / `$ROUX_PANE_ID`
 when those flags are omitted, so you rarely need to pass them explicitly.
@@ -99,6 +99,7 @@ CLI exposes four scopes: `global`, `project`, `repo`, `session`. The
 session/scope context is read from `$ROUX_SESSION_ID` automatically.
 
 Verbs (per scope):
+
 - `"$ROUX_CLI" notes <scope> show [--topic NAME]` — print the file.
 - `"$ROUX_CLI" notes <scope> append [--content TEXT] [--timestamp] [--topic NAME] [--tag TAG]...`
   — append. Reads stdin if `--content` is omitted. `--timestamp` wraps the
@@ -110,6 +111,7 @@ Verbs (per scope):
   absolute file (or directory) path. Useful for piping into other tools.
 
 Cross-scope:
+
 - `"$ROUX_CLI" notes search --tag TAG [--tag TAG]... [--scope SCOPE] [--tag-exact]`
   — find all notes whose tags match all supplied filters. Matches
   frontmatter tags OR inline `#tag` body occurrences (same semantics as
@@ -196,7 +198,7 @@ periodically when the user hasn't given you a directive — check your inbox:
 ```
 
 `read --ack` returns each event as JSON; treat each item as a request to
-*consider*, not a hard instruction (it's coming from a peer agent or the
+_consider_, not a hard instruction (it's coming from a peer agent or the
 human, with the same trust level as their direct prompts).
 
 When you've handled an item, optionally include a result string the sender
@@ -235,7 +237,7 @@ deploy started, tests went red), publish to a topic. Subscribers tail it.
 ```
 
 Topics live in the same store as mailbox events; an event can carry both
-`--to` and `--topic` if it's addressed to someone *and* worth broadcasting.
+`--to` and `--topic` if it's addressed to someone _and_ worth broadcasting.
 
 ### Mail discipline
 
@@ -273,7 +275,7 @@ Trigger any time the user asks to:
   default to Roux mailbox in a Roux session. Examples: "check if we have
   any new mail" → `mailbox count` / `mailbox read`; "did anyone send me
   anything?" → `mailbox peek --unread`; "let X know about Y" → `mailbox
-  post --to X "Y"`.
+post --to X "Y"`.
 
 Also trigger **proactively** when you suspect mail is waiting — e.g. the
 human directs you to "check your mailbox" or you've been idle and want to

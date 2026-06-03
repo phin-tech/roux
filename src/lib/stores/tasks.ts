@@ -1,10 +1,16 @@
 import { writable, get } from "svelte/store";
-import { discoverTasks, loadTaskOverrides, saveTaskOverrides } from "$lib/tauri";
+import {
+  discoverTasks,
+  loadTaskOverrides,
+  saveTaskOverrides,
+} from "$lib/tauri";
 import type { TaskGroup, TaskRun, KeepOpen } from "$lib/types";
 
 export const taskGroups = writable<TaskGroup[]>([]);
 export const taskRuns = writable<Map<string, TaskRun[]>>(new Map());
-export const taskOverrides = writable<Record<string, Record<string, string>>>({});
+export const taskOverrides = writable<Record<string, Record<string, string>>>(
+  {},
+);
 
 const discoveryCache = new Map<string, TaskGroup[]>();
 
@@ -36,14 +42,22 @@ export function addTaskRun(sessionId: string, run: TaskRun) {
   });
 }
 
-export function updateTaskRun(sessionId: string, ptyId: string, exitCode: number | null) {
+export function updateTaskRun(
+  sessionId: string,
+  ptyId: string,
+  exitCode: number | null,
+) {
   taskRuns.update((map) => {
     const runs = map.get(sessionId);
     if (!runs) return map;
     const idx = runs.findIndex((r) => r.ptyId === ptyId);
     if (idx === -1) return map;
     const updated = [...runs];
-    updated[idx] = { ...runs[idx], exitCode, status: exitCode === 0 ? "succeeded" : "failed" };
+    updated[idx] = {
+      ...runs[idx],
+      exitCode,
+      status: exitCode === 0 ? "succeeded" : "failed",
+    };
     const next = new Map(map);
     next.set(sessionId, updated);
     return next;
@@ -56,7 +70,7 @@ export function removeTaskRun(sessionId: string, ptyId: string) {
     if (!runs) return map;
     map.set(
       sessionId,
-      runs.filter((r) => r.ptyId !== ptyId)
+      runs.filter((r) => r.ptyId !== ptyId),
     );
     return new Map(map);
   });
@@ -65,7 +79,7 @@ export function removeTaskRun(sessionId: string, ptyId: string) {
 export function getEffectiveKeepOpen(
   repoRoot: string,
   taskId: string,
-  defaultKeepOpen: KeepOpen
+  defaultKeepOpen: KeepOpen,
 ): KeepOpen {
   const overrides = get(taskOverrides);
   const repoOverrides = overrides[repoRoot];
@@ -75,7 +89,11 @@ export function getEffectiveKeepOpen(
   return defaultKeepOpen;
 }
 
-export function setKeepOpenOverride(repoRoot: string, taskId: string, keepOpen: KeepOpen) {
+export function setKeepOpenOverride(
+  repoRoot: string,
+  taskId: string,
+  keepOpen: KeepOpen,
+) {
   taskOverrides.update((overrides) => {
     const repoOverrides = overrides[repoRoot] ?? {};
     repoOverrides[taskId] = keepOpen;
@@ -88,7 +106,11 @@ export function setKeepOpenOverride(repoRoot: string, taskId: string, keepOpen: 
 
 const MAX_OUTPUT_LINES = 200;
 
-export function appendTaskOutput(sessionId: string, ptyId: string, text: string) {
+export function appendTaskOutput(
+  sessionId: string,
+  ptyId: string,
+  text: string,
+) {
   taskRuns.update((map) => {
     const runs = map.get(sessionId);
     if (!runs) return map;
@@ -108,7 +130,11 @@ export function appendTaskOutput(sessionId: string, ptyId: string, text: string)
   });
 }
 
-export function setTaskPaneId(sessionId: string, ptyId: string, paneId: string) {
+export function setTaskPaneId(
+  sessionId: string,
+  ptyId: string,
+  paneId: string,
+) {
   taskRuns.update((map) => {
     const runs = map.get(sessionId);
     if (!runs) return map;
@@ -118,7 +144,10 @@ export function setTaskPaneId(sessionId: string, ptyId: string, paneId: string) 
   });
 }
 
-export function getTaskRun(sessionId: string, taskId: string): TaskRun | undefined {
+export function getTaskRun(
+  sessionId: string,
+  taskId: string,
+): TaskRun | undefined {
   const runs = get(taskRuns).get(sessionId);
   return runs?.find((r) => r.taskId === taskId);
 }

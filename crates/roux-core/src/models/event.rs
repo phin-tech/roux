@@ -178,11 +178,7 @@ pub enum MailboxEvent {
     /// this to bump unread counts for the subscriber alias and to surface
     /// the delivery in the recipient's inbox without an explicit
     /// `to=<alias>` on the underlying event.
-    TopicDelivered {
-        event_id: String,
-        recipient: String,
-        subscription_id: String,
-    },
+    TopicDelivered { event_id: String, recipient: String, subscription_id: String },
     /// Sender unsent the event. Recipients should drop it from their
     /// inbox view; the row stays in `events.jsonl` for audit.
     Retracted { event_id: String },
@@ -319,9 +315,8 @@ mod tests {
 
     #[test]
     fn builder_validate_accepts_empty_body_with_structured_payload() {
-        let e = EventBuilder::new("")
-            .to("reviewer")
-            .structured(serde_json::json!({"task": "review"}));
+        let e =
+            EventBuilder::new("").to("reviewer").structured(serde_json::json!({"task": "review"}));
         assert!(e.validate().is_ok());
     }
 

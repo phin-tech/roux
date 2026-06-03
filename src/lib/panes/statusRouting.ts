@@ -18,7 +18,10 @@ import { updateInstance } from "./instances";
  */
 export type PaneSessionCheck = (sessionId: string, paneId: string) => boolean;
 
-function defaultPaneBelongsToSession(sessionId: string, paneId: string): boolean {
+function defaultPaneBelongsToSession(
+  sessionId: string,
+  paneId: string,
+): boolean {
   const layout = get(sessionLayouts).get(sessionId);
   if (!layout) return false;
   for (const leafId of collectLeafIds(layout)) {
@@ -100,7 +103,10 @@ export function routeStatusUpdate(
   if (!routed) {
     // Disconnected is backend/session liveness, not pane agent activity,
     // so it does not move the pane's agentState dot.
-    return { kind: "dropped", reason: `non-routable status "${update.status}"` };
+    return {
+      kind: "dropped",
+      reason: `non-routable status "${update.status}"`,
+    };
   }
 
   const permissionInfo = buildPermissionInfo(update);
@@ -187,12 +193,15 @@ function buildPermissionInfo(update: StatusUpdate): PermissionInfo | undefined {
   if (!hasContent) return undefined;
   return {
     toolName: update.toolName ?? undefined,
-    toolInput: (update.toolInput as Record<string, unknown> | null) ?? undefined,
+    toolInput:
+      (update.toolInput as Record<string, unknown> | null) ?? undefined,
     message: update.message ?? undefined,
   };
 }
 
-function buildCompletionSummary(update: StatusUpdate): CompletionSummary | undefined {
+function buildCompletionSummary(
+  update: StatusUpdate,
+): CompletionSummary | undefined {
   const query = update.query?.trim();
   const response = update.response?.trim();
   if (!query && !response) return undefined;

@@ -245,7 +245,7 @@ statements in the user's file add to or replace preset entries:
 - `unbind "X"` at the top level removes the preset's **direct bind** for
   `X`. It does not reach into trees — trees are only modified by redeclaring
   them.
-- `tree "<name>" { ... }` with a name already defined by the preset *replaces*
+- `tree "<name>" { ... }` with a name already defined by the preset _replaces_
   the whole tree. There is no tree-level merge in v1 — users who want to tweak
   two keys of a preset tree redeclare it.
 - `prefix "..." tree="..."` with a key already bound as a prefix replaces it.
@@ -268,7 +268,10 @@ Pure function. Signature:
 ```ts
 function parseKeymap(
   kdlText: string,
-  options: { getPresetKdl: (name: string) => string | null; knownCommandIds: Set<string> },
+  options: {
+    getPresetKdl: (name: string) => string | null;
+    knownCommandIds: Set<string>;
+  },
 ): ParseResult;
 
 type ParseResult =
@@ -309,14 +312,20 @@ interface Tree {
   sticky: boolean;
   passthrough: boolean;
   hud: HudMode;
-  binds: Map<string /* key, as keyed by the resolver's normalization */, Action>;
+  binds: Map<
+    string /* key, as keyed by the resolver's normalization */,
+    Action
+  >;
 }
 
 type Action =
   | { kind: "command"; commandId: string }
   | { kind: "enterTree"; tree: string };
 
-type HudMode = { kind: "always" } | { kind: "delayed"; ms: number } | { kind: "never" };
+type HudMode =
+  | { kind: "always" }
+  | { kind: "delayed"; ms: number }
+  | { kind: "never" };
 ```
 
 No Svelte or DOM imports; testable as a pure function.
@@ -328,8 +337,8 @@ Svelte writable holding both the parsed keymap and runtime state:
 ```ts
 interface KeymapState {
   keymap: ParsedKeymap;
-  treePath: string[];               // chain of trees entered from root, e.g. ["leader", "leader-panes"]. Empty when no tree is active. Tail element is the currently-armed tree.
-  hudVisibleSince: number | null;   // for delayed HUD timing
+  treePath: string[]; // chain of trees entered from root, e.g. ["leader", "leader-panes"]. Empty when no tree is active. Tail element is the currently-armed tree.
+  hudVisibleSince: number | null; // for delayed HUD timing
 }
 ```
 
@@ -354,11 +363,11 @@ function resolveKey(
 ): Resolution;
 
 type Resolution =
-  | { kind: "none" }                                     // no binding; fall through
-  | { kind: "enterTree"; tree: string }                  // prefix matched, or `enter-tree` action fired
+  | { kind: "none" } // no binding; fall through
+  | { kind: "enterTree"; tree: string } // prefix matched, or `enter-tree` action fired
   | { kind: "chord"; action: Action; keepTreeOpen: boolean }
-  | { kind: "passthrough" }                              // passthrough tree, unbound key
-  | { kind: "exit" };                                    // Escape in tree
+  | { kind: "passthrough" } // passthrough tree, unbound key
+  | { kind: "exit" }; // Escape in tree
 ```
 
 Multi-step chords within a single tree are not supported. A two-key sequence
@@ -369,26 +378,26 @@ Precedence, in order:
 
 1. If a tree is active:
    a. If the event matches a bind in the active tree, resolve to
-      `chord` with `keepTreeOpen = tree.sticky` (where `tree` is the tail
-      element of `treePath`). If the action is
-      `enterTree`, resolve to `enterTree` instead. **Tree binds match before
-      prefixes** — this lets users bind `"C-b c"` inside the tmux tree even
-      though `C-b` is the tree's own prefix; the second `C-b` fires the
-      bind rather than rearming. If the user wants "rearm on double-prefix"
-      they simply leave that key unbound in the tree.
+   `chord` with `keepTreeOpen = tree.sticky` (where `tree` is the tail
+   element of `treePath`). If the action is
+   `enterTree`, resolve to `enterTree` instead. **Tree binds match before
+   prefixes** — this lets users bind `"C-b c"` inside the tmux tree even
+   though `C-b` is the tree's own prefix; the second `C-b` fires the
+   bind rather than rearming. If the user wants "rearm on double-prefix"
+   they simply leave that key unbound in the tree.
    b. Else if the event matches a `prefix` trigger, resolve to `enterTree`
-      (prefix-within-prefix cancels and rearms; tmux behavior).
+   (prefix-within-prefix cancels and rearms; tmux behavior).
    c. Else if the event is Escape, resolve to `exit`. Escape exits
-      unconditionally — in both sticky and non-sticky, passthrough or not.
-      The only exception is when the active tree explicitly binds Escape to
-      something, in which case 1a runs first and the bind fires.
+   unconditionally — in both sticky and non-sticky, passthrough or not.
+   The only exception is when the active tree explicitly binds Escape to
+   something, in which case 1a runs first and the bind fires.
    d. Else if the active tree is passthrough, resolve to `passthrough`.
    e. Else resolve to `none` (unbound key in non-passthrough tree is dropped;
-      the tree stays armed).
+   the tree stays armed).
 2. If no tree is active:
    a. If the event matches a `prefix` trigger, resolve to `enterTree`.
    b. Else if the event matches a `directBind`, resolve to `chord` with
-      `keepTreeOpen = false`.
+   `keepTreeOpen = false`.
    c. Else resolve to `none`.
 
 **Consequence for passthrough trees and terminal control chars.** A
@@ -413,7 +422,8 @@ The current `handleKeyDown` block in `src/App.svelte:202-330` is replaced:
 ```ts
 function handleKeyDown(e: KeyboardEvent) {
   // Hint-overlay arming preserved; it's UI, not a binding.
-  if (isMacPlatform() ? e.key === "Meta" : e.key === "Control") armSessionHints();
+  if (isMacPlatform() ? e.key === "Meta" : e.key === "Control")
+    armSessionHints();
   if (e.key === "Alt") armPaneHints();
 
   // Command surfaces (palette open, leader HUD with prompt visible) own
@@ -424,7 +434,11 @@ function handleKeyDown(e: KeyboardEvent) {
   // key, so no special case is needed for leader entry.
   const surface = get(commandSurface);
   if (surface.open && surface.mode !== "leader") return;
-  if (surface.open && surface.mode === "leader" && surface.leaderPromptCommandId) {
+  if (
+    surface.open &&
+    surface.mode === "leader" &&
+    surface.leaderPromptCommandId
+  ) {
     // Leader prompt is active (onInput flow). Let the palette's Enter /
     // Escape handlers run; the global keymap stays out.
     return;
@@ -454,7 +468,7 @@ function handleKeyDown(e: KeyboardEvent) {
       if (!resolution.keepTreeOpen) keymapStore.exitTree();
       return;
     case "passthrough":
-      return;  // don't preventDefault; terminal receives the key
+      return; // don't preventDefault; terminal receives the key
     case "exit":
       e.preventDefault();
       keymapStore.exitTree();
@@ -468,7 +482,7 @@ function dispatchAction(action: Action): void {
     return;
   }
   const cmd = registry.get(action.commandId);
-  if (!cmd) return;               // unknown: warning already fired at load
+  if (!cmd) return; // unknown: warning already fired at load
   if (cmd.execute) {
     cmd.execute();
     return;
@@ -476,7 +490,10 @@ function dispatchAction(action: Action): void {
   if (cmd.onInput) {
     // Open the leader-prompt UI for this command, preserving the current
     // App.svelte `openLeaderPrompt` flow (see src/App.svelte:171-196).
-    openLeaderPrompt(action.commandId, getLeaderPromptInitialValue(action.commandId));
+    openLeaderPrompt(
+      action.commandId,
+      getLeaderPromptInitialValue(action.commandId),
+    );
     return;
   }
   // Commands with only getItems drill into a command-palette surface; this

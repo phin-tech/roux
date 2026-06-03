@@ -13,10 +13,7 @@
   import type { WorkItemDecision } from "$lib/types/workItems";
   import type { SessionStatus } from "$lib/types";
   import { profileList } from "$lib/panes/profiles";
-  import {
-    clearDraggedWorkItem,
-    writeWorkItemDragData,
-  } from "$lib/board/drag";
+  import { clearDraggedWorkItem, writeWorkItemDragData } from "$lib/board/drag";
   import { unreadBySession } from "$lib/stores/notifications";
   import { projects } from "$lib/stores/projects";
 
@@ -66,7 +63,13 @@
     draggable = false,
   }: Props = $props();
 
-  const COLUMN_OPTIONS: WorkItemStatus[] = ["todo", "ready", "doing", "review", "done"];
+  const COLUMN_OPTIONS: WorkItemStatus[] = [
+    "todo",
+    "ready",
+    "doing",
+    "review",
+    "done",
+  ];
   const COLUMN_LABELS: Record<WorkItemStatus, string> = {
     todo: "To Do",
     ready: "Ready",
@@ -86,17 +89,24 @@
 
   const hasSession = $derived(!!item.sessionId);
   const hasPlanningSession = $derived(!!planningSessionId);
-  const isStartable = $derived(!!item.agentProfile && (!!item.repoPath || !!item.projectId));
-  const hasMenuActions = $derived(!!onEdit || !!onPlan || !!onDelete || !!onAcceptReview);
+  const isStartable = $derived(
+    !!item.agentProfile && (!!item.repoPath || !!item.projectId),
+  );
+  const hasMenuActions = $derived(
+    !!onEdit || !!onPlan || !!onDelete || !!onAcceptReview,
+  );
   const dotClass = $derived(
     sessionStatus ? (statusDotClasses[sessionStatus] ?? "bg-muted") : null,
   );
   const projectLabel = $derived(
-    item.projectId ? ($projects.find((p) => p.id === item.projectId)?.name ?? "Project") : null,
+    item.projectId
+      ? ($projects.find((p) => p.id === item.projectId)?.name ?? "Project")
+      : null,
   );
   const profileLabel = $derived(
     item.agentProfile
-      ? ($profileList.find((profile) => profile.id === item.agentProfile)?.name ?? item.agentProfile)
+      ? ($profileList.find((profile) => profile.id === item.agentProfile)
+          ?.name ?? item.agentProfile)
       : null,
   );
   const targetLabel = $derived.by(() => {
@@ -138,7 +148,13 @@
   );
   const attentionButtonRight = $derived(hasMenuActions ? "2rem" : "0.375rem");
   const liveStatusRight = $derived(
-    hasMenuActions ? (pendingDecision ? "3.5rem" : "2rem") : (pendingDecision ? "2rem" : "0.5rem"),
+    hasMenuActions
+      ? pendingDecision
+        ? "3.5rem"
+        : "2rem"
+      : pendingDecision
+        ? "2rem"
+        : "0.5rem",
   );
   const chipClass =
     "inline-flex min-w-0 max-w-full items-center gap-1 rounded-md border border-border-subtle/70 bg-bg-deep/55 px-1.5 py-0.5 text-[10px] leading-4 text-text-muted";
@@ -209,7 +225,10 @@
   }
 </script>
 
-<svelte:window onclick={() => (menuOpen = false)} onkeydown={handleWindowKeydown} />
+<svelte:window
+  onclick={() => (menuOpen = false)}
+  onkeydown={handleWindowKeydown}
+/>
 
 <div
   role="presentation"
@@ -281,7 +300,11 @@
         {item.title}
       </button>
     {:else}
-      <p class="min-w-0 flex-1 text-[13px] font-semibold leading-snug text-text-primary">{item.title}</p>
+      <p
+        class="min-w-0 flex-1 text-[13px] font-semibold leading-snug text-text-primary"
+      >
+        {item.title}
+      </p>
     {/if}
     {#if unreadActivity.count > 0}
       <button
@@ -291,12 +314,15 @@
         aria-label="Open session with unread activity"
         onclick={handleUnreadActivityOpen}
         disabled={!unreadActivity.targetSessionId || !onOpen}
-      >{unreadActivity.count > 99 ? "99+" : unreadActivity.count}</button>
+        >{unreadActivity.count > 99 ? "99+" : unreadActivity.count}</button
+      >
     {/if}
   </div>
 
   {#if item.body}
-    <p class="line-clamp-2 text-[11px] leading-4 text-text-muted">{item.body}</p>
+    <p class="line-clamp-2 text-[11px] leading-4 text-text-muted">
+      {item.body}
+    </p>
   {/if}
 
   {#if projectLabel || profileLabel || targetLabel || branchLabel}
@@ -313,7 +339,10 @@
         </span>
       {/if}
       {#if targetLabel}
-        <span class={chipClass} title={item.worktreePath ?? item.repoPath ?? undefined}>
+        <span
+          class={chipClass}
+          title={item.worktreePath ?? item.repoPath ?? undefined}
+        >
           <span class="truncate font-mono">{targetLabel}</span>
         </span>
       {/if}
@@ -370,7 +399,13 @@
         disabled={startPending}
       >
         <Play size={10} fill="currentColor" strokeWidth={2.2} />
-        <span>{startPending ? "Starting..." : (isStartable ? "Start" : "Configure")}</span>
+        <span
+          >{startPending
+            ? "Starting..."
+            : isStartable
+              ? "Start"
+              : "Configure"}</span
+        >
       </button>
     {/if}
   </div>
@@ -448,14 +483,20 @@
 <style>
   .work-card {
     overflow: hidden;
-    border: 1px solid color-mix(in srgb, var(--color-border-subtle) 82%, transparent);
+    border: 1px solid
+      color-mix(in srgb, var(--color-border-subtle) 82%, transparent);
     border-radius: 8px;
-    background:
-      linear-gradient(
-        180deg,
-        color-mix(in srgb, var(--color-bg-surface) 88%, var(--color-bg-elevated) 12%) 0%,
-        color-mix(in srgb, var(--color-bg-surface) 74%, var(--color-bg-deep) 26%) 100%
-      );
+    background: linear-gradient(
+      180deg,
+      color-mix(
+          in srgb,
+          var(--color-bg-surface) 88%,
+          var(--color-bg-elevated) 12%
+        )
+        0%,
+      color-mix(in srgb, var(--color-bg-surface) 74%, var(--color-bg-deep) 26%)
+        100%
+    );
     box-shadow:
       0 10px 24px rgba(0, 0, 0, 0.22),
       inset 0 1px 0 rgba(255, 255, 255, 0.045);
@@ -489,7 +530,11 @@
 
   .work-card:hover {
     transform: translateY(-1px);
-    border-color: color-mix(in srgb, var(--color-border) 82%, var(--color-accent) 18%);
+    border-color: color-mix(
+      in srgb,
+      var(--color-border) 82%,
+      var(--color-accent) 18%
+    );
     box-shadow:
       0 16px 34px rgba(0, 0, 0, 0.3),
       0 0 0 1px color-mix(in srgb, var(--color-accent-dim) 16%, transparent),
@@ -498,7 +543,8 @@
 
   .work-card[data-session-bound="true"]::before {
     background: var(--color-accent);
-    box-shadow: 0 0 18px color-mix(in srgb, var(--color-accent) 44%, transparent);
+    box-shadow: 0 0 18px
+      color-mix(in srgb, var(--color-accent) 44%, transparent);
   }
 
   .work-card[data-error="true"] {
@@ -511,17 +557,24 @@
   }
 
   .work-card[data-blocked="true"] {
-    border-color: color-mix(in srgb, var(--color-accent) 34%, var(--color-border));
+    border-color: color-mix(
+      in srgb,
+      var(--color-accent) 34%,
+      var(--color-border)
+    );
   }
 
   .work-card[data-blocked="true"]::before {
     background: var(--color-accent);
-    box-shadow: 0 0 18px color-mix(in srgb, var(--color-accent) 34%, transparent);
+    box-shadow: 0 0 18px
+      color-mix(in srgb, var(--color-accent) 34%, transparent);
   }
 
   @media (prefers-reduced-motion: reduce) {
     .work-card {
-      transition: border-color 140ms ease, box-shadow 140ms ease;
+      transition:
+        border-color 140ms ease,
+        box-shadow 140ms ease;
     }
 
     .work-card:hover {

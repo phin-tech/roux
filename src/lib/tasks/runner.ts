@@ -1,9 +1,18 @@
 import { get } from "svelte/store";
-import { attachPtyOutput, createPtyOutputChannel, spawnTask, onSessionExit, type SessionExitPayload } from "$lib/tauri";
+import {
+  attachPtyOutput,
+  createPtyOutputChannel,
+  spawnTask,
+  onSessionExit,
+  type SessionExitPayload,
+} from "$lib/tauri";
 import { splitPane } from "$lib/panes/actions";
 import { updateInstance, getInstance } from "$lib/panes/instances";
 import { focusedPaneId } from "$lib/panes/focus";
-import { getTerminalController, setPaneOutputChannel } from "$lib/panes/terminalRuntime";
+import {
+  getTerminalController,
+  setPaneOutputChannel,
+} from "$lib/panes/terminalRuntime";
 import { sessionLayouts, firstLeafId } from "$lib/panes/layout";
 import { log } from "$lib/logging";
 
@@ -23,13 +32,15 @@ import type { TaskDefinition } from "$lib/types";
 
 /** Simple ANSI escape code stripper for inline display */
 function stripAnsi(text: string): string {
-  return text.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "").replace(/\x1b\][^\x07]*\x07/g, "");
+  return text
+    .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "")
+    .replace(/\x1b\][^\x07]*\x07/g, "");
 }
 
 export async function runTask(
   sessionId: string,
   repoRoot: string,
-  task: TaskDefinition
+  task: TaskDefinition,
 ): Promise<void> {
   const safeId = task.id.replace(/:/g, "-");
   const ptyId = `task-${sessionId}-${safeId}-${Date.now()}`;
@@ -37,7 +48,10 @@ export async function runTask(
   const exitReady = onSessionExit(ptyId, (payload: SessionExitPayload) => {
     updateTaskRun(sessionId, ptyId, payload.code);
     const keepOpen = getEffectiveKeepOpen(repoRoot, task.id, task.keepOpen);
-    if (keepOpen === "never" || (keepOpen === "on-error" && payload.code === 0)) {
+    if (
+      keepOpen === "never" ||
+      (keepOpen === "on-error" && payload.code === 0)
+    ) {
       setTimeout(() => {
         removeTaskRun(sessionId, ptyId);
       }, 3000);
@@ -61,7 +75,9 @@ export async function runTask(
   });
 
   // Spawn one-shot command — output buffers in Rust backlog until channel attaches
-  log(`runTask: spawning ptyId=${ptyId} cmd="${task.command}" keepOpen=${keepOpen} spawnInPane=${spawnInPane}`);
+  log(
+    `runTask: spawning ptyId=${ptyId} cmd="${task.command}" keepOpen=${keepOpen} spawnInPane=${spawnInPane}`,
+  );
   await spawnTask(ptyId, task.command, repoRoot, sessionId, paneId, "task");
 
   // If keepOpen is "always", show in a command pane with full terminal

@@ -34,7 +34,9 @@ const mocks = vi.hoisted(() => {
 
 vi.mock("../instances", () => ({
   getInstance: mocks.getInstance,
-  getAttachedPtyId: vi.fn((pane: { ptyId?: string } | null | undefined) => pane?.ptyId ?? null),
+  getAttachedPtyId: vi.fn(
+    (pane: { ptyId?: string } | null | undefined) => pane?.ptyId ?? null,
+  ),
 }));
 
 vi.mock("../terminalRuntime", () => ({
@@ -99,7 +101,9 @@ describe("terminals", () => {
     mocks.keymapValue.treePath = [];
     mocks.controller.onInput.mockReset().mockReturnValue(() => {});
     mocks.controller.setInputEnabled.mockReset();
-    mocks.ensureTerminalController.mockReset().mockReturnValue(mocks.controller);
+    mocks.ensureTerminalController
+      .mockReset()
+      .mockReturnValue(mocks.controller);
     mocks.getTerminalController.mockReset().mockReturnValue(null as never);
     mocks.getPaneOutputChannel.mockReset().mockReturnValue(null);
     mocks.setPaneOutputChannel.mockReset();
@@ -129,8 +133,12 @@ describe("terminals", () => {
     expect(mocks.controller.onInput).toHaveBeenCalledTimes(1);
     expect(mocks.controller.setInputEnabled).toHaveBeenCalledTimes(1);
     expect(mocks.createPtyOutputChannel).toHaveBeenCalledTimes(1);
-    expect(mocks.setPaneOutputChannel).toHaveBeenCalledWith("pane-1", { id: "channel" });
-    expect(mocks.attachPtyOutput).toHaveBeenCalledWith("pty-1", { id: "channel" });
+    expect(mocks.setPaneOutputChannel).toHaveBeenCalledWith("pane-1", {
+      id: "channel",
+    });
+    expect(mocks.attachPtyOutput).toHaveBeenCalledWith("pty-1", {
+      id: "channel",
+    });
   });
 
   describe("allowKeyboardEvent", () => {
@@ -142,18 +150,28 @@ describe("terminals", () => {
     type AllowKeyboardEvent = (event: KeyboardEvent) => boolean;
 
     async function captureAllowKeyboardEvent(): Promise<AllowKeyboardEvent> {
-      mocks.ensureTerminalController.mockReset().mockReturnValue(mocks.controller);
+      mocks.ensureTerminalController
+        .mockReset()
+        .mockReturnValue(mocks.controller);
       await connectPaneTerminal("pane-1");
-      const calls = mocks.ensureTerminalController.mock.calls as unknown as Array<
+      const calls = mocks.ensureTerminalController.mock
+        .calls as unknown as Array<
         [string, { allowKeyboardEvent: AllowKeyboardEvent }]
       >;
       const opts = calls[0]?.[1];
-      if (!opts?.allowKeyboardEvent) throw new Error("allowKeyboardEvent not registered");
+      if (!opts?.allowKeyboardEvent)
+        throw new Error("allowKeyboardEvent not registered");
       return opts.allowKeyboardEvent;
     }
 
-    function makeKeyEvent(init: { key: string; defaultPrevented?: boolean }): KeyboardEvent {
-      const event = new KeyboardEvent("keydown", { key: init.key, cancelable: true });
+    function makeKeyEvent(init: {
+      key: string;
+      defaultPrevented?: boolean;
+    }): KeyboardEvent {
+      const event = new KeyboardEvent("keydown", {
+        key: init.key,
+        cancelable: true,
+      });
       if (init.defaultPrevented) event.preventDefault();
       return event;
     }

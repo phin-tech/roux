@@ -5,19 +5,23 @@
     multiLineEditor,
     requestMultiLineEditorFocus,
   } from "$lib/stores/multiLineEditor";
-  import { paneInstances, updateInstance, getAttachedPtyId } from "$lib/panes/instances";
-  import { focusedPaneId, requestDomFocus, setLogicalFocus } from "$lib/panes/focus";
+  import {
+    paneInstances,
+    updateInstance,
+    getAttachedPtyId,
+  } from "$lib/panes/instances";
+  import {
+    focusedPaneId,
+    requestDomFocus,
+    setLogicalFocus,
+  } from "$lib/panes/focus";
   import { collectVisibleLeafIds, sessionLayouts } from "$lib/panes/layout";
   import { closePane } from "$lib/panes/actions";
   import { resolveProfileRef } from "$lib/panes/profiles";
   import { runProfileInPane } from "$lib/panes/profileRunner";
   import { renderProjectPromptForSession } from "$lib/projectPromptTemplates";
   import { createResizeScheduler } from "$lib/panes/resizeScheduler";
-  import {
-    resizeSession,
-    killPty,
-    notificationsPush,
-  } from "$lib/tauri";
+  import { resizeSession, killPty, notificationsPush } from "$lib/tauri";
   import { settings } from "$lib/stores/settings";
   import {
     aliasKey as mailboxAliasKey,
@@ -34,9 +38,16 @@
   import { sendDroppedLibraryPromptToPty } from "$lib/library/sendToPane";
   import { resolveTerminalTheme } from "$lib/themes";
   import { userTerminalThemes } from "$lib/stores/userTerminalThemes";
-  import { continueSessionShell, reconnectSessionShell, retryShellPane } from "$lib/sessions/reconnect";
+  import {
+    continueSessionShell,
+    reconnectSessionShell,
+    retryShellPane,
+  } from "$lib/sessions/reconnect";
   import { rerunCommandPane } from "$lib/panes/commandPaneRuntime";
-  import { getTerminalController, terminalRuntimeVersionStore } from "$lib/panes/terminalRuntime";
+  import {
+    getTerminalController,
+    terminalRuntimeVersionStore,
+  } from "$lib/panes/terminalRuntime";
   import { log, logError } from "$lib/logging";
   import SessionPicker from "./SessionPicker.svelte";
   import LazyMarkdownPane from "./LazyMarkdownPane.svelte";
@@ -55,7 +66,13 @@
     suppressTitleAccent?: boolean;
   }
 
-  let { paneId, sessionId, session = null, visible = true, suppressTitleAccent = false }: Props = $props();
+  let {
+    paneId,
+    sessionId,
+    session = null,
+    visible = true,
+    suppressTitleAccent = false,
+  }: Props = $props();
 
   let containerEl: HTMLDivElement | undefined = $state();
   let resizeObserver: ResizeObserver | null = null;
@@ -90,9 +107,13 @@
     return collectVisibleLeafIds(layout).length > 1;
   });
   const projectName = $derived(
-    visible && session?.projectId ? ($projects.find((p) => p.id === session.projectId)?.name ?? null) : null
+    visible && session?.projectId
+      ? ($projects.find((p) => p.id === session.projectId)?.name ?? null)
+      : null,
   );
-  const paneSlot = $derived.by(() => (visible ? ($paneSlotById.get(paneId) ?? null) : null));
+  const paneSlot = $derived.by(() =>
+    visible ? ($paneSlotById.get(paneId) ?? null) : null,
+  );
   const paneSlotLabel = $derived(
     paneSlot == null ? null : paneSlot === 10 ? "0" : String(paneSlot),
   );
@@ -105,7 +126,9 @@
   // `computeEffectiveSessionStatus`. For every *other* UI decision that
   // needs a single indicator, consumers go through that helper instead.
   const isSessionPrimary = $derived(!!instance && instance.ptyId === sessionId);
-  const isDisconnected = $derived(isSessionPrimary && session?.status === "disconnected");
+  const isDisconnected = $derived(
+    isSessionPrimary && session?.status === "disconnected",
+  );
 
   // Command pane status helpers
   const commandStatus = $derived(instance?.commandStatus ?? "idle");
@@ -117,7 +140,8 @@
   // registered profile was deleted out from under it.
   const activeProfile = $derived(resolveProfileRef(instance?.spawnProfileRef));
   const canReRunProfile = $derived(
-    !!activeProfile && (!!activeProfile.setupCommand || !!activeProfile.startupCommand),
+    !!activeProfile &&
+      (!!activeProfile.setupCommand || !!activeProfile.startupCommand),
   );
 
   // Dispatch for the disconnected reconnect UI: Claude built-in shows the
@@ -185,9 +209,11 @@
     // Ensure this pane is logically focused so pane.attach-terminal's
     // available() check passes and the palette knows which pane to target.
     setLogicalFocus(paneId);
-    import("$lib/stores/commandSurface").then(({ openCommandPaletteWithCommand }) => {
-      openCommandPaletteWithCommand("pane.attach-terminal");
-    });
+    import("$lib/stores/commandSurface").then(
+      ({ openCommandPaletteWithCommand }) => {
+        openCommandPaletteWithCommand("pane.attach-terminal");
+      },
+    );
   }
 
   const resizeScheduler = createResizeScheduler({
@@ -210,11 +236,16 @@
 
   function paneTypeLabel(type: string): string {
     switch (type) {
-      case "shell": return "shell";
-      case "markdown": return "doc";
-      case "command": return "cmd";
-      case "notes": return "notes";
-      default: return type;
+      case "shell":
+        return "shell";
+      case "markdown":
+        return "doc";
+      case "command":
+        return "cmd";
+      case "notes":
+        return "notes";
+      default:
+        return type;
     }
   }
 
@@ -237,11 +268,17 @@
   }
 
   function targetInsideMultiLineEditor(target: EventTarget | null): boolean {
-    return target instanceof Element && target.closest("[data-multiline-editor-root]") !== null;
+    return (
+      target instanceof Element &&
+      target.closest("[data-multiline-editor-root]") !== null
+    );
   }
 
   function targetInsideTerminalFrame(target: EventTarget | null): boolean {
-    return target instanceof Element && target.closest("[data-terminal-frame]") !== null;
+    return (
+      target instanceof Element &&
+      target.closest("[data-terminal-frame]") !== null
+    );
   }
 
   function terminalSelectionText(): string {
@@ -310,7 +347,10 @@
   }
 
   function handleDragLeave(event: DragEvent) {
-    if (event.currentTarget instanceof HTMLElement && event.relatedTarget instanceof Node) {
+    if (
+      event.currentTarget instanceof HTMLElement &&
+      event.relatedTarget instanceof Node
+    ) {
       if (event.currentTarget.contains(event.relatedTarget)) return;
     }
     libraryDropActive = false;
@@ -396,13 +436,17 @@
 
   // Command pane rerun
   async function rerunCommand() {
-    await rerunCommandPane(paneId, sessionId, { onElapsedUpdate: updateElapsed });
+    await rerunCommandPane(paneId, sessionId, {
+      onElapsedUpdate: updateElapsed,
+    });
   }
 
   function doAttach() {
     const controller = getTerminalController(paneId);
     if (!containerEl || !controller) {
-      log(`PaneShell.doAttach(${paneId}): skipped (container=${!!containerEl}, terminal=${!!controller}, type=${instance?.type})`);
+      log(
+        `PaneShell.doAttach(${paneId}): skipped (container=${!!containerEl}, terminal=${!!controller}, type=${instance?.type})`,
+      );
       return;
     }
     controller.attach(containerEl);
@@ -460,7 +504,11 @@
     const controller = getTerminalController(paneId);
     if (controller) {
       controller.setTheme(
-        resolveTerminalTheme($settings.theme, $settings.terminalTheme, $userTerminalThemes),
+        resolveTerminalTheme(
+          $settings.theme,
+          $settings.terminalTheme,
+          $userTerminalThemes,
+        ),
       );
     }
   });
@@ -489,7 +537,9 @@
     class="pane-shell group relative flex flex-col flex-1 min-h-0 min-w-0 overflow-hidden bg-bg-deep"
     data-pane-id={paneId}
     data-focused={isFocused}
-    data-focus-chrome={(isFocused && hasMultipleVisiblePanes) ? "true" : undefined}
+    data-focus-chrome={isFocused && hasMultipleVisiblePanes
+      ? "true"
+      : undefined}
     onmousedowncapture={handleMouseDownCapture}
     onmousedown={handleMouseDown}
     oncopy={handleCopy}
@@ -501,10 +551,15 @@
     <!-- Mini title bar -->
     <div
       class="pane-shell__titlebar flex h-6 shrink-0 select-none items-center border-b border-hairline px-2 gap-1.5"
-      class:shadow-[inset_0_2px_0_var(--color-accent-dim)]={isFocused && hasMultipleVisiblePanes && !suppressTitleAccent}
+      class:shadow-[inset_0_2px_0_var(--color-accent-dim)]={isFocused &&
+        hasMultipleVisiblePanes &&
+        !suppressTitleAccent}
       ondblclick={() => startRenaming(instance.name ?? "")}
     >
-      <span class="text-[10px] uppercase tracking-wider text-text-muted/60 shrink-0">{paneTypeLabel(instance.type)}</span>
+      <span
+        class="text-[10px] uppercase tracking-wider text-text-muted/60 shrink-0"
+        >{paneTypeLabel(instance.type)}</span
+      >
       {#if editingName}
         <!-- svelte-ignore a11y_autofocus -->
         <input
@@ -516,11 +571,15 @@
           onblur={() => commitRename()}
           onkeydown={(e) => {
             if (e.key === "Enter") commitRename();
-            if (e.key === "Escape") { editingName = false; }
+            if (e.key === "Escape") {
+              editingName = false;
+            }
           }}
         />
       {:else if instance.name}
-        <span class="min-w-0 flex-1 truncate text-[11px] text-text-secondary">{instance.name}</span>
+        <span class="min-w-0 flex-1 truncate text-[11px] text-text-secondary"
+          >{instance.name}</span
+        >
       {:else}
         <span class="flex-1"></span>
       {/if}
@@ -545,7 +604,8 @@
             <span
               class="rounded bg-red-500 px-1 text-[9px] font-semibold leading-none text-white"
               title={`${paneAliasUnread} unread mail item${paneAliasUnread === 1 ? "" : "s"}`}
-            >{paneAliasUnread > 9 ? "9+" : paneAliasUnread}</span>
+              >{paneAliasUnread > 9 ? "9+" : paneAliasUnread}</span
+            >
           {/if}
         </span>
       {/if}
@@ -559,7 +619,9 @@
               e.stopPropagation();
               void reRunProfile();
             }}
-            title={activeProfile ? `Re-run profile: ${activeProfile.name}` : "Re-run profile"}
+            title={activeProfile
+              ? `Re-run profile: ${activeProfile.name}`
+              : "Re-run profile"}
           >
             &#8635;
           </button>
@@ -600,13 +662,17 @@
       {:else if isDisconnected && session}
         <!-- Any other profile: plain reconnect button that respawns a
              shell and replays the profile's commands. -->
-        <div class="ui-terminal-frame flex h-full w-full flex-col items-center justify-center gap-3 bg-bg-deep p-6 text-center">
+        <div
+          class="ui-terminal-frame flex h-full w-full flex-col items-center justify-center gap-3 bg-bg-deep p-6 text-center"
+        >
           <span class="text-[11px] uppercase tracking-wider text-text-muted">
             Session disconnected
           </span>
           <span class="max-w-xs text-[13px] text-text-secondary">
             {#if activeProfile}
-              {canContinueProvider ? "Continue" : "Reconnect"} will respawn a shell and re-run the <span class="text-text-primary">{activeProfile.name}</span> profile.
+              {canContinueProvider ? "Continue" : "Reconnect"} will respawn a shell
+              and re-run the
+              <span class="text-text-primary">{activeProfile.name}</span> profile.
             {:else}
               Reconnect will respawn a plain shell in this pane.
             {/if}
@@ -621,7 +687,7 @@
       {:else if instance.type === "notes"}
         <NotesPane
           paneId={instance.id}
-          sessionId={sessionId}
+          {sessionId}
           projectId={session?.projectId ?? null}
           {projectName}
           repoRoot={session?.repoRoot ?? null}
@@ -633,27 +699,38 @@
       {:else if instance.type === "command"}
         <!-- Command pane: header bar + terminal -->
         <div class="relative flex h-full w-full flex-col bg-bg-deep">
-          <div class="flex h-9 shrink-0 select-none items-center gap-2 border-b border-hairline bg-bg-surface/30 px-3">
-            <span class="font-mono text-[11px] text-text-secondary truncate flex-1">{instance.command ?? ""}</span>
+          <div
+            class="flex h-9 shrink-0 select-none items-center gap-2 border-b border-hairline bg-bg-surface/30 px-3"
+          >
+            <span
+              class="font-mono text-[11px] text-text-secondary truncate flex-1"
+              >{instance.command ?? ""}</span
+            >
             <span class="text-[10px] text-text-muted">{elapsed}</span>
             {#if commandStatus === "running"}
-              <span class="h-2 w-2 shrink-0 rounded-full bg-accent animate-pulse"></span>
+              <span
+                class="h-2 w-2 shrink-0 rounded-full bg-accent animate-pulse"
+              ></span>
               <button
                 class="bg-transparent px-1 text-[10px] text-text-muted border-none cursor-pointer hover:text-red"
-                onclick={() => { void killPty(instance.ptyId).catch(() => {}); }}
-                title="Stop"
-              >&#9632;</button>
+                onclick={() => {
+                  void killPty(instance.ptyId).catch(() => {});
+                }}
+                title="Stop">&#9632;</button
+              >
             {:else}
               {#if commandStatus === "success"}
                 <span class="text-[10px] text-green">exit 0</span>
               {:else}
-                <span class="text-[10px] text-red">exit {commandExitCode ?? "?"}</span>
+                <span class="text-[10px] text-red"
+                  >exit {commandExitCode ?? "?"}</span
+                >
               {/if}
               <button
                 class="bg-transparent px-1 text-[10px] text-text-muted border-none cursor-pointer hover:text-accent"
                 onclick={() => void rerunCommand()}
-                title="Rerun (r)"
-              >&#8635;</button>
+                title="Rerun (r)">&#8635;</button
+              >
             {/if}
           </div>
           <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -664,12 +741,16 @@
             class="ui-terminal-frame min-h-0 flex-1"
             onclick={handleTerminalClick}
           ></div>
-          <MultiLineEditor paneId={paneId} />
+          <MultiLineEditor {paneId} />
         </div>
       {:else if terminalState?.kind === "empty"}
         <!-- Empty pane: no PTY attached yet -->
-        <div class="flex h-full w-full flex-col items-center justify-center gap-3 bg-bg-deep p-6 text-center">
-          <span class="text-[11px] uppercase tracking-wider text-text-muted">No terminal attached</span>
+        <div
+          class="flex h-full w-full flex-col items-center justify-center gap-3 bg-bg-deep p-6 text-center"
+        >
+          <span class="text-[11px] uppercase tracking-wider text-text-muted"
+            >No terminal attached</span
+          >
           <button
             class="cursor-pointer rounded-xl border border-accent-dim/20 bg-accent-dim/15 px-5 py-2 text-[13px] font-medium text-accent hover:bg-accent-dim/24"
             onclick={handleAttachTerminal}
@@ -693,14 +774,16 @@
             ></div>
             {#if terminalState?.kind === "dead"}
               <!-- Exit banner overlaid on scrollback -->
-              <div class="pointer-events-none absolute inset-x-0 bottom-0 flex items-center justify-center bg-bg-deep/80 px-4 py-2">
+              <div
+                class="pointer-events-none absolute inset-x-0 bottom-0 flex items-center justify-center bg-bg-deep/80 px-4 py-2"
+              >
                 <span class="text-[11px] text-text-muted">
                   Process exited (code: {terminalState.exitCode ?? "unknown"})
                 </span>
               </div>
             {/if}
           </div>
-          <MultiLineEditor paneId={paneId} />
+          <MultiLineEditor {paneId} />
         </div>
       {/if}
     </div>
@@ -711,7 +794,9 @@
         class:pane-slot-hint--visible={$showPaneHints}
         aria-hidden="true"
       >
-        <span class="text-[64px] font-bold leading-none text-text-primary drop-shadow-[0_2px_8px_rgba(0,0,0,0.7)]">
+        <span
+          class="text-[64px] font-bold leading-none text-text-primary drop-shadow-[0_2px_8px_rgba(0,0,0,0.7)]"
+        >
           &#8997;{paneSlotLabel}
         </span>
       </div>
@@ -722,12 +807,22 @@
         class="pointer-events-none absolute inset-1 z-20 flex items-center justify-center rounded border border-accent-dim/70 bg-accent-dim/12 shadow-[inset_0_0_0_1px_rgba(125,211,252,0.18)]"
         aria-hidden="true"
       >
-        <div class="max-w-[min(260px,calc(100%-24px))] rounded border border-accent-dim/45 bg-bg-panel/95 px-3 py-2 shadow-[0_8px_28px_rgba(0,0,0,0.35)]">
-          <div class="text-[9px] font-semibold uppercase tracking-wider text-accent">Insert prompt</div>
-          <div class="mt-1 truncate text-[12px] font-semibold text-text-primary">
+        <div
+          class="max-w-[min(260px,calc(100%-24px))] rounded border border-accent-dim/45 bg-bg-panel/95 px-3 py-2 shadow-[0_8px_28px_rgba(0,0,0,0.35)]"
+        >
+          <div
+            class="text-[9px] font-semibold uppercase tracking-wider text-accent"
+          >
+            Insert prompt
+          </div>
+          <div
+            class="mt-1 truncate text-[12px] font-semibold text-text-primary"
+          >
             {$draggedLibraryPrompt?.title ?? "Library prompt"}
           </div>
-          <div class="mt-1 text-[10px] text-text-muted">Drop to paste into this pane</div>
+          <div class="mt-1 text-[10px] text-text-muted">
+            Drop to paste into this pane
+          </div>
         </div>
       </div>
     {/if}

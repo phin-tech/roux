@@ -98,9 +98,8 @@ pub(crate) fn parse_pr_ref(input: &str) -> Option<PrRef> {
 }
 
 fn parse_url_form(input: &str) -> Option<PrRef> {
-    let without_scheme = input
-        .strip_prefix("https://")
-        .or_else(|| input.strip_prefix("http://"))?;
+    let without_scheme =
+        input.strip_prefix("https://").or_else(|| input.strip_prefix("http://"))?;
     let host_end = without_scheme.find('/')?;
     let host = &without_scheme[..host_end];
     if host != "github.com" && host != "www.github.com" {
@@ -122,11 +121,7 @@ fn parse_url_form(input: &str) -> Option<PrRef> {
     if owner.is_empty() || repo.is_empty() {
         return None;
     }
-    Some(PrRef {
-        owner: owner.to_string(),
-        repo: repo.to_string(),
-        number,
-    })
+    Some(PrRef { owner: owner.to_string(), repo: repo.to_string(), number })
 }
 
 fn parse_shortform(input: &str) -> Option<PrRef> {
@@ -137,11 +132,7 @@ fn parse_shortform(input: &str) -> Option<PrRef> {
     if owner.is_empty() || repo.is_empty() {
         return None;
     }
-    Some(PrRef {
-        owner: owner.to_string(),
-        repo: repo.to_string(),
-        number,
-    })
+    Some(PrRef { owner: owner.to_string(), repo: repo.to_string(), number })
 }
 
 fn gh_cli() -> GhCli {
@@ -157,15 +148,15 @@ fn nonempty_path(repo_path: Option<&str>) -> Option<&Path> {
 /// normal workflow (gh reads `~/.config/gh/hosts.yml` globally, but some
 /// env-based configs are cwd-sensitive).
 pub(crate) async fn lookup_pr(repo_path: Option<&str>, input: &str) -> Result<PrInfo> {
-    let pr_ref = parse_pr_ref(input)
-        .ok_or_else(|| anyhow!("Not a valid GitHub PR URL or shortform"))?;
+    let pr_ref =
+        parse_pr_ref(input).ok_or_else(|| anyhow!("Not a valid GitHub PR URL or shortform"))?;
     let repo_slug = format!("{}/{}", pr_ref.owner, pr_ref.repo);
     let stdout = gh_cli()
         .pr_view(&repo_slug, pr_ref.number, PR_JSON_FIELDS, nonempty_path(repo_path))
         .await
         .map_err(gh_to_anyhow_pr)?;
-    let raw: RawPr = serde_json::from_str(&stdout)
-        .map_err(|e| anyhow!("Failed to parse gh output: {}", e))?;
+    let raw: RawPr =
+        serde_json::from_str(&stdout).map_err(|e| anyhow!("Failed to parse gh output: {}", e))?;
     Ok(raw.into_pr_info(&repo_slug))
 }
 
@@ -237,25 +228,18 @@ struct RawCheckRun {
 
 impl RawPr {
     fn into_pr_info(self, repo_slug: &str) -> PrInfo {
-        let checks = self
-            .status_check_rollup
-            .as_deref()
-            .map(summarize_checks);
-        let check_runs = self
-            .status_check_rollup
-            .as_deref()
-            .map(check_details)
-            .unwrap_or_default();
-        let review_details = self
-            .latest_reviews
-            .as_deref()
-            .map(review_details)
-            .unwrap_or_default();
+        let checks = self.status_check_rollup.as_deref().map(summarize_checks);
+        let check_runs = self.status_check_rollup.as_deref().map(check_details).unwrap_or_default();
+        let review_details = self.latest_reviews.as_deref().map(review_details).unwrap_or_default();
         // gh returns "" when there's no decision; normalize to `None`
         // so the frontend doesn't have to special-case empty strings.
         let review_decision = self.review_decision.and_then(|s| {
             let t = s.trim();
-            if t.is_empty() { None } else { Some(t.to_string()) }
+            if t.is_empty() {
+                None
+            } else {
+                Some(t.to_string())
+            }
         });
         PrInfo {
             number: self.number,
@@ -397,17 +381,17 @@ fn classify_check(row: &RawCheckRun) -> CheckClass {
     // status == COMPLETED; while pending the conclusion is empty.
     if let Some(status) = row.status.as_deref() {
         match status.to_ascii_uppercase().as_str() {
-            "COMPLETED" => match row
-                .conclusion
-                .as_deref()
-                .map(|s| s.to_ascii_uppercase())
-                .as_deref()
-            {
-                Some("SUCCESS") | Some("NEUTRAL") | Some("SKIPPED") => CheckClass::Pass,
-                Some("FAILURE") | Some("TIMED_OUT") | Some("CANCELLED") | Some("ACTION_REQUIRED")
-                | Some("STARTUP_FAILURE") => CheckClass::Fail,
-                _ => CheckClass::Pending,
-            },
+            "COMPLETED" => {
+                match row.conclusion.as_deref().map(|s| s.to_ascii_uppercase()).as_deref() {
+                    Some("SUCCESS") | Some("NEUTRAL") | Some("SKIPPED") => CheckClass::Pass,
+                    Some("FAILURE")
+                    | Some("TIMED_OUT")
+                    | Some("CANCELLED")
+                    | Some("ACTION_REQUIRED")
+                    | Some("STARTUP_FAILURE") => CheckClass::Fail,
+                    _ => CheckClass::Pending,
+                }
+            }
             // QUEUED / IN_PROGRESS / WAITING / PENDING / REQUESTED, etc.
             _ => CheckClass::Pending,
         }
@@ -430,10 +414,7 @@ fn classify_check(row: &RawCheckRun) -> CheckClass {
 /// the `pr-<N>` shape and resolved through `lookup_pr` against the repo's
 /// own slug, since `gh pr list --head` does not accept `<owner>:<branch>`
 /// syntax (verified via `gh pr list --help`).
-pub(crate) async fn lookup_pr_for_branch(
-    repo_path: &str,
-    branch: &str,
-) -> Result<Option<PrInfo>> {
+pub(crate) async fn lookup_pr_for_branch(repo_path: &str, branch: &str) -> Result<Option<PrInfo>> {
     let trimmed = branch.trim();
     if trimmed.is_empty() {
         return Ok(None);
@@ -481,8 +462,8 @@ async fn gh_pr_list_by_head(
         .pr_list_by_head(branch, PR_JSON_FIELDS, Path::new(repo_path))
         .await
         .map_err(gh_to_anyhow_pr)?;
-    let raws: Vec<RawPr> = serde_json::from_str(&stdout)
-        .map_err(|e| anyhow!("Failed to parse gh output: {}", e))?;
+    let raws: Vec<RawPr> =
+        serde_json::from_str(&stdout).map_err(|e| anyhow!("Failed to parse gh output: {}", e))?;
     Ok(raws.into_iter().next().map(|r| r.into_pr_info(repo_slug)))
 }
 
@@ -494,9 +475,7 @@ async fn gh_pr_search_by_head(
     // GitHub's search index is eventually consistent — freshly-opened PRs
     // can take a few seconds to show up here. That's fine for our use:
     // by the time the user is back in the app, the index has caught up.
-    match gh_cli()
-        .pr_search_by_head(branch, repo_slug, PR_JSON_FIELDS, Path::new(repo_path))
-        .await
+    match gh_cli().pr_search_by_head(branch, repo_slug, PR_JSON_FIELDS, Path::new(repo_path)).await
     {
         Ok(stdout) => {
             let raws: Vec<RawPr> = serde_json::from_str(&stdout)
@@ -514,10 +493,8 @@ async fn gh_pr_search_by_head(
 /// Resolve `<owner>/<repo>` for the repo at `repo_path` using `gh repo view`.
 /// gh reads the repo from cwd's git remotes, so this is a per-path call.
 async fn resolve_repo_slug(repo_path: &str) -> Result<String> {
-    let stdout = gh_cli()
-        .repo_view_name_with_owner(Path::new(repo_path))
-        .await
-        .map_err(gh_to_anyhow)?;
+    let stdout =
+        gh_cli().repo_view_name_with_owner(Path::new(repo_path)).await.map_err(gh_to_anyhow)?;
     #[derive(Deserialize)]
     struct Raw {
         #[serde(rename = "nameWithOwner")]

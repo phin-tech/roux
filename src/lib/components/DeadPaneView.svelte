@@ -9,19 +9,29 @@
   let { error, workingDir, onRetry, onClose }: Props = $props();
 </script>
 
-<div class="flex h-full w-full flex-col items-center justify-center gap-4 bg-bg-deep px-6 text-center">
+<div
+  class="flex h-full w-full flex-col items-center justify-center gap-4 bg-bg-deep px-6 text-center"
+>
   <div class="flex flex-col gap-3 w-full max-w-sm">
-    <p class="text-[11px] uppercase tracking-wider text-text-muted/60">Shell failed to restore</p>
+    <p class="text-[11px] uppercase tracking-wider text-text-muted/60">
+      Shell failed to restore
+    </p>
 
     {#if workingDir}
       <div class="flex flex-col gap-0.5 text-left">
-        <span class="text-[10px] uppercase tracking-wider text-text-muted/50">Working directory</span>
-        <span class="font-mono text-[11px] text-text-secondary break-all">{workingDir}</span>
+        <span class="text-[10px] uppercase tracking-wider text-text-muted/50"
+          >Working directory</span
+        >
+        <span class="font-mono text-[11px] text-text-secondary break-all"
+          >{workingDir}</span
+        >
       </div>
     {/if}
 
     <div class="flex flex-col gap-0.5 text-left">
-      <span class="text-[10px] uppercase tracking-wider text-text-muted/50">Error</span>
+      <span class="text-[10px] uppercase tracking-wider text-text-muted/50"
+        >Error</span
+      >
       <span class="font-mono text-[11px] text-red/80 break-all">{error}</span>
     </div>
 

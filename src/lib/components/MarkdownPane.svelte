@@ -5,7 +5,10 @@
   import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
   import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
   import { languages } from "@codemirror/language-data";
-  import { syntaxHighlighting, defaultHighlightStyle } from "@codemirror/language";
+  import {
+    syntaxHighlighting,
+    defaultHighlightStyle,
+  } from "@codemirror/language";
   import { vim } from "@replit/codemirror-vim";
   import { open, save } from "@tauri-apps/plugin-dialog";
   import { readFile, writeFile } from "$lib/tauri";
@@ -89,7 +92,9 @@
   async function openFile() {
     const selected = await open({
       title: "Open Markdown File",
-      filters: [{ name: "Markdown", extensions: ["md", "mdx", "markdown", "txt"] }],
+      filters: [
+        { name: "Markdown", extensions: ["md", "mdx", "markdown", "txt"] },
+      ],
     });
     if (!selected) return;
     const path = typeof selected === "string" ? selected : selected;
@@ -239,7 +244,9 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="relative flex h-full w-full flex-col bg-bg-deep">
   <!-- Tab bar -->
-  <div class="flex h-9 shrink-0 items-center gap-0 border-b border-hairline bg-bg-surface/30 px-1">
+  <div
+    class="flex h-9 shrink-0 items-center gap-0 border-b border-hairline bg-bg-surface/30 px-1"
+  >
     <div class="flex min-w-0 flex-1 items-center gap-0 overflow-x-auto">
       {#each tabs as tab (tab.id)}
         <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -247,16 +254,21 @@
         <div
           class="group flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-2.5 py-1 text-[11px] transition-colors
             {activeTabId === tab.id
-              ? 'bg-bg-active text-text-primary'
-              : 'text-text-muted hover:bg-bg-hover hover:text-text-secondary'}"
+            ? 'bg-bg-active text-text-primary'
+            : 'text-text-muted hover:bg-bg-hover hover:text-text-secondary'}"
           onclick={() => switchTab(tab.id)}
         >
           <span class="max-w-[120px] truncate">
-            {#if tab.dirty}<span class="text-accent">&#8226; </span>{/if}{tabName(tab)}
+            {#if tab.dirty}<span class="text-accent"
+                >&#8226;
+              </span>{/if}{tabName(tab)}
           </span>
           <CloseButton
             class="ml-0.5 p-0 opacity-0 transition-opacity hover:border-transparent group-hover:opacity-100"
-            onclick={(e: MouseEvent) => { e.stopPropagation(); closeTab(tab.id); }}
+            onclick={(e: MouseEvent) => {
+              e.stopPropagation();
+              closeTab(tab.id);
+            }}
             label="Close tab"
             title="Close tab"
             size={11}
@@ -269,21 +281,21 @@
       <button
         class="cursor-pointer rounded-lg p-1 text-[11px] text-text-muted transition-colors hover:bg-bg-hover hover:text-text-primary"
         onclick={addScratchpad}
-        title="New scratchpad"
-      >+</button>
+        title="New scratchpad">+</button
+      >
       <button
         class="cursor-pointer rounded-lg p-1 text-[11px] text-text-muted transition-colors hover:bg-bg-hover hover:text-text-primary"
         onclick={openFile}
-        title="Open file"
-      >&#128194;</button>
+        title="Open file">&#128194;</button
+      >
       <button
         class="cursor-pointer rounded-lg px-1.5 py-0.5 text-[10px] transition-colors
           {vimEnabled
-            ? 'bg-accent-dim/20 text-accent'
-            : 'text-text-muted hover:bg-bg-hover hover:text-text-primary'}"
+          ? 'bg-accent-dim/20 text-accent'
+          : 'text-text-muted hover:bg-bg-hover hover:text-text-primary'}"
         onclick={toggleVim}
-        title={vimEnabled ? "Disable vim mode" : "Enable vim mode"}
-      >vim</button>
+        title={vimEnabled ? "Disable vim mode" : "Enable vim mode"}>vim</button
+      >
     </div>
   </div>
 

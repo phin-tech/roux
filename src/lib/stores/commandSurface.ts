@@ -27,7 +27,10 @@ const INITIAL_STATE: CommandSurfaceState = {
 
 export const commandSurface = writable<CommandSurfaceState>(INITIAL_STATE);
 
-function openCommandSurface(mode: CommandSurfaceMode, initialCommandId: string | null = null): void {
+function openCommandSurface(
+  mode: CommandSurfaceMode,
+  initialCommandId: string | null = null,
+): void {
   const current = get(commandSurface);
   if (current.open) {
     commandSurface.set({
@@ -95,7 +98,10 @@ export function setLeaderSequence(sequence: string[]): void {
  * it wasn't already — keymap dispatch fires this directly from a chord,
  * which used to rely on the surface being pre-opened by `Cmd+;`.
  */
-export function openLeaderPrompt(commandId: string, initialValue: string = ""): void {
+export function openLeaderPrompt(
+  commandId: string,
+  initialValue: string = "",
+): void {
   commandSurface.update((current) => ({
     ...current,
     open: true,
@@ -107,7 +113,12 @@ export function openLeaderPrompt(commandId: string, initialValue: string = ""): 
 
 export function setLeaderPromptValue(value: string): void {
   commandSurface.update((current) => {
-    if (!current.open || current.mode !== "leader" || !current.leaderPromptCommandId) return current;
+    if (
+      !current.open ||
+      current.mode !== "leader" ||
+      !current.leaderPromptCommandId
+    )
+      return current;
     return {
       ...current,
       leaderPromptValue: value,

@@ -91,7 +91,9 @@ describe("ui commands", () => {
   it("hides the PR status details toggle command without an active session", () => {
     registerUiCommands();
 
-    expect(registry.get("ui.toggle-pr-status-details")?.available?.()).toBe(false);
+    expect(registry.get("ui.toggle-pr-status-details")?.available?.()).toBe(
+      false,
+    );
     expect(registry.getAvailable().map((cmd) => cmd.id)).not.toContain(
       "ui.toggle-pr-status-details",
     );

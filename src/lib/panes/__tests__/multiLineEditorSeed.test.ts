@@ -4,7 +4,9 @@ import { resolveMultiLineEditorSeed } from "../multiLineEditorSeed";
 
 describe("resolveMultiLineEditorSeed", () => {
   it("uses explicit seed text before terminal selection", () => {
-    expect(resolveMultiLineEditorSeed("clipboard text", "selected text")).toEqual({
+    expect(
+      resolveMultiLineEditorSeed("clipboard text", "selected text"),
+    ).toEqual({
       text: "clipboard text",
       seeded: true,
     });

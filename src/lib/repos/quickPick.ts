@@ -26,7 +26,10 @@ export function formatRepoShortLabel(path: string, depth: number = 2): string {
  * the picker never displays two visually identical rows.
  */
 export function buildQuickPickOptions(paths: string[]): RepoQuickPickOption[] {
-  const firstPass = paths.map((path) => ({ path, label: formatRepoShortLabel(path, 2) }));
+  const firstPass = paths.map((path) => ({
+    path,
+    label: formatRepoShortLabel(path, 2),
+  }));
   const firstCounts = new Map<string, number>();
   for (const item of firstPass) {
     firstCounts.set(item.label, (firstCounts.get(item.label) ?? 0) + 1);
@@ -43,7 +46,9 @@ export function buildQuickPickOptions(paths: string[]): RepoQuickPickOption[] {
     secondCounts.set(item.label, (secondCounts.get(item.label) ?? 0) + 1);
   }
   return secondPass.map((item) =>
-    (secondCounts.get(item.label) ?? 0) === 1 ? item : { ...item, label: item.path },
+    (secondCounts.get(item.label) ?? 0) === 1
+      ? item
+      : { ...item, label: item.path },
   );
 }
 
@@ -66,7 +71,9 @@ export function findQuickPickMatch(
   if (exactLabel) return exactLabel;
   return (
     options.find(
-      (o) => o.label.toLowerCase().includes(lower) || o.path.toLowerCase().includes(lower),
+      (o) =>
+        o.label.toLowerCase().includes(lower) ||
+        o.path.toLowerCase().includes(lower),
     ) ?? null
   );
 }

@@ -113,10 +113,7 @@ pub(crate) fn load_events_from(path: &Path) -> Vec<Event> {
         let value: serde_json::Value = match serde_json::from_str(&line) {
             Ok(v) => v,
             Err(e) => {
-                eprintln!(
-                    "[roux] events.jsonl:{}: skipping malformed row: {e}",
-                    lineno + 1
-                );
+                eprintln!("[roux] events.jsonl:{}: skipping malformed row: {e}", lineno + 1);
                 continue;
             }
         };
@@ -125,10 +122,7 @@ pub(crate) fn load_events_from(path: &Path) -> Vec<Event> {
             .and_then(|v| v.as_u64())
             .unwrap_or(EVENT_SCHEMA_VERSION as u64);
         if schema > EVENT_SCHEMA_VERSION as u64 {
-            eprintln!(
-                "[roux] events.jsonl:{}: skipping future schemaVersion={schema}",
-                lineno + 1
-            );
+            eprintln!("[roux] events.jsonl:{}: skipping future schemaVersion={schema}", lineno + 1);
             continue;
         }
         // Retract marker — collect; apply after all events are loaded.
@@ -136,10 +130,7 @@ pub(crate) fn load_events_from(path: &Path) -> Vec<Event> {
             match serde_json::from_value::<RetractRowV1>(value) {
                 Ok(row) => retracts.push((row.event_id, row.retracted_at)),
                 Err(e) => {
-                    eprintln!(
-                        "[roux] events.jsonl:{}: malformed retract row: {e}",
-                        lineno + 1
-                    );
+                    eprintln!("[roux] events.jsonl:{}: malformed retract row: {e}", lineno + 1);
                 }
             }
             continue;
@@ -147,10 +138,7 @@ pub(crate) fn load_events_from(path: &Path) -> Vec<Event> {
         match serde_json::from_value::<EventRowV1>(value) {
             Ok(row) => events.push(row.event),
             Err(e) => {
-                eprintln!(
-                    "[roux] events.jsonl:{}: row failed to deserialize: {e}",
-                    lineno + 1
-                );
+                eprintln!("[roux] events.jsonl:{}: row failed to deserialize: {e}", lineno + 1);
             }
         }
     }
@@ -179,11 +167,7 @@ pub(crate) fn append_event_to(path: &Path, event: &Event) -> io::Result<()> {
     Ok(())
 }
 
-pub(crate) fn append_retract_to(
-    path: &Path,
-    event_id: &str,
-    retracted_at: u64,
-) -> io::Result<()> {
+pub(crate) fn append_retract_to(path: &Path, event_id: &str, retracted_at: u64) -> io::Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -218,10 +202,7 @@ pub(crate) fn save_read_state_to(path: &Path, states: &[ReadState]) -> io::Resul
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
-    let envelope = ReadStateFile {
-        version: READ_STATE_SCHEMA_VERSION,
-        data: states.to_vec(),
-    };
+    let envelope = ReadStateFile { version: READ_STATE_SCHEMA_VERSION, data: states.to_vec() };
     let json = serde_json::to_string_pretty(&envelope)?;
     fs::write(path, json)
 }
@@ -286,8 +267,7 @@ mod tests {
             "kind": "task",
             "body": "from the future",
         });
-        let mut f =
-            OpenOptions::new().create(true).append(true).open(&path).unwrap();
+        let mut f = OpenOptions::new().create(true).append(true).open(&path).unwrap();
         writeln!(f, "{}", future_row).unwrap();
         drop(f);
         append_event_to(&path, &sample_event("now-1", "current")).unwrap();
@@ -303,8 +283,7 @@ mod tests {
         // A row WITHOUT schemaVersion — covers any pre-versioning leftover.
         let event = sample_event("legacy", "no version");
         let json = serde_json::to_string(&event).unwrap();
-        let mut f =
-            OpenOptions::new().create(true).append(true).open(&path).unwrap();
+        let mut f = OpenOptions::new().create(true).append(true).open(&path).unwrap();
         writeln!(f, "{}", json).unwrap();
         let loaded = load_events_from(&path);
         assert_eq!(loaded.len(), 1);

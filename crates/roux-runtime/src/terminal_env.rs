@@ -317,5 +317,4 @@ mod tests {
 
         assert_eq!(shell, "/bin/bash");
     }
-
 }

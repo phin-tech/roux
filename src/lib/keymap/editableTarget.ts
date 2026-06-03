@@ -3,7 +3,11 @@ export function eventTargetIsEditable(target: EventTarget | null): boolean {
 
   if (target.closest("input, textarea, select, .cm-editor")) return true;
 
-  for (let current: Element | null = target; current; current = current.parentElement) {
+  for (
+    let current: Element | null = target;
+    current;
+    current = current.parentElement
+  ) {
     if (!(current instanceof HTMLElement)) continue;
     if (current.isContentEditable) return true;
 
@@ -12,7 +16,12 @@ export function eventTargetIsEditable(target: EventTarget | null): boolean {
 
     const normalized = value.trim().toLowerCase();
     if (normalized === "false") return false;
-    if (normalized === "" || normalized === "true" || normalized === "plaintext-only") return true;
+    if (
+      normalized === "" ||
+      normalized === "true" ||
+      normalized === "plaintext-only"
+    )
+      return true;
   }
 
   return false;

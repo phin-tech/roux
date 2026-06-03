@@ -39,11 +39,14 @@ describe("toTauriAccelerator", () => {
 });
 
 describe("eventToAccelerator", () => {
-  const ev = (init: Partial<KeyboardEventInit> & { key: string }): KeyboardEvent =>
-    new KeyboardEvent("keydown", init);
+  const ev = (
+    init: Partial<KeyboardEventInit> & { key: string },
+  ): KeyboardEvent => new KeyboardEvent("keydown", init);
 
   it("builds the canonical form from a DOM event", () => {
-    expect(eventToAccelerator(ev({ key: "n", metaKey: true }))).toBe("CmdOrCtrl+N");
+    expect(eventToAccelerator(ev({ key: "n", metaKey: true }))).toBe(
+      "CmdOrCtrl+N",
+    );
   });
 
   it("matches the shortcut-format output for the same chord", () => {

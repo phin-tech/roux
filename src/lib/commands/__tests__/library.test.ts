@@ -80,18 +80,25 @@ describe("library commands", () => {
     vi.mocked(listLibraryItems).mockResolvedValue([promptItem, skillItem]);
     registerLibraryCommands();
 
-    const commands = get(writable(registry.getAvailable().map((cmd) => cmd.id)));
+    const commands = get(
+      writable(registry.getAvailable().map((cmd) => cmd.id)),
+    );
 
     expect(commands).toContain("library.search-prompts");
     expect(commands).toContain("library.search-skills");
     expect(commands).not.toContain("library.send-to-active-pane");
 
-    const promptItems = await registry.get("library.search-prompts")!.getItems!();
+    const promptItems = await registry.get("library.search-prompts")!
+      .getItems!();
     const skillItems = await registry.get("library.search-skills")!.getItems!();
 
     expect(promptItems.map((item) => item.label)).toEqual(["Review Diff"]);
     expect(skillItems.map((item) => item.label)).toEqual(["Rust Errors"]);
-    expect(registry.get("library.search-prompts")?.inputPlaceholder).toBe("Search prompts...");
-    expect(registry.get("library.search-skills")?.inputPlaceholder).toBe("Search skills...");
+    expect(registry.get("library.search-prompts")?.inputPlaceholder).toBe(
+      "Search prompts...",
+    );
+    expect(registry.get("library.search-skills")?.inputPlaceholder).toBe(
+      "Search skills...",
+    );
   });
 });

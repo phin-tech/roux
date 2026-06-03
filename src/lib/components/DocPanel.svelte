@@ -108,14 +108,16 @@
 >
   <SidebarPanelHeader title="Docs">
     {#snippet actions()}
-      <span class="border border-border-subtle bg-bg-surface px-2 py-1 text-[12px] text-text-secondary">
+      <span
+        class="border border-border-subtle bg-bg-surface px-2 py-1 text-[12px] text-text-secondary"
+      >
         {docs.length}
       </span>
       <button
         class="cursor-pointer rounded-lg border border-transparent bg-transparent p-1.5 text-xs text-text-muted hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 focus-visible:ring-offset-1 focus-visible:ring-offset-bg-deep"
         onclick={refreshDocs}
-        title="Refresh"
-      >&#8635;</button>
+        title="Refresh">&#8635;</button
+      >
       <CollapseSidebarButton
         onclick={onclose}
         label="Collapse documentation sidebar"
@@ -125,11 +127,15 @@
   </SidebarPanelHeader>
 
   {#if !$activeSession}
-    <div class="flex flex-1 items-center justify-center text-sm text-text-muted">
+    <div
+      class="flex flex-1 items-center justify-center text-sm text-text-muted"
+    >
       No active session
     </div>
   {:else}
-    <div class="app-scrollbar max-h-[240px] overflow-y-auto border-b border-hairline">
+    <div
+      class="app-scrollbar max-h-[240px] overflow-y-auto border-b border-hairline"
+    >
       {#if docs.length === 0}
         <div class="px-5 py-4 text-xs text-text-muted">
           No markdown files found in project
@@ -139,16 +145,24 @@
           <button
             class="flex w-full cursor-pointer items-start gap-3 px-4 py-3 text-left transition-colors
               {selectedDoc?.path === doc.path
-                ? 'bg-bg-active text-text-primary'
-                : 'bg-transparent text-text-secondary hover:bg-bg-active/50 hover:text-text-primary'}"
+              ? 'bg-bg-active text-text-primary'
+              : 'bg-transparent text-text-secondary hover:bg-bg-active/50 hover:text-text-primary'}"
             onclick={() => selectDoc(doc)}
           >
             <span class="pt-0.5 opacity-40">&#128196;</span>
             <div class="min-w-0 flex-1">
-              <div class="truncate text-[12px] font-medium text-text-primary">{fileName(doc.relativePath)}</div>
-              <div class="mt-0.5 truncate font-mono text-[10px] text-text-muted">{fileDirectory(doc.relativePath)}</div>
+              <div class="truncate text-[12px] font-medium text-text-primary">
+                {fileName(doc.relativePath)}
+              </div>
+              <div
+                class="mt-0.5 truncate font-mono text-[10px] text-text-muted"
+              >
+                {fileDirectory(doc.relativePath)}
+              </div>
             </div>
-            <span class="shrink-0 pt-0.5 text-[10px] text-text-muted">{formatTime(doc.modified)}</span>
+            <span class="shrink-0 pt-0.5 text-[10px] text-text-muted"
+              >{formatTime(doc.modified)}</span
+            >
           </button>
         {/each}
       {/if}
@@ -158,15 +172,27 @@
       {#if loading}
         <div class="text-xs text-text-muted">Loading...</div>
       {:else if !selectedDoc}
-        <div class="flex h-full flex-col items-center justify-center gap-4 text-center text-text-secondary">
-          <div class="flex h-16 w-16 items-center justify-center rounded-2xl border border-border-subtle bg-bg-surface/80 text-accent shadow-[0_18px_44px_rgba(2,6,23,0.35)]">
+        <div
+          class="flex h-full flex-col items-center justify-center gap-4 text-center text-text-secondary"
+        >
+          <div
+            class="flex h-16 w-16 items-center justify-center rounded-2xl border border-border-subtle bg-bg-surface/80 text-accent shadow-[0_18px_44px_rgba(2,6,23,0.35)]"
+          >
             <span class="text-3xl">&#128196;</span>
           </div>
           <div class="space-y-1">
-            <p class="text-base font-semibold tracking-tight text-text-primary">Select a session document</p>
-            <p class="text-sm text-text-secondary">Preview markdown notes, specs, and scratch files beside the terminal.</p>
+            <p class="text-base font-semibold tracking-tight text-text-primary">
+              Select a session document
+            </p>
+            <p class="text-sm text-text-secondary">
+              Preview markdown notes, specs, and scratch files beside the
+              terminal.
+            </p>
           </div>
-          <span class="text-[11px] font-medium uppercase tracking-[0.22em] text-text-muted">Cmd+B to toggle</span>
+          <span
+            class="text-[11px] font-medium uppercase tracking-[0.22em] text-text-muted"
+            >Cmd+B to toggle</span
+          >
         </div>
       {:else}
         <div class="doc-prose">

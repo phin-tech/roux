@@ -401,8 +401,8 @@ fn migrate_skill_file(path: &Path) -> Result<bool, String> {
     let Some((frontmatter_str, body)) = split_frontmatter(&content) else {
         return Ok(false);
     };
-    let mut value: serde_yaml::Value = serde_yaml::from_str(frontmatter_str)
-        .map_err(|e| format!("invalid frontmatter: {e}"))?;
+    let mut value: serde_yaml::Value =
+        serde_yaml::from_str(frontmatter_str).map_err(|e| format!("invalid frontmatter: {e}"))?;
     let Some(map) = value.as_mapping_mut() else {
         return Ok(false);
     };
@@ -429,12 +429,10 @@ fn migrate_skill_file(path: &Path) -> Result<bool, String> {
     }
     let name_key = serde_yaml::Value::String("name".into());
     if !map.contains_key(&name_key) {
-        let new_map: serde_yaml::Mapping = std::iter::once((
-            name_key,
-            serde_yaml::Value::String(id),
-        ))
-        .chain(std::mem::take(map))
-        .collect();
+        let new_map: serde_yaml::Mapping =
+            std::iter::once((name_key, serde_yaml::Value::String(id)))
+                .chain(std::mem::take(map))
+                .collect();
         *map = new_map;
         changed = true;
     }
@@ -1576,10 +1574,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let global = tmp.path();
         let path = global.join("library/skills/legacy.md");
-        write(
-            &path,
-            "---\nid: legacy\ntype: skill\ntitle: Legacy\n---\nBody {{ goal }}\n",
-        );
+        write(&path, "---\nid: legacy\ntype: skill\ntitle: Legacy\n---\nBody {{ goal }}\n");
 
         let report = migrate_global_skills(global);
         assert_eq!(report.migrated.len(), 1);
@@ -1614,10 +1609,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let global = tmp.path();
         let path = global.join("library/skills/already.md");
-        write(
-            &path,
-            "---\nname: already\nid: already\ntype: skill\ntitle: Already\n---\nBody\n",
-        );
+        write(&path, "---\nname: already\nid: already\ntype: skill\ntitle: Already\n---\nBody\n");
         let original = std::fs::read_to_string(&path).unwrap();
 
         let r1 = migrate_global_skills(global);

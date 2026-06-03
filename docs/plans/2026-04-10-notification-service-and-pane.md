@@ -1,17 +1,20 @@
 # Notification Service And Pane
 
 ## Summary
+
 Roux needs a single notification subsystem that all sources (Claude/Codex hooks, watches, task lifecycle, external `roux notify` calls, and later OSC terminal sequences) feed into. A Rust-side `NotificationService` owns the store and policy; the frontend subscribes via an event stream and renders badges plus a dedicated notifications pane. This replaces the current inline Allow/Always/Deny buttons on the session card (which only work for Claude's binary permission prompt and can't handle N-choice `AskUserQuestion` pickers) with a notify-only flow: Roux tells the user something needs attention, the user focuses the session and drives the provider's own TUI.
 
 The v1 scope is the service, the ingress paths, the event stream, the frontend store, and a minimal pane. The inline permission buttons are removed. A richer per-pane UI (rings, inline pickers) is explicitly deferred until the service has been in use long enough to inform what the pane should actually look like.
 
 ## Context And Motivation
+
 - The existing session card has Allow / Always / Deny buttons that send raw keystrokes (`\r`, `\x1b[Z`, `\x1b[B\x1b[B\r`) into the PTY to answer Claude's permission prompt. This is a binary-choice hack: it assumes Claude has the "Yes" option pre-highlighted and does not generalize to `AskUserQuestion`-style N-choice prompts, which Roux currently has no way to answer from outside the terminal.
 - Watches already fire OS notifications via `tauri-plugin-notification` from `services/watches/manager.rs`. Attention events from the Claude hook bridge do not — they only update `sessionState.permissionInfo` and rely on the inline buttons.
 - The in-flight Codex support plan (`docs/plans/2026-04-10-codex-cli-support-via-services-commands.md`) already sketches `services/notifications.rs` as a small policy layer that suppresses notifications while the Roux window is focused. This document extends that stub into a full service with a store, event stream, and multiple ingress paths, in a way that plan can adopt without rework.
 - cmux's model (researched 2026-04-10) is the reference UX: one store, many display surfaces (sidebar badge, per-session inline message, ⌘I panel, macOS desktop notification, ⌘⇧U "jump to most recent unread"), multiple ingest paths (OSC 9/99/777 from PTY output, `cmux notify` CLI, hooks), grouped by workspace, with read/unread state and no severity taxonomy. Roux adopts the shape but adds a lightweight severity enum because our sources are more heterogeneous.
 
 ## Goals
+
 - One authoritative notification store in Rust, one event stream to the frontend.
 - All current notification-ish events funnel through it: hook attention, hook session-done, watch success/failure, task completion, external CLI.
 - A new `roux notify` subcommand that any shell script or agent hook can use to push a notification into a running Roux.
@@ -22,6 +25,7 @@ The v1 scope is the service, the ingress paths, the event stream, the frontend s
 - Ship notification actions in v1, not just focus-session click-through — see the Actions section for the v1 surface and open questions.
 
 ## Non-Goals
+
 - No inline `AskUserQuestion` picker in v1. The service makes the user aware; the user drives the PTY.
 - No cross-restart persistence. Notifications are ephemeral; on app restart the inbox is empty. Watches and tasks re-emit their own state on startup, which covers the "still broken" case.
 - No cross-device sync.
@@ -67,6 +71,7 @@ Severity drives both styling in the pane and the default OS-notification policy 
 ## Service Architecture
 
 `src-tauri/src/services/notifications/`:
+
 - `mod.rs` — `NotificationService` with `Arc<RwLock<Store>>` and a `tokio::sync::broadcast` channel.
 - `store.rs` — in-memory ring buffer (cap ~500) of `Notification`, plus per-session unread counts.
 - `events.rs` — event enum emitted on the broadcast channel: `Added`, `Read`, `ReadAll`, `Removed`.
@@ -116,15 +121,19 @@ cmux exposes three OSC notification protocols that already have broad TUI suppor
 ### Wire formats
 
 - **OSC 9** (iTerm2 growl — body only):
+
   ```
   ESC ] 9 ; <body> BEL
   ```
+
   Single string, no title. Maps to `Notification { title: <body>, body: None, level: Info }`.
 
 - **OSC 777** (rxvt `notify;title;body`):
+
   ```
   ESC ] 777 ; notify ; <title> ; <body> BEL
   ```
+
   Semicolon-delimited, fixed positional fields. Maps to `Notification { title, body, level: Info }`.
 
 - **OSC 99** (kitty desktop notification protocol — rich):
@@ -145,7 +154,7 @@ Both `BEL` (`\x07`) and `ST` (`ESC \`) terminators are accepted for all three.
 
 ### `roux notify` relation to OSC
 
-`roux notify` is the friendly, structured path (arguments, severity, actions, cwd resolution). OSC is the zero-dependency fallback for scripts that can't assume `roux` is on `$PATH`. Internally `roux notify` may choose to emit an OSC 99 sequence *as well* when run inside a Roux PTY, so that `tee`'d logs and session recordings retain the notification markers — but the primary path is still the socket.
+`roux notify` is the friendly, structured path (arguments, severity, actions, cwd resolution). OSC is the zero-dependency fallback for scripts that can't assume `roux` is on `$PATH`. Internally `roux notify` may choose to emit an OSC 99 sequence _as well_ when run inside a Roux PTY, so that `tee`'d logs and session recordings retain the notification markers — but the primary path is still the socket.
 
 ## Actions
 
@@ -175,15 +184,17 @@ pub enum ActionKind {
 ```
 
 Default actions when the source doesn't specify any:
+
 - Hook attention → `[FocusSession(primary), Dismiss]`
 - Watch failure → `[FocusSession(primary), RetryWatch, DismissSource]`
 - Watch success → `[FocusSession(primary), Dismiss]` (retry is only useful on failure)
 - Task success → `[FocusPane(primary), Dismiss]`
 - Task error → `[FocusPane(primary), Dismiss]` (rerun is already available from the pane UI; not duplicated here)
 - OSC 9/777 (no id) → `[FocusSession(primary), Dismiss]`
-- OSC 99 with `i=` → `[FocusSession(primary), Dismiss]`, plus the notification is *updatable/removable* by subsequent OSC 99 packets with the same id.
+- OSC 99 with `i=` → `[FocusSession(primary), Dismiss]`, plus the notification is _updatable/removable_ by subsequent OSC 99 packets with the same id.
 
 ### Deliberately excluded from v1
+
 - `RunShellCommand { argv }` — arbitrary shell exec from a notification is a foot-gun; only pre-registered frontend commands via `RunCommand { command_id }` are allowed.
 - Inline reply / inline `AskUserQuestion` answering — still deferred.
 - Per-action confirmation dialogs — if the action needs a confirm, it's the frontend command's job to handle it.
@@ -193,6 +204,7 @@ Default actions when the source doesn't specify any:
 New Tauri event `notification://event` (or similar) carrying `NotificationEvent`. A Specta-generated type shared with the frontend via the existing bindings pipeline, so the frontend store and the Rust broadcast channel stay in lockstep.
 
 Frontend:
+
 - `src/lib/stores/notifications.ts` — writable store mirroring the Rust side.
 - On app start: call `notifications.list()` once to hydrate, then subscribe.
 - Derived stores: `unreadBySession: Map<string, number>`, `totalUnread: number`.
@@ -202,6 +214,7 @@ Frontend:
 Single place: `services/notifications/policy.rs`.
 
 Rules (v1):
+
 - If the Roux window is focused, suppress OS notifications entirely (in-pane badge is enough).
 - If unfocused:
   - `Attention | Warning | Error` → always fire.
@@ -213,6 +226,7 @@ Focus detection: Tauri's `Window::is_focused()` checked at push time. If we want
 ## Frontend: Pane And Surfaces
 
 Reference UX is cmux:
+
 - **Notifications pane** — dedicated sidebar pane (like Watches/Notes), opened via command palette + keybinding. Lists notifications newest-first, grouped by session with "Global" as a top group for `session_id = None`. Each row: level dot, title, body snippet, source badge, timestamp, dismiss button. Click row = click_action (focus session/pane) + mark read.
 - **Session sidebar badge** — small unread count on each session tab in `SessionTabs`.
 - **Global unread pill** on the notifications pane toggle in the status bar.
@@ -220,6 +234,7 @@ Reference UX is cmux:
 - **`AskUserQuestion` handling** — for now, it's just a notification like any other. User clicks the notification → focuses the session → answers in Claude's TUI picker. A future iteration may parse the options and render a picker in the pane, but not in v1.
 
 Keybindings (match vim-nav conventions in the keynav design if it lands first):
+
 - `g n` — toggle notifications pane
 - `g u` — jump to most recent unread (cmux's ⌘⇧U)
 - In pane: `j/k` row nav, `Enter` = click, `x` = dismiss, `d` = mark all read
@@ -243,7 +258,13 @@ roux notify \
 Also accepts `--json -` / stdin for hook-like wiring:
 
 ```json
-{"level":"attention","title":"...", "body":"...", "cwd":"/path", "source":"codex"}
+{
+  "level": "attention",
+  "title": "...",
+  "body": "...",
+  "cwd": "/path",
+  "source": "codex"
+}
 ```
 
 Session resolution order: `--session` id → `--cwd` lookup → env `ROUX_SESSION_ID` → global (unattached). Global notifications render in the pane under a "Global" group.
@@ -282,6 +303,7 @@ Keep `roux hook` as-is for the existing Claude hook install contract; internally
 7. **Deferred — rings-per-pane, inline pickers, cross-restart persistence, shell-exec actions.**
 
 ## Test Plan
+
 - Rust unit tests
   - `Store::push` enforces ring-buffer cap and ULID ordering.
   - `unread_count` by session and global.
@@ -307,6 +329,7 @@ Keep `roux hook` as-is for the existing Claude hook install contract; internally
   - `printf '\e]777;notify;Hi;Body\a'` from a shell inside any Roux PTY produces a notification.
 
 ## Open Questions
+
 1. **Notification grouping in the pane** — by session only, or also by source (e.g., "Watches: 3 failures")? cmux keeps it flat; we might want collapsible source groups once we have watches + tasks + attention mixed.
 2. **Rate limiting** — a runaway script calling `roux notify` or looping OSC 9 could flood the pane. Soft cap per source per second?
 3. **Cross-session dedup** — if the same watch fires twice in 10s, is it one notification with a count, or two? cmux is flat. I'd say two for v1, simpler. Note that OSC 99 already handles its own dedup via `i=` — this question is about non-OSC sources.
@@ -315,6 +338,7 @@ Keep `roux hook` as-is for the existing Claude hook install contract; internally
 6. **Keyboard navigation on the primary action** — does `Enter` on a selected notification row fire its primary action and `Space` mark it read, or do we reserve a different chord? Waiting on the keynav design to land before committing.
 
 ## Assumptions
+
 - Specta bindings are the source of truth for shared types (consistent with `fix(bindings)` from 2026-04-10).
 - The socket bridge (`src-tauri/src/socket.rs`) is reliable enough to be the primary transport for `roux notify`.
 - `tauri-plugin-notification` remains the OS-notification primitive; this service wraps it, not replaces it.

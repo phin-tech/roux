@@ -205,10 +205,7 @@ pub fn create_worktree_with_provider(
 
     if use_wt {
         if let Some(wt) = wt {
-            let opts = roux_worktrunk::CreateOpts {
-                base: start_point,
-                env: Vec::new(),
-            };
+            let opts = roux_worktrunk::CreateOpts { base: start_point, env: Vec::new() };
             match roux_worktrunk::create_worktree(wt, Path::new(repo_path), branch, &opts) {
                 Ok(path) => return Ok(path.to_string_lossy().into_owned()),
                 Err(err) => {
@@ -248,9 +245,7 @@ pub fn create_worktree(
             .map_err(|source| WorktreeError::RunGit { source })?
     } else if let Some(sp) = start_point {
         if !rev_exists(repo_path, sp) {
-            return Err(WorktreeError::InvalidStartPoint {
-                start_point: sp.to_string(),
-            });
+            return Err(WorktreeError::InvalidStartPoint { start_point: sp.to_string() });
         }
         Command::new("git")
             .args(["worktree", "add", "-b", branch, &target_str, sp])
@@ -308,11 +303,7 @@ pub fn remove_worktree_with_provider(
 
     if use_wt {
         if let Some(wt) = wt {
-            let opts = roux_worktrunk::RemoveOpts {
-                also_branch,
-                force,
-                env: Vec::new(),
-            };
+            let opts = roux_worktrunk::RemoveOpts { also_branch, force, env: Vec::new() };
             match roux_worktrunk::remove_worktree(
                 wt,
                 Path::new(repo_path),
@@ -350,10 +341,7 @@ pub fn remove_worktree_with_provider(
     if let Some(branch) = branch {
         // Best-effort: if wt's fallback path already deleted the branch,
         // `git branch -D` exits non-zero — that's fine.
-        let _ = Command::new("git")
-            .args(["branch", "-D", &branch])
-            .current_dir(repo_path)
-            .output();
+        let _ = Command::new("git").args(["branch", "-D", &branch]).current_dir(repo_path).output();
     }
 
     Ok(())
@@ -479,12 +467,7 @@ fn wt_item_to_worktree(item: roux_worktrunk::WtItem) -> Option<Worktree> {
         ci_url,
         ci_stale,
     };
-    Some(Worktree {
-        path,
-        branch,
-        is_main: item.is_main,
-        worktrunk: Some(metadata),
-    })
+    Some(Worktree { path, branch, is_main: item.is_main, worktrunk: Some(metadata) })
 }
 
 pub fn list_worktrees(repo_path: &str) -> Result<Vec<Worktree>, WorktreeError> {
@@ -889,10 +872,7 @@ mod tests {
         assert!(Path::new(&path).is_dir());
         // Verify the path is under our explicit base (proves git path was used,
         // not wt's default layout).
-        assert!(
-            path.starts_with(&base_str),
-            "Git provider should honor base_path; got {path}"
-        );
+        assert!(path.starts_with(&base_str), "Git provider should honor base_path; got {path}");
     }
 
     #[test]
@@ -944,10 +924,7 @@ mod tests {
         .expect("Auto must fall back to native when wt spawn fails");
 
         assert!(Path::new(&path).is_dir());
-        assert!(
-            path.starts_with(&base_str),
-            "fallback must land at the git base path; got {path}"
-        );
+        assert!(path.starts_with(&base_str), "fallback must land at the git base path; got {path}");
     }
 
     #[test]

@@ -218,13 +218,14 @@ export type UpdateStatus =
   | { kind: "ready" }
   | { kind: "error"; reason: UpdaterError };
 
-export type UpdaterError =
-  | "network"
-  | "signature-invalid"
-  | "unknown";
+export type UpdaterError = "network" | "signature-invalid" | "unknown";
 
-export async function checkForUpdate(opts: { silent: boolean }): Promise<UpdateStatus>;
-export async function installUpdate(onProgress: (p: number | null) => void): Promise<void>;
+export async function checkForUpdate(opts: {
+  silent: boolean;
+}): Promise<UpdateStatus>;
+export async function installUpdate(
+  onProgress: (p: number | null) => void,
+): Promise<void>;
 ```
 
 - In dev (`import.meta.env.DEV`), `checkForUpdate` returns `{ kind: "no-update" }`

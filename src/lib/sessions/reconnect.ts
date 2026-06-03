@@ -2,10 +2,29 @@ import { get } from "svelte/store";
 import type { Session } from "$lib/types";
 import { updateSessionStatus } from "$lib/stores/sessions";
 import { reconnectSessionShellPty, spawnShell } from "$lib/tauri";
-import { replacePty, createPane, updateInstance, getInstance, type PaneInstance } from "$lib/panes/instances";
-import { sessionLayouts, collectLeafIds, type LayoutNode } from "$lib/panes/layout";
-import { loadPaneState, stripCommandPanes, type PaneDescriptor, type PaneStatePayload } from "$lib/panes/persistence";
-import { resolveProfileRef, type SpawnProfile, type SpawnProfileRef } from "$lib/panes/profiles";
+import {
+  replacePty,
+  createPane,
+  updateInstance,
+  getInstance,
+  type PaneInstance,
+} from "$lib/panes/instances";
+import {
+  sessionLayouts,
+  collectLeafIds,
+  type LayoutNode,
+} from "$lib/panes/layout";
+import {
+  loadPaneState,
+  stripCommandPanes,
+  type PaneDescriptor,
+  type PaneStatePayload,
+} from "$lib/panes/persistence";
+import {
+  resolveProfileRef,
+  type SpawnProfile,
+  type SpawnProfileRef,
+} from "$lib/panes/profiles";
 import { runProfileInPane } from "$lib/panes/profileRunner";
 import { renderProjectPromptForSession } from "$lib/projectPromptTemplates";
 import { log } from "$lib/logging";
@@ -76,8 +95,10 @@ function ensurePrimaryPaneForReconnect(
   if (existing) return existing;
 
   const paneId = descriptor?.id ?? `${sessionId}-main`;
-  const spawnProfileRef: SpawnProfileRef =
-    descriptor?.spawnProfileRef ?? { kind: "registered", id: "claude" };
+  const spawnProfileRef: SpawnProfileRef = descriptor?.spawnProfileRef ?? {
+    kind: "registered",
+    id: "claude",
+  };
 
   if (getInstance(paneId)) {
     updateInstance(paneId, {
@@ -140,9 +161,13 @@ function providerSessionArg(value: string | undefined): string | null {
   return SAFE_SHELL_ARG.test(trimmed) ? trimmed : null;
 }
 
-function fallbackContinueFlags(provider: SpawnProfile["provider"] | null, profileId?: string): string[] | undefined {
+function fallbackContinueFlags(
+  provider: SpawnProfile["provider"] | null,
+  profileId?: string,
+): string[] | undefined {
   if (provider === "claude" || profileId === "claude") return ["--continue"];
-  if (provider === "codex" || profileId === "codex") return ["resume", "--last"];
+  if (provider === "codex" || profileId === "codex")
+    return ["resume", "--last"];
   return undefined;
 }
 
@@ -190,7 +215,10 @@ function profileWithFlags(
 
 // ── Integrity preflight ───────────────────────────────────────────────────────
 
-function validatePanePayload(sessionId: string, payload: PaneStatePayload): boolean {
+function validatePanePayload(
+  sessionId: string,
+  payload: PaneStatePayload,
+): boolean {
   const { layout, descriptors } = payload;
 
   // All descriptor IDs must be unique.
@@ -215,7 +243,9 @@ function validatePanePayload(sessionId: string, payload: PaneStatePayload): bool
   const knownTypes = new Set(["shell", "command", "markdown", "notes"]);
   for (const d of descriptors) {
     if (!knownTypes.has(d.type)) {
-      log(`pane restore preflight(${sessionId}): unknown descriptor type "${d.type}"`);
+      log(
+        `pane restore preflight(${sessionId}): unknown descriptor type "${d.type}"`,
+      );
       return false;
     }
   }
@@ -225,7 +255,9 @@ function validatePanePayload(sessionId: string, payload: PaneStatePayload): bool
   const descById = new Map(descriptors.map((d) => [d.id, d]));
   for (const leafId of leafIds) {
     if (!descById.has(leafId)) {
-      log(`pane restore preflight(${sessionId}): leaf "${leafId}" has no descriptor`);
+      log(
+        `pane restore preflight(${sessionId}): leaf "${leafId}" has no descriptor`,
+      );
       return false;
     }
   }
@@ -271,11 +303,12 @@ async function rehydratePane(
 
   if (descriptor.type === "shell") {
     const ptyId = crypto.randomUUID();
-    const profileId = descriptor.spawnProfileRef?.kind === "registered"
-      ? descriptor.spawnProfileRef.id
-      : descriptor.spawnProfileRef?.kind === "inline"
-        ? descriptor.spawnProfileRef.profile.id
-        : null;
+    const profileId =
+      descriptor.spawnProfileRef?.kind === "registered"
+        ? descriptor.spawnProfileRef.id
+        : descriptor.spawnProfileRef?.kind === "inline"
+          ? descriptor.spawnProfileRef.profile.id
+          : null;
     try {
       await spawnShell(
         ptyId,
@@ -284,7 +317,9 @@ async function rehydratePane(
         paneId,
         profileId,
         null,
-        descriptor.spawnProfileRef?.kind === "inline" ? descriptor.spawnProfileRef.profile : null,
+        descriptor.spawnProfileRef?.kind === "inline"
+          ? descriptor.spawnProfileRef.profile
+          : null,
       );
       createPane({
         id: paneId,
@@ -351,7 +386,9 @@ async function reconnectPrimaryPaneOnly(
     session.id,
     profile?.id ?? null,
     null,
-    instance?.spawnProfileRef?.kind === "inline" ? instance.spawnProfileRef.profile : null,
+    instance?.spawnProfileRef?.kind === "inline"
+      ? instance.spawnProfileRef.profile
+      : null,
   );
   const { connectPaneTerminal } = await import("$lib/panes/terminals");
   await connectPaneTerminal(primaryPaneId);
@@ -409,7 +446,9 @@ async function replayRestoredPaneProfile(
       ...(appendSystemPrompt.trim() ? { appendSystemPrompt } : {}),
     });
   } catch (e) {
-    log(`replayRestoredPaneProfile(${paneId}): profile "${profile.id}" replay failed — ${e}`);
+    log(
+      `replayRestoredPaneProfile(${paneId}): profile "${profile.id}" replay failed — ${e}`,
+    );
   }
 }
 
@@ -453,7 +492,9 @@ async function reconnectSessionInternal(
       persisted.descriptors,
     );
     if (isSinglePrimaryLeaf(persisted.layout, persistedPrimaryId)) {
-      const primaryDesc = persisted.descriptors.find((d) => d.id === persistedPrimaryId);
+      const primaryDesc = persisted.descriptors.find(
+        (d) => d.id === persistedPrimaryId,
+      );
       ensurePrimaryPaneForReconnect(session.id, primaryDesc);
       return await reconnectPrimaryPaneOnly(session, extraFlags, intent);
     }
@@ -463,16 +504,16 @@ async function reconnectSessionInternal(
       log(
         `pane restore preflight failed for ${session.id}, falling back to primary-pane-only reconnect`,
       );
-      const primaryDesc = persisted.descriptors.find((d) => d.ptyId === session.id);
+      const primaryDesc = persisted.descriptors.find(
+        (d) => d.ptyId === session.id,
+      );
       ensurePrimaryPaneForReconnect(session.id, primaryDesc);
       return await reconnectPrimaryPaneOnly(session, extraFlags, intent);
     }
 
     // Strip command panes — they cannot be restarted.
-    const { tree: strippedTree, descriptors: strippedDescs } = stripCommandPanes(
-      persisted.layout,
-      persisted.descriptors,
-    );
+    const { tree: strippedTree, descriptors: strippedDescs } =
+      stripCommandPanes(persisted.layout, persisted.descriptors);
 
     if (!strippedTree) {
       ensurePrimaryPaneForReconnect(session.id);
@@ -511,7 +552,13 @@ async function reconnectSessionInternal(
     const { updateInstance } = await import("$lib/panes/instances");
     for (const paneId of nonMainIds) {
       const instance = getInstance(paneId);
-      if (!instance || instance.restoreError || instance.type === "markdown" || instance.type === "notes") continue;
+      if (
+        !instance ||
+        instance.restoreError ||
+        instance.type === "markdown" ||
+        instance.type === "notes"
+      )
+        continue;
       const ptyId = instance.ptyId;
       await connectPaneTerminal(paneId, (payload) => {
         log(`Restored shell ${paneId} exited (code=${payload.code})`);
@@ -526,7 +573,9 @@ async function reconnectSessionInternal(
       await replayRestoredPaneProfile(session, paneId, intent);
     }
 
-    log(`Session ${session.id} reconnected with ${nonMainIds.length} additional pane(s)`);
+    log(
+      `Session ${session.id} reconnected with ${nonMainIds.length} additional pane(s)`,
+    );
     return updated;
   } finally {
     reconnecting.delete(session.id);
@@ -574,19 +623,26 @@ export async function reconnectSessionShell(
 
 export async function continueSessionShell(session: Session): Promise<Session> {
   const primary = findSessionPrimaryInstance(session.id);
-  const plan = defaultContinuePlan(primary, resolveProfileRef(primary?.spawnProfileRef));
+  const plan = defaultContinuePlan(
+    primary,
+    resolveProfileRef(primary?.spawnProfileRef),
+  );
   return reconnectSessionShell(session, plan.flags);
 }
 
-export async function retryShellPane(paneId: string, sessionId: string): Promise<void> {
+export async function retryShellPane(
+  paneId: string,
+  sessionId: string,
+): Promise<void> {
   const instance = getInstance(paneId);
   if (!instance || instance.type !== "shell" || !instance.restoreError) return;
 
-  const profileId = instance.spawnProfileRef?.kind === "registered"
-    ? instance.spawnProfileRef.id
-    : instance.spawnProfileRef?.kind === "inline"
-      ? instance.spawnProfileRef.profile.id
-      : null;
+  const profileId =
+    instance.spawnProfileRef?.kind === "registered"
+      ? instance.spawnProfileRef.id
+      : instance.spawnProfileRef?.kind === "inline"
+        ? instance.spawnProfileRef.profile.id
+        : null;
   const ptyId = crypto.randomUUID();
   try {
     await spawnShell(
@@ -596,7 +652,9 @@ export async function retryShellPane(paneId: string, sessionId: string): Promise
       paneId,
       profileId,
       null,
-      instance.spawnProfileRef?.kind === "inline" ? instance.spawnProfileRef.profile : null,
+      instance.spawnProfileRef?.kind === "inline"
+        ? instance.spawnProfileRef.profile
+        : null,
     );
     updateInstance(paneId, { ptyId, restoreError: undefined });
     const { connectPaneTerminal } = await import("$lib/panes/terminals");

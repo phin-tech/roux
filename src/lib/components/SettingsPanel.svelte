@@ -29,7 +29,11 @@
     type SettingsCategoryId,
   } from "$lib/settings/categories";
 
-  const CATEGORIES: { id: SettingsCategoryId; label: string; icon: typeof Settings }[] = [
+  const CATEGORIES: {
+    id: SettingsCategoryId;
+    label: string;
+    icon: typeof Settings;
+  }[] = [
     { id: "general", label: "General", icon: Settings },
     { id: "sessions", label: "Sessions", icon: FolderTree },
     { id: "terminal", label: "Terminal", icon: TerminalIcon },
@@ -51,7 +55,12 @@
     externalToolId?: string | null;
   }
 
-  let { visible, onclose, initialCategory = null, externalToolId = null }: Props = $props();
+  let {
+    visible,
+    onclose,
+    initialCategory = null,
+    externalToolId = null,
+  }: Props = $props();
 
   let selected = $state<SettingsCategoryId>("general");
   let focusedExternalToolId = $state<string | null>(null);
@@ -125,7 +134,9 @@
     onkeydown={handleKey}
     tabindex="-1"
   >
-    <aside class="flex w-[180px] shrink-0 flex-col border-r border-hairline bg-bg-surface/30 py-3">
+    <aside
+      class="flex w-[180px] shrink-0 flex-col border-r border-hairline bg-bg-surface/30 py-3"
+    >
       <div class="flex items-center gap-2 px-3 pb-2">
         <button
           aria-label="Close settings"
@@ -134,7 +145,11 @@
         >
           <X size={14} />
         </button>
-        <div class="text-[11px] font-semibold uppercase tracking-widest text-text-muted">Preferences</div>
+        <div
+          class="text-[11px] font-semibold uppercase tracking-widest text-text-muted"
+        >
+          Preferences
+        </div>
       </div>
       <nav class="flex flex-col gap-0.5 px-2">
         {#each CATEGORIES as cat}
@@ -142,8 +157,8 @@
           <button
             class="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] transition-colors
               {selected === cat.id
-                ? 'bg-accent-dim text-text-primary'
-                : 'text-text-secondary hover:bg-bg-hover'}"
+              ? 'bg-accent-dim text-text-primary'
+              : 'text-text-secondary hover:bg-bg-hover'}"
             onclick={() => (selected = cat.id)}
           >
             <Icon size={14} />
@@ -154,7 +169,9 @@
     </aside>
 
     <div class="flex min-w-0 flex-1 flex-col">
-      <div class="flex h-10 shrink-0 items-center border-b border-hairline px-4">
+      <div
+        class="flex h-10 shrink-0 items-center border-b border-hairline px-4"
+      >
         <h2 class="text-sm font-semibold tracking-tight">
           {CATEGORIES.find((c) => c.id === selected)?.label}
         </h2>

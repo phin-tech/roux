@@ -59,8 +59,16 @@ describe("sessions store", () => {
   });
 
   it("updates an existing session instead of adding a duplicate id", () => {
-    const original = makeSession({ id: "s1", name: "original", status: "idle" });
-    const updated = makeSession({ id: "s1", name: "updated", status: "disconnected" });
+    const original = makeSession({
+      id: "s1",
+      name: "original",
+      status: "idle",
+    });
+    const updated = makeSession({
+      id: "s1",
+      name: "updated",
+      status: "disconnected",
+    });
     addSession(original);
     addSession(updated);
 
@@ -77,7 +85,11 @@ describe("sessions store", () => {
   it("preserves the active session when replacing an existing inactive session", () => {
     const s1 = makeSession({ id: "s1", name: "original", status: "idle" });
     const s2 = makeSession({ id: "s2", name: "active", status: "idle" });
-    const s1Updated = makeSession({ id: "s1", name: "updated", status: "disconnected" });
+    const s1Updated = makeSession({
+      id: "s1",
+      name: "updated",
+      status: "disconnected",
+    });
     addSession(s1);
     addSession(s2);
 
@@ -213,7 +225,7 @@ describe("sessions store", () => {
   });
 
   it("preserves existing model/cost when not provided", () => {
-    const s = makeSession({ model: "Opus 4.6", cost: 0.10 });
+    const s = makeSession({ model: "Opus 4.6", cost: 0.1 });
     addSession(s);
 
     updateSessionStatus(s.id, "thinking");
@@ -221,7 +233,7 @@ describe("sessions store", () => {
     const session = get(sessionState).sessions[0];
     expect(session.status).toBe("thinking");
     expect(session.model).toBe("Opus 4.6");
-    expect(session.cost).toBe(0.10);
+    expect(session.cost).toBe(0.1);
   });
 
   it("sets session as disconnected", () => {
@@ -277,8 +289,12 @@ describe("sessions store", () => {
 
     updateSessionGitStatus(s1.id, true);
 
-    expect(get(sessionState).sessions.find((s) => s.id === s1.id)?.isGitRepo).toBe(true);
-    expect(get(sessionState).sessions.find((s) => s.id === s2.id)?.isGitRepo).toBe(false);
+    expect(
+      get(sessionState).sessions.find((s) => s.id === s1.id)?.isGitRepo,
+    ).toBe(true);
+    expect(
+      get(sessionState).sessions.find((s) => s.id === s2.id)?.isGitRepo,
+    ).toBe(false);
   });
 
   it("clears project and blueprint refs for sessions attached to a deleted project", () => {

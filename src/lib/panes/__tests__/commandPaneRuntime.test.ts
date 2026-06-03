@@ -95,7 +95,7 @@ describe("commandPaneRuntime", () => {
       "/repo",
       "session-1",
       paneId,
-      "command",                // profile
+      "command", // profile
     );
   });
 

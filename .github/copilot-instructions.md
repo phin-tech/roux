@@ -64,6 +64,7 @@ Always run `npm install` before building. Tests use Vitest. Rust code lives in `
 ## Critical Invariants
 
 Do not break these:
+
 - **Pane tree structure**: same-direction splits must flatten; the recursive `SplitNode` union must stay consistent.
 - **Terminal registry lifecycle**: xterm instances must survive re-mounts via the registry.
 - **PTY lifecycle**: PTYs must not leak; they require explicit cleanup.
@@ -80,6 +81,7 @@ Do not break these:
 ## Before Changing Tauri Commands
 
 Always identify:
+
 1. Which frontend caller depends on the command
 2. Which persisted data shape might change
 3. Whether the CLI/socket protocol also depends on it

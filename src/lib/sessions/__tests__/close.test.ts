@@ -56,7 +56,11 @@ function makeSession(overrides: Partial<Session> = {}): Session {
 describe("closeSession", () => {
   beforeEach(() => {
     sessionState.set({ sessions: [], activeSessionId: null });
-    archivedSessionsState.set({ sessions: [], loaded: false, worktreeExists: new Map() });
+    archivedSessionsState.set({
+      sessions: [],
+      loaded: false,
+      worktreeExists: new Map(),
+    });
     resetLayouts();
     resetInstances();
     resetFocus();
@@ -65,7 +69,9 @@ describe("closeSession", () => {
     vi.mocked(killSession).mockReset().mockResolvedValue(undefined);
     vi.mocked(detachPty).mockReset().mockResolvedValue(undefined);
     vi.mocked(removeWorktree).mockReset().mockResolvedValue(undefined);
-    vi.mocked(deleteSessionPermanently).mockReset().mockResolvedValue(undefined);
+    vi.mocked(deleteSessionPermanently)
+      .mockReset()
+      .mockResolvedValue(undefined);
     vi.mocked(saveLivePaneStateRaw).mockReset().mockResolvedValue(undefined);
     vi.restoreAllMocks();
   });
@@ -213,16 +219,16 @@ describe("closeSession", () => {
     const calls = vi.mocked(saveLivePaneStateRaw).mock.calls;
     expect(calls).toHaveLength(1);
     expect(calls[0][0]).toBe(closingSession.id);
-    expect(
-      calls.some(([id]) => id === otherSession.id),
-    ).toBe(false);
+    expect(calls.some(([id]) => id === otherSession.id)).toBe(false);
   });
 
   it("still archives when pane-state flush fails", async () => {
     const session = makeSession();
     addSession(session);
     initSession(session.id);
-    vi.mocked(saveLivePaneStateRaw).mockRejectedValueOnce(new Error("disk full"));
+    vi.mocked(saveLivePaneStateRaw).mockRejectedValueOnce(
+      new Error("disk full"),
+    );
 
     const result = await closeSession(session);
 
@@ -305,7 +311,9 @@ describe("closeSession", () => {
       cleanupWorktreesOnClose: true,
     }));
     archivedSessionsState.update((s) => ({ ...s, loaded: true }));
-    vi.mocked(removeWorktree).mockRejectedValueOnce(new Error("permission denied"));
+    vi.mocked(removeWorktree).mockRejectedValueOnce(
+      new Error("permission denied"),
+    );
 
     const session = makeSession({ isWorktree: true, worktreePath: "/wt" });
     addSession(session);
@@ -317,7 +325,9 @@ describe("closeSession", () => {
     expect(killSession).toHaveBeenCalledWith(session.id);
     // Removal was attempted but failed — the History row shows wt still on
     // disk so the user can retry via Clean worktree.
-    expect(get(archivedSessionsState).worktreeExists.get(session.id)).toBe(true);
+    expect(get(archivedSessionsState).worktreeExists.get(session.id)).toBe(
+      true,
+    );
   });
 
   it("legacy setting worktreeCleanupOnClose=prompt does NOT prompt or drop the worktree", async () => {

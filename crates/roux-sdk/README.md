@@ -50,19 +50,22 @@ file.
 One-shot requests are newline-terminated JSON objects:
 
 ```json
-{"command":"daemon-status","args":null}
+{ "command": "daemon-status", "args": null }
 ```
 
 Successful responses are:
 
 ```json
-{"ok":true,"data":{"kind":"roux-daemon","capabilities":["daemon-status"]}}
+{
+  "ok": true,
+  "data": { "kind": "roux-daemon", "capabilities": ["daemon-status"] }
+}
 ```
 
 Failures are:
 
 ```json
-{"ok":false,"error":"daemon pty not found"}
+{ "ok": false, "error": "daemon pty not found" }
 ```
 
 Streaming commands use newline-delimited JSON frames after the initial request.

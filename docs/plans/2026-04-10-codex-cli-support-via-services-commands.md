@@ -3,11 +3,13 @@
 > **Status:** Partially superseded by `docs/superpowers/specs/2026-04-11-spawn-profiles-and-agent-integration-design.md`. The provider-aware PTY spawn path and `Session.provider` field are gone; the install / status-normalization / notification work survives.
 
 ## Summary
+
 Implement Codex support as a provider-aware extension of the new Rust layering, not as more Claude-specific conditionals. Tauri commands stay thin. All provider decisions, hook installation, hook payload normalization, status routing, and notification policy live in services or dedicated provider modules.
 
 V1 includes first-class `codex` sessions, user-global Codex hook installation, normalized session status updates, and optional OS notifications for completed/error turns. V1 does not attempt Claude-style permission-request parity for Codex because the current Codex hook surface does not cleanly expose that state.
 
 ## Service Boundaries
+
 - `commands/sessions.rs`
   - Accept `provider` on create/reconnect requests.
   - Forward to services only.
@@ -35,6 +37,7 @@ V1 includes first-class `codex` sessions, user-global Codex hook installation, n
   - Suppress notifications while the Roux window is focused.
 
 ## Implementation Changes
+
 - Shared models in `roux-core`
   - Add `Session.provider: "claude" | "codex"`.
   - Add settings fields:
@@ -85,6 +88,7 @@ V1 includes first-class `codex` sessions, user-global Codex hook installation, n
   - Notifications are driven from normalized status events, not provider-specific UI code.
 
 ## Public Interfaces
+
 - `Session` gains `provider`.
 - `RouxSettings` gains `codexBinaryPath` and `sessionNotificationsEnabled`.
 - `create_session` and `reconnect_session` gain `provider`.
@@ -92,6 +96,7 @@ V1 includes first-class `codex` sessions, user-global Codex hook installation, n
 - Frontend status event payload removes Claude-specific field names such as `claudeSessionId`.
 
 ## Test Plan
+
 - Service-level Rust tests
   - provider spawn config generation for Claude and Codex
   - setup status/install orchestration
@@ -114,6 +119,7 @@ V1 includes first-class `codex` sessions, user-global Codex hook installation, n
   - notifications only appear when enabled and Roux is unfocused
 
 ## Assumptions And Defaults
+
 - Use the services/commands separation layer everywhere in this feature.
 - New provider-specific code should live in service/provider modules, not in Tauri command handlers.
 - V1 manages user-global Codex config only, not repo-local `.codex/hooks.json`.

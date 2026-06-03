@@ -2,10 +2,10 @@
 
 ## Summary
 
-Roux supports multiple concurrent AI agents per session by treating *every* terminal pane as a shell pane and separating three concepts that earlier designs conflated into a dedicated "AI pane type":
+Roux supports multiple concurrent AI agents per session by treating _every_ terminal pane as a shell pane and separating three concepts that earlier designs conflated into a dedicated "AI pane type":
 
 1. **Pane kind** — the pane-tree primitive (`shell`, `markdown`, `command`). Unchanged, except that the legacy `claude` pane type is removed.
-2. **Spawn profile** — optional persisted metadata describing *how* a shell pane was launched. A reusable, named record of "spawn a shell, inject these env vars, optionally run these commands in it". Built-in profiles from provider modules cover Claude and Codex; user profiles let the same primitive handle dev servers, test watchers, REPL environments, remote SSH sessions, and anything else worth one-clicking.
+2. **Spawn profile** — optional persisted metadata describing _how_ a shell pane was launched. A reusable, named record of "spawn a shell, inject these env vars, optionally run these commands in it". Built-in profiles from provider modules cover Claude and Codex; user profiles let the same primitive handle dev servers, test watchers, REPL environments, remote SSH sessions, and anything else worth one-clicking.
 3. **Observed agent state** — runtime-only state populated by incoming hook / OSC / `roux notify` events. Source of truth for session-card status, notifications, and provider-specific UI (Claude Allow/Deny, resume picker). Lights up on any shell pane where an agent is observed running, regardless of whether Roux spawned it via a profile or the user launched it by hand.
 
 Correlation stays deterministic because every shell PTY gets `ROUX_SESSION_ID` and `ROUX_PANE_ID` injected into its env at spawn — unconditional, not profile-dependent. Any agent the user launches inherits them. Hook bridges route events by those ids first, so Roux knows exactly which pane a given event belongs to without cwd heuristics.
@@ -113,7 +113,7 @@ export const agentStates: Writable<Map<string, AgentState>>;
 
 - Runtime only; not persisted.
 - A pane has no `agentState` entry until the first event arrives. Until then the pane is a plain shell to the UI.
-- Entries clear on pane disposal and on session close. Entries do *not* clear on agent idle — `idle` is a valid persistent state until superseded by a later event or the pane closes.
+- Entries clear on pane disposal and on session close. Entries do _not_ clear on agent idle — `idle` is a valid persistent state until superseded by a later event or the pane closes.
 - There is no `"disconnected"` status. PTY death is observable at the pane level (dead-pane view). Agent process death without shell death manifests as `agentState` sitting at its last value — acceptable for v1. A later pass can add OSC 133 prompt-marker detection to auto-clear stale agent state on the next shell prompt.
 
 **`PaneInstance` and `PaneDescriptor`** (modified, `src/lib/panes/instances.ts`, `persistence.ts`):
@@ -226,13 +226,13 @@ When project profiles ship, they follow the VS Code workspace-trust pattern:
 - Untrusted workspaces: `.roux/profiles.json` is not loaded. Roux continues to work normally; only the project-profile portion of the registry is empty.
 - Trusted workspaces: `.roux/profiles.json` is loaded and merged into the registry with `source: "project"`.
 - Trust decisions persist in `RouxSettings.trustedWorkspaces: string[]` (absolute paths). Can be revoked from settings at any time.
-- Gating rule: v1 will treat *any* project profile as requiring trust. A later pass may relax this so profiles that only set `env` / `cwdOverride` (no commands) can load without a prompt, but that's a follow-up refinement.
+- Gating rule: v1 will treat _any_ project profile as requiring trust. A later pass may relax this so profiles that only set `env` / `cwdOverride` (no commands) can load without a prompt, but that's a follow-up refinement.
 
-**For v1 this means:** the loader never reads `.roux/profiles.json`, `source: "project"` never appears in the registry, the trust-prompt UI does not exist. The `RouxSettings.trustedWorkspaces` field *is* defined and persisted so it's available when project profiles land. This costs ~5 lines of schema and zero runtime overhead today.
+**For v1 this means:** the loader never reads `.roux/profiles.json`, `source: "project"` never appears in the registry, the trust-prompt UI does not exist. The `RouxSettings.trustedWorkspaces` field _is_ defined and persisted so it's available when project profiles land. This costs ~5 lines of schema and zero runtime overhead today.
 
 ### Inline "Custom…" profiles
 
-The "Custom…" option in the new-session and split pickers opens an inline editor with fields for name (optional), `setupCommand`, `startupCommand`, `startupBehavior`, and a collapsed-by-default env + cwd section. Submitting creates a `SpawnProfile` with `source: "inline"`, a generated `id` (e.g. `inline-<uuid>`), and attaches it to the new pane as `spawnProfileRef: { kind: "inline", profile }`. The profile is *not* added to the registry.
+The "Custom…" option in the new-session and split pickers opens an inline editor with fields for name (optional), `setupCommand`, `startupCommand`, `startupBehavior`, and a collapsed-by-default env + cwd section. Submitting creates a `SpawnProfile` with `source: "inline"`, a generated `id` (e.g. `inline-<uuid>`), and attaches it to the new pane as `spawnProfileRef: { kind: "inline", profile }`. The profile is _not_ added to the registry.
 
 A nice-to-have follow-up ("Save as user profile" button on inline-profile panes) can promote an inline profile into a user profile by appending it to `RouxSettings.spawnProfiles`. The inline JSON format round-trips trivially into user settings.
 
@@ -283,7 +283,7 @@ Today's code hard-codes a non-closeable `<sessionId>-main` Claude pane per sessi
 - `src/lib/sessions/reconnect.ts` targets an explicit pane id instead of the session's main pane.
 - UI surfaces that need "the session's primary shell" use "most-recently-focused shell, falling back to the first shell in layout order, falling back to any pane".
 
-Sequenced early in the implementation plan so subsequent changes operate on the new model. This must happen *before* the `claude → shell` pane-type unification so intermediate commits leave the app runnable.
+Sequenced early in the implementation plan so subsequent changes operate on the new model. This must happen _before_ the `claude → shell` pane-type unification so intermediate commits leave the app runnable.
 
 ## Observed Agent State And Notifications
 
@@ -344,7 +344,7 @@ The parent plan (`docs/plans/2026-04-10-codex-cli-support-via-services-commands.
 - `aiStatus: "disconnected"` as a persistent state (subsumed by "no `agentState` entry").
 - `defaultModel` / `additionalFlags` as spawn inputs. They become inputs to the Claude built-in profile's default `startupCommand` string.
 
-Net: Codex support gets *smaller* under this architecture, not bigger.
+Net: Codex support gets _smaller_ under this architecture, not bigger.
 
 ## UI Changes
 
@@ -379,7 +379,7 @@ Net: Codex support gets *smaller* under this architecture, not bigger.
 
 - `RouxSettings.spawnProfiles: SpawnProfile[]` — user profile list, edited as JSON.
 - `RouxSettings.trustedWorkspaces: string[]` — reserved for the project-profile trust model, unused in v1.
-- `claudeBinaryPath`, `codexBinaryPath`, `defaultModel`, `additionalFlags`, `sessionNotificationsEnabled` — all stay as settings fields. Their *consumers* change: `claudeBinaryPath` etc. are consulted by the Claude provider module when constructing the default built-in profile's `startupCommand`, not by a spawn path.
+- `claudeBinaryPath`, `codexBinaryPath`, `defaultModel`, `additionalFlags`, `sessionNotificationsEnabled` — all stay as settings fields. Their _consumers_ change: `claudeBinaryPath` etc. are consulted by the Claude provider module when constructing the default built-in profile's `startupCommand`, not by a spawn path.
 
 ### What is explicitly not changing
 

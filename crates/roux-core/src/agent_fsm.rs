@@ -139,10 +139,7 @@ pub struct AgentFsm {
 
 impl AgentFsm {
     pub fn new(identity: AgentIdentity) -> Self {
-        Self {
-            state: AgentState::Idle,
-            identity,
-        }
+        Self { state: AgentState::Idle, identity }
     }
 
     pub fn state(&self) -> AgentState {
@@ -190,19 +187,11 @@ mod tests {
     use super::*;
 
     fn identity_cwd(cwd: &str) -> AgentIdentity {
-        AgentIdentity {
-            pane_id: None,
-            session_id: None,
-            cwd: Some(PathBuf::from(cwd)),
-        }
+        AgentIdentity { pane_id: None, session_id: None, cwd: Some(PathBuf::from(cwd)) }
     }
 
     fn identity_pane(pane: &str) -> AgentIdentity {
-        AgentIdentity {
-            pane_id: Some(pane.into()),
-            session_id: None,
-            cwd: None,
-        }
+        AgentIdentity { pane_id: Some(pane.into()), session_id: None, cwd: None }
     }
 
     fn hook(mapped: MappedStatus) -> AgentEvent {
@@ -240,10 +229,7 @@ mod tests {
         assert_eq!(fsm.state(), AgentState::Generating);
         assert_eq!(
             effects,
-            vec![AgentEffect::StateChanged {
-                from: AgentState::Idle,
-                to: AgentState::Generating
-            }]
+            vec![AgentEffect::StateChanged { from: AgentState::Idle, to: AgentState::Generating }]
         );
     }
 
@@ -256,9 +242,7 @@ mod tests {
         assert_eq!(
             effects,
             vec![
-                AgentEffect::PushAttention {
-                    key: AttentionKey::Pane("p-1".into()),
-                },
+                AgentEffect::PushAttention { key: AttentionKey::Pane("p-1".into()) },
                 AgentEffect::StateChanged {
                     from: AgentState::Generating,
                     to: AgentState::Attention
@@ -299,10 +283,7 @@ mod tests {
             effects,
             vec![
                 AgentEffect::DismissAttention { key: AttentionKey::Pane("p-1".into()) },
-                AgentEffect::StateChanged {
-                    from: AgentState::Attention,
-                    to: AgentState::Idle
-                }
+                AgentEffect::StateChanged { from: AgentState::Attention, to: AgentState::Idle }
             ]
         );
     }
@@ -415,23 +396,14 @@ mod tests {
             session_id: Some("s-1".into()),
             cwd: Some(PathBuf::from("/tmp/x")),
         };
-        assert_eq!(
-            id.to_attention_key(),
-            Some(AttentionKey::Session("s-1".into()))
-        );
+        assert_eq!(id.to_attention_key(), Some(AttentionKey::Session("s-1".into())));
     }
 
     #[test]
     fn identity_to_attention_key_uses_cwd_when_nothing_else() {
-        let id = AgentIdentity {
-            pane_id: None,
-            session_id: None,
-            cwd: Some(PathBuf::from("/tmp/x")),
-        };
-        assert_eq!(
-            id.to_attention_key(),
-            Some(AttentionKey::Cwd(PathBuf::from("/tmp/x")))
-        );
+        let id =
+            AgentIdentity { pane_id: None, session_id: None, cwd: Some(PathBuf::from("/tmp/x")) };
+        assert_eq!(id.to_attention_key(), Some(AttentionKey::Cwd(PathBuf::from("/tmp/x"))));
     }
 
     #[test]
@@ -465,25 +437,13 @@ mod tests {
         let mut hb = DefaultHasher::new();
         a.hash(&mut ha);
         b.hash(&mut hb);
-        assert_eq!(
-            ha.finish(),
-            hb.finish(),
-            "hashes must agree for equal identities"
-        );
+        assert_eq!(ha.finish(), hb.finish(), "hashes must agree for equal identities");
     }
 
     #[test]
     fn identities_with_different_panes_are_not_equal() {
-        let a = AgentIdentity {
-            pane_id: Some("p-1".into()),
-            session_id: None,
-            cwd: None,
-        };
-        let b = AgentIdentity {
-            pane_id: Some("p-2".into()),
-            session_id: None,
-            cwd: None,
-        };
+        let a = AgentIdentity { pane_id: Some("p-1".into()), session_id: None, cwd: None };
+        let b = AgentIdentity { pane_id: Some("p-2".into()), session_id: None, cwd: None };
         assert_ne!(a, b);
     }
 

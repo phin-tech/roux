@@ -52,9 +52,7 @@ export function stripCodeFence(text: string): string {
 
 /** Replace curly single/double quotes with straight ASCII quotes. */
 export function smartQuotesToStraight(text: string): string {
-  return text
-    .replace(/[“”„‟]/g, '"')
-    .replace(/[‘’‚‛]/g, "'");
+  return text.replace(/[“”„‟]/g, '"').replace(/[‘’‚‛]/g, "'");
 }
 
 /** Trim leading and trailing whitespace from the whole document. */

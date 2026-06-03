@@ -109,7 +109,9 @@ describe("getGroupedSessions (project)", () => {
         ],
       },
     ];
-    const sessions = [makeSession({ id: "a", projectId: "p-active", createdAt: 50 })];
+    const sessions = [
+      makeSession({ id: "a", projectId: "p-active", createdAt: 50 }),
+    ];
     const groups = getGroupedSessions(sessions, projects, "project");
     expect(groups.map((g) => g.key)).toEqual(["p-active"]);
   });

@@ -12,7 +12,10 @@ const webviewMock = vi.hoisted(() => {
   class MockWebview {
     static instances: MockWebview[] = [];
     static getByLabel = vi.fn(async (label: string) => {
-      return MockWebview.instances.find((instance) => instance.label === label) ?? null;
+      return (
+        MockWebview.instances.find((instance) => instance.label === label) ??
+        null
+      );
     });
 
     label: string;
@@ -65,7 +68,9 @@ const externalToolsMock = vi.hoisted(() => ({
   markExternalToolExited: vi.fn(),
   markExternalToolReady: vi.fn(),
   readExternalToolProcess: vi.fn().mockResolvedValue(null),
-  registerExternalToolViewCloser: vi.fn((_runId: string, _closeView: () => void) => () => {}),
+  registerExternalToolViewCloser: vi.fn(
+    (_runId: string, _closeView: () => void) => () => {},
+  ),
   restartExternalToolRun: vi.fn(),
   setExternalToolRunError: vi.fn(),
 }));
@@ -184,19 +189,25 @@ describe("ExternalToolWebView", () => {
   it("marks the child webview ready and syncs bounds after creation", async () => {
     const { unmount } = render(ExternalToolWebView, { run: makeRun() });
 
-    await waitFor(() => expect(webviewMock.MockWebview.instances).toHaveLength(1));
+    await waitFor(() =>
+      expect(webviewMock.MockWebview.instances).toHaveLength(1),
+    );
     const webview = webviewMock.MockWebview.instances[0];
 
     expect(webview.setPosition).toHaveBeenCalled();
     expect(webview.setSize).toHaveBeenCalled();
     expect(webview.setFocus).toHaveBeenCalled();
-    expect(externalToolsMock.markExternalToolReady).toHaveBeenCalledWith("difit:session-1");
+    expect(externalToolsMock.markExternalToolReady).toHaveBeenCalledWith(
+      "difit:session-1",
+    );
 
     unmount();
   });
 
   it("focuses iframe web tools when they are ready", async () => {
-    const focus = vi.spyOn(HTMLIFrameElement.prototype, "focus").mockImplementation(() => {});
+    const focus = vi
+      .spyOn(HTMLIFrameElement.prototype, "focus")
+      .mockImplementation(() => {});
     const { unmount } = render(ExternalToolWebView, {
       run: { ...makeRun(), status: "ready", webEmbedder: "iframe" },
     });
@@ -214,7 +225,9 @@ describe("ExternalToolWebView", () => {
     const readyRun = { ...makeRun(), status: "ready" as const };
 
     const first = render(ExternalToolWebView, { run: readyRun });
-    await waitFor(() => expect(webviewMock.MockWebview.instances).toHaveLength(1));
+    await waitFor(() =>
+      expect(webviewMock.MockWebview.instances).toHaveLength(1),
+    );
     const closed = webviewMock.MockWebview.instances[0];
     let finishClose: () => void = () => {};
     closed.close.mockReturnValueOnce(
@@ -226,7 +239,9 @@ describe("ExternalToolWebView", () => {
     expect(closed.close).toHaveBeenCalledOnce();
 
     const second = render(ExternalToolWebView, { run: readyRun });
-    await waitFor(() => expect(webviewMock.MockWebview.instances).toHaveLength(2));
+    await waitFor(() =>
+      expect(webviewMock.MockWebview.instances).toHaveLength(2),
+    );
     expect(webviewMock.MockWebview.instances[1].label).not.toBe(closed.label);
     expect(webviewMock.MockWebview.instances[1].options).toMatchObject({
       url: "http://127.0.0.1:4966",
@@ -239,9 +254,13 @@ describe("ExternalToolWebView", () => {
 
   it("does not recreate the native webview when startup marks the same run ready", async () => {
     const initialRun = makeRun({ status: "starting" });
-    const { rerender, unmount } = render(ExternalToolWebView, { run: initialRun });
+    const { rerender, unmount } = render(ExternalToolWebView, {
+      run: initialRun,
+    });
 
-    await waitFor(() => expect(webviewMock.MockWebview.instances).toHaveLength(1));
+    await waitFor(() =>
+      expect(webviewMock.MockWebview.instances).toHaveLength(1),
+    );
     const webview = webviewMock.MockWebview.instances[0];
 
     await rerender({ run: { ...initialRun, status: "ready" } });
@@ -256,9 +275,13 @@ describe("ExternalToolWebView", () => {
     const readyRun = makeRun({ status: "ready", keepWebviewAlive: true });
 
     const first = render(ExternalToolWebView, { run: readyRun });
-    await waitFor(() => expect(webviewMock.MockWebview.instances).toHaveLength(1));
+    await waitFor(() =>
+      expect(webviewMock.MockWebview.instances).toHaveLength(1),
+    );
     const retained = webviewMock.MockWebview.instances[0];
-    expect(retained.options).toMatchObject({ backgroundThrottling: "disabled" });
+    expect(retained.options).toMatchObject({
+      backgroundThrottling: "disabled",
+    });
 
     first.unmount();
     expect(retained.hide).toHaveBeenCalled();
@@ -278,7 +301,9 @@ describe("ExternalToolWebView", () => {
     const readyRun = makeRun({ status: "ready", keepWebviewAlive: true });
 
     const first = render(ExternalToolWebView, { run: readyRun });
-    await waitFor(() => expect(webviewMock.MockWebview.instances).toHaveLength(1));
+    await waitFor(() =>
+      expect(webviewMock.MockWebview.instances).toHaveLength(1),
+    );
     const retained = webviewMock.MockWebview.instances[0];
     first.unmount();
 
@@ -301,7 +326,9 @@ describe("ExternalToolWebView", () => {
     const readyRun = makeRun({ status: "ready", keepWebviewAlive: true });
 
     const first = render(ExternalToolWebView, { run: readyRun });
-    await waitFor(() => expect(webviewMock.MockWebview.instances).toHaveLength(1));
+    await waitFor(() =>
+      expect(webviewMock.MockWebview.instances).toHaveLength(1),
+    );
     const retained = webviewMock.MockWebview.instances[0];
     first.unmount();
     externalToolsMock.markExternalToolReady.mockClear();
@@ -316,7 +343,9 @@ describe("ExternalToolWebView", () => {
     const second = render(ExternalToolWebView, { run: readyRun });
     await waitFor(() => expect(retained.show).toHaveBeenCalled());
 
-    await second.rerender({ run: { ...readyRun, status: "error", error: "failed" } });
+    await second.rerender({
+      run: { ...readyRun, status: "error", error: "failed" },
+    });
     finishShow();
 
     await waitFor(() => expect(retained.close).toHaveBeenCalled());
@@ -329,16 +358,21 @@ describe("ExternalToolWebView", () => {
   it("registers a closer that closes the child webview", async () => {
     const closeView = { current: null as (() => void) | null };
     const unregister = vi.fn();
-    externalToolsMock.registerExternalToolViewCloser.mockImplementationOnce((_, nextCloseView) => {
-      closeView.current = nextCloseView;
-      return unregister;
-    });
+    externalToolsMock.registerExternalToolViewCloser.mockImplementationOnce(
+      (_, nextCloseView) => {
+        closeView.current = nextCloseView;
+        return unregister;
+      },
+    );
     const { unmount } = render(ExternalToolWebView, { run: makeRun() });
 
-    await waitFor(() => expect(webviewMock.MockWebview.instances).toHaveLength(1));
+    await waitFor(() =>
+      expect(webviewMock.MockWebview.instances).toHaveLength(1),
+    );
     const webview = webviewMock.MockWebview.instances[0];
     const registeredCloseView = closeView.current;
-    if (!registeredCloseView) throw new Error("Expected webview closer to be registered");
+    if (!registeredCloseView)
+      throw new Error("Expected webview closer to be registered");
     registeredCloseView();
 
     expect(webview.close).toHaveBeenCalledOnce();
@@ -348,7 +382,9 @@ describe("ExternalToolWebView", () => {
   });
 
   it("cleans up the runtime when startup probing fails", async () => {
-    tauriMock.probeExternalToolUrl.mockRejectedValueOnce(new Error("probe denied"));
+    tauriMock.probeExternalToolUrl.mockRejectedValueOnce(
+      new Error("probe denied"),
+    );
 
     const { unmount } = render(ExternalToolWebView, { run: makeRun() });
 
@@ -381,7 +417,9 @@ describe("ExternalToolWebView", () => {
     });
 
     const initialRun = makeRun();
-    const { rerender, unmount } = render(ExternalToolWebView, { run: initialRun });
+    const { rerender, unmount } = render(ExternalToolWebView, {
+      run: initialRun,
+    });
 
     expect(await document.body.textContent).not.toContain("crashed on startup");
     await waitFor(() =>
@@ -422,47 +460,53 @@ describe("ExternalToolWebView", () => {
         url: "http://127.0.0.1:4967",
       },
     };
-    const { rerender, unmount } = render(ExternalToolWebView, { run: makeRun() });
-    await waitFor(() => expect(tauriMock.probeExternalToolUrl).toHaveBeenCalled());
+    const { rerender, unmount } = render(ExternalToolWebView, {
+      run: makeRun(),
+    });
+    await waitFor(() =>
+      expect(tauriMock.probeExternalToolUrl).toHaveBeenCalled(),
+    );
 
     await rerender({ run: replacement });
     rejectProbe(new Error("stale probe"));
 
-    await waitFor(() => expect(webviewMock.MockWebview.instances).toHaveLength(1));
+    await waitFor(() =>
+      expect(webviewMock.MockWebview.instances).toHaveLength(1),
+    );
     expect(externalToolsMock.failExternalToolRun).not.toHaveBeenCalled();
 
     unmount();
   });
 
   it("adds the measured main-view toolbar inset to native webview bounds", async () => {
-    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
-      this: HTMLElement,
-    ) {
-      if (this.hasAttribute("data-main-view-toolbar")) {
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+      function (this: HTMLElement) {
+        if (this.hasAttribute("data-main-view-toolbar")) {
+          return {
+            x: 0,
+            y: 0,
+            left: 0,
+            top: 0,
+            right: 800,
+            bottom: 36,
+            width: 800,
+            height: 36,
+            toJSON: () => ({}),
+          } as DOMRect;
+        }
         return {
-          x: 0,
-          y: 0,
-          left: 0,
-          top: 0,
-          right: 800,
-          bottom: 36,
+          x: 12,
+          y: 44,
+          left: 12,
+          top: 44,
+          right: 812,
+          bottom: 644,
           width: 800,
-          height: 36,
+          height: 600,
           toJSON: () => ({}),
         } as DOMRect;
-      }
-      return {
-        x: 12,
-        y: 44,
-        left: 12,
-        top: 44,
-        right: 812,
-        bottom: 644,
-        width: 800,
-        height: 600,
-        toJSON: () => ({}),
-      } as DOMRect;
-    });
+      },
+    );
     const root = document.createElement("div");
     root.setAttribute("data-main-view-root", "");
     const toolbar = document.createElement("div");
@@ -476,8 +520,12 @@ describe("ExternalToolWebView", () => {
       props: { run: makeRun() },
     });
 
-    await waitFor(() => expect(webviewMock.MockWebview.instances).toHaveLength(1));
-    expect(webviewMock.MockWebview.instances[0].options).toMatchObject({ y: 80 });
+    await waitFor(() =>
+      expect(webviewMock.MockWebview.instances).toHaveLength(1),
+    );
+    expect(webviewMock.MockWebview.instances[0].options).toMatchObject({
+      y: 80,
+    });
 
     unmount();
     root.remove();
@@ -486,7 +534,9 @@ describe("ExternalToolWebView", () => {
   it("resyncs child webview bounds when the parent window resizes", async () => {
     const { unmount } = render(ExternalToolWebView, { run: makeRun() });
 
-    await waitFor(() => expect(webviewMock.MockWebview.instances).toHaveLength(1));
+    await waitFor(() =>
+      expect(webviewMock.MockWebview.instances).toHaveLength(1),
+    );
     const webview = webviewMock.MockWebview.instances[0];
     await waitFor(() => expect(webview.setSize).toHaveBeenCalled());
     flushAnimationFrames();
@@ -495,7 +545,9 @@ describe("ExternalToolWebView", () => {
     windowMock.resizeHandler?.();
     flushAnimationFrames();
 
-    await waitFor(() => expect(webview.setSize.mock.calls.length).toBeGreaterThan(sizeCalls));
+    await waitFor(() =>
+      expect(webview.setSize.mock.calls.length).toBeGreaterThan(sizeCalls),
+    );
 
     unmount();
     expect(windowMock.unlistenResize).toHaveBeenCalled();
@@ -503,7 +555,9 @@ describe("ExternalToolWebView", () => {
   });
 
   it("removes the window resize listener if registration resolves after destroy", async () => {
-    let resolveResizeListener: (unlisten: typeof windowMock.unlistenResize) => void = () => {};
+    let resolveResizeListener: (
+      unlisten: typeof windowMock.unlistenResize,
+    ) => void = () => {};
     windowMock.onResized.mockImplementationOnce(async (handler: () => void) => {
       windowMock.resizeHandler = handler;
       return new Promise<typeof windowMock.unlistenResize>((resolve) => {
@@ -523,7 +577,9 @@ describe("ExternalToolWebView", () => {
   it("resyncs child webview bounds when the parent window scale changes", async () => {
     const { unmount } = render(ExternalToolWebView, { run: makeRun() });
 
-    await waitFor(() => expect(webviewMock.MockWebview.instances).toHaveLength(1));
+    await waitFor(() =>
+      expect(webviewMock.MockWebview.instances).toHaveLength(1),
+    );
     const webview = webviewMock.MockWebview.instances[0];
     await waitFor(() => expect(webview.setSize).toHaveBeenCalled());
     flushAnimationFrames();
@@ -532,7 +588,9 @@ describe("ExternalToolWebView", () => {
     windowMock.scaleHandler?.();
     flushAnimationFrames();
 
-    await waitFor(() => expect(webview.setSize.mock.calls.length).toBeGreaterThan(sizeCalls));
+    await waitFor(() =>
+      expect(webview.setSize.mock.calls.length).toBeGreaterThan(sizeCalls),
+    );
 
     unmount();
   });
@@ -542,7 +600,9 @@ describe("ExternalToolWebView", () => {
       run: { ...makeRun(), status: "ready" },
     });
 
-    await waitFor(() => expect(webviewMock.MockWebview.instances).toHaveLength(1));
+    await waitFor(() =>
+      expect(webviewMock.MockWebview.instances).toHaveLength(1),
+    );
     const webview = webviewMock.MockWebview.instances[0];
     await waitFor(() => expect(webview.setSize).toHaveBeenCalled());
     flushAnimationFrames();
@@ -555,7 +615,9 @@ describe("ExternalToolWebView", () => {
     await waitFor(() => expect(webview.show).toHaveBeenCalledOnce());
     flushAnimationFrames();
     await waitFor(() =>
-      expect(webview.setSize.mock.calls.length).toBeGreaterThan(sizeCallsBeforeClose),
+      expect(webview.setSize.mock.calls.length).toBeGreaterThan(
+        sizeCallsBeforeClose,
+      ),
     );
 
     unmount();
@@ -568,7 +630,9 @@ describe("ExternalToolWebView", () => {
       run: { ...makeRun(), status: "ready" },
     });
 
-    await waitFor(() => expect(webviewMock.MockWebview.instances).toHaveLength(1));
+    await waitFor(() =>
+      expect(webviewMock.MockWebview.instances).toHaveLength(1),
+    );
     const webview = webviewMock.MockWebview.instances[0];
     await waitFor(() => expect(webview.hide).toHaveBeenCalledOnce());
     expect(webview.show).not.toHaveBeenCalled();
@@ -581,14 +645,20 @@ describe("ExternalToolWebView", () => {
     openCommandPalette();
 
     const initialRun = makeRun();
-    const { rerender, unmount } = render(ExternalToolWebView, { run: initialRun });
+    const { rerender, unmount } = render(ExternalToolWebView, {
+      run: initialRun,
+    });
 
-    await waitFor(() => expect(tauriMock.probeExternalToolUrl).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(tauriMock.probeExternalToolUrl).toHaveBeenCalled(),
+    );
     expect(webviewMock.MockWebview.instances).toHaveLength(0);
 
     await rerender({ run: { ...initialRun, status: "ready" } });
 
-    await waitFor(() => expect(webviewMock.MockWebview.instances).toHaveLength(1));
+    await waitFor(() =>
+      expect(webviewMock.MockWebview.instances).toHaveLength(1),
+    );
     const webview = webviewMock.MockWebview.instances[0];
     await waitFor(() => expect(webview.hide).toHaveBeenCalledOnce());
 

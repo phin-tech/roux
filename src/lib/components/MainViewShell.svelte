@@ -11,7 +11,14 @@
     children?: Snippet;
   }
 
-  let { title, subtitle = null, closeLabel, onclose, actions, children }: Props = $props();
+  let {
+    title,
+    subtitle = null,
+    closeLabel,
+    onclose,
+    actions,
+    children,
+  }: Props = $props();
   let root = $state<HTMLDivElement | null>(null);
   let closeRequested = false;
 
@@ -42,7 +49,10 @@
     data-main-view-toolbar
   >
     <div class="flex min-w-0 items-baseline gap-2">
-      <span class="truncate text-sm font-semibold tracking-tight text-text-primary">{title}</span>
+      <span
+        class="truncate text-sm font-semibold tracking-tight text-text-primary"
+        >{title}</span
+      >
       {#if subtitle}
         <span class="truncate text-[11px] text-text-muted">{subtitle}</span>
       {/if}

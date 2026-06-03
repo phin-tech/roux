@@ -21,7 +21,9 @@ interface ModalState {
 const state = writable<ModalState>({ visible: false });
 let pendingResolve: ((profile: SpawnProfile | null) => void) | null = null;
 
-export const customProfileModalState: Readable<ModalState> = { subscribe: state.subscribe };
+export const customProfileModalState: Readable<ModalState> = {
+  subscribe: state.subscribe,
+};
 
 /**
  * Open the editor and wait for the user's decision. Resolves to the

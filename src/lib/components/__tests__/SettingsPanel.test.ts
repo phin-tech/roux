@@ -7,7 +7,9 @@ import { DEFAULT_SETTINGS } from "$lib/types";
 vi.mock("$lib/bindings", () => ({
   commands: {
     cmdDetectGh: vi.fn().mockResolvedValue({ binaryPath: null, version: null }),
-    cmdDetectGit: vi.fn().mockResolvedValue({ binaryPath: null, version: null }),
+    cmdDetectGit: vi
+      .fn()
+      .mockResolvedValue({ binaryPath: null, version: null }),
     cmdDetectWorktrunk: vi.fn().mockResolvedValue({
       binaryPath: null,
       version: null,
@@ -79,7 +81,8 @@ vi.mock("$lib/bindings", () => ({
         action: "create",
         configured: false,
         currentEntryJson: null,
-        nextEntryJson: '{\n  "command": "/tmp/roux",\n  "args": [\n    "mcp"\n  ]\n}',
+        nextEntryJson:
+          '{\n  "command": "/tmp/roux",\n  "args": [\n    "mcp"\n  ]\n}',
       },
     }),
     cmdConfigureMcpHost: vi.fn(),
@@ -88,7 +91,9 @@ vi.mock("$lib/bindings", () => ({
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
 vi.mock("@tauri-apps/plugin-opener", () => ({ revealItemInDir: vi.fn() }));
-vi.mock("@tauri-apps/api/app", () => ({ getVersion: vi.fn().mockResolvedValue("0.0.0-test") }));
+vi.mock("@tauri-apps/api/app", () => ({
+  getVersion: vi.fn().mockResolvedValue("0.0.0-test"),
+}));
 vi.mock("$lib/logging", () => ({
   getLogPath: vi.fn().mockReturnValue("/tmp/roux.log"),
   setLoggingEnabled: vi.fn(),
@@ -149,15 +154,22 @@ describe("SettingsPanel Kanban tab", () => {
     render(SettingsPanel, { visible: true, onclose: vi.fn() });
 
     await fireEvent.click(screen.getByRole("button", { name: "Kanban" }));
-    await fireEvent.input(screen.getByText("Planning instructions").parentElement!.querySelector("textarea")!, {
-      target: { value: "Ask for acceptance criteria." },
-    });
+    await fireEvent.input(
+      screen
+        .getByText("Planning instructions")
+        .parentElement!.querySelector("textarea")!,
+      {
+        target: { value: "Ask for acceptance criteria." },
+      },
+    );
 
     await waitFor(() => {
       expect(updateSettings).toHaveBeenCalled();
     });
     const lastCall = vi.mocked(updateSettings).mock.calls.at(-1)!;
-    expect(lastCall[0].kanban?.planningPromptAppend).toBe("Ask for acceptance criteria.");
+    expect(lastCall[0].kanban?.planningPromptAppend).toBe(
+      "Ask for acceptance criteria.",
+    );
   });
 });
 
@@ -173,9 +185,12 @@ describe("SettingsPanel General launch settings", () => {
     await fireEvent.change(screen.getByLabelText("Open on launch"), {
       target: { value: "externalTool" },
     });
-    await fireEvent.change(await screen.findByLabelText("Launch external tool"), {
-      target: { value: "github" },
-    });
+    await fireEvent.change(
+      await screen.findByLabelText("Launch external tool"),
+      {
+        target: { value: "github" },
+      },
+    );
 
     await waitFor(() => {
       expect(updateSettings).toHaveBeenCalled();
@@ -256,7 +271,11 @@ describe("SettingsPanel sessions settings", () => {
   it("debounces the worktree base preview with a platform-neutral fallback path", async () => {
     vi.useFakeTimers();
     try {
-      render(SettingsPanel, { visible: true, onclose: vi.fn(), initialCategory: "sessions" });
+      render(SettingsPanel, {
+        visible: true,
+        onclose: vi.fn(),
+        initialCategory: "sessions",
+      });
 
       expect(commands.cmdPreviewWorktreeBase).not.toHaveBeenCalled();
       await vi.advanceTimersByTimeAsync(199);
@@ -264,7 +283,10 @@ describe("SettingsPanel sessions settings", () => {
 
       await vi.advanceTimersByTimeAsync(1);
       await waitFor(() => {
-        expect(commands.cmdPreviewWorktreeBase).toHaveBeenCalledWith("", "~/src/my-project");
+        expect(commands.cmdPreviewWorktreeBase).toHaveBeenCalledWith(
+          "",
+          "~/src/my-project",
+        );
       });
     } finally {
       vi.useRealTimers();
@@ -290,7 +312,9 @@ describe("SettingsPanel MCP integration", () => {
     await fireEvent.click(screen.getByRole("button", { name: "Preview" }));
 
     await waitFor(() => {
-      expect(commands.cmdPreviewMcpHostConfig).toHaveBeenCalledWith("claudeDesktop");
+      expect(commands.cmdPreviewMcpHostConfig).toHaveBeenCalledWith(
+        "claudeDesktop",
+      );
     });
     expect(await screen.findByText("Preview ready.")).toBeDefined();
   });
@@ -305,8 +329,12 @@ describe("SettingsPanel external tools", () => {
   it("rejects duplicate external tool IDs after trimming", async () => {
     render(SettingsPanel, { visible: true, onclose: vi.fn() });
 
-    await fireEvent.click(screen.getByRole("button", { name: "External Tools" }));
-    await fireEvent.click(await screen.findByRole("button", { name: "GitHub" }));
+    await fireEvent.click(
+      screen.getByRole("button", { name: "External Tools" }),
+    );
+    await fireEvent.click(
+      await screen.findByRole("button", { name: "GitHub" }),
+    );
 
     await fireEvent.input(screen.getByDisplayValue("github"), {
       target: { value: " difit " },
@@ -320,8 +348,12 @@ describe("SettingsPanel external tools", () => {
   it("trims accepted external tool IDs before saving", async () => {
     render(SettingsPanel, { visible: true, onclose: vi.fn() });
 
-    await fireEvent.click(screen.getByRole("button", { name: "External Tools" }));
-    await fireEvent.click(await screen.findByRole("button", { name: "GitHub" }));
+    await fireEvent.click(
+      screen.getByRole("button", { name: "External Tools" }),
+    );
+    await fireEvent.click(
+      await screen.findByRole("button", { name: "GitHub" }),
+    );
 
     await fireEvent.input(screen.getByDisplayValue("github"), {
       target: { value: " new-id " },
@@ -340,8 +372,12 @@ describe("SettingsPanel external tools", () => {
     });
     render(SettingsPanel, { visible: true, onclose: vi.fn() });
 
-    await fireEvent.click(screen.getByRole("button", { name: "External Tools" }));
-    await fireEvent.click(await screen.findByRole("button", { name: "GitHub" }));
+    await fireEvent.click(
+      screen.getByRole("button", { name: "External Tools" }),
+    );
+    await fireEvent.click(
+      await screen.findByRole("button", { name: "GitHub" }),
+    );
 
     await fireEvent.input(screen.getByDisplayValue("github"), {
       target: { value: " git-hub " },
@@ -353,11 +389,15 @@ describe("SettingsPanel external tools", () => {
     });
     const lastCall = vi.mocked(updateSettings).mock.calls.at(-1)!;
     expect(lastCall[0].startupExternalToolId).toBe("git-hub");
-    expect(lastCall[0].externalTools?.some((tool) => tool.id === "git-hub")).toBe(true);
+    expect(
+      lastCall[0].externalTools?.some((tool) => tool.id === "git-hub"),
+    ).toBe(true);
   });
 
   it("falls back to the next eligible startup external tool when disabling the selected tool", async () => {
-    const github = (DEFAULT_SETTINGS.externalTools ?? []).find((tool) => tool.id === "github")!;
+    const github = (DEFAULT_SETTINGS.externalTools ?? []).find(
+      (tool) => tool.id === "github",
+    )!;
     settings.set({
       ...DEFAULT_SETTINGS,
       startupTarget: "externalTool",
@@ -372,9 +412,15 @@ describe("SettingsPanel external tools", () => {
         },
       ],
     });
-    render(SettingsPanel, { visible: true, onclose: vi.fn(), initialCategory: "externalTools" });
+    render(SettingsPanel, {
+      visible: true,
+      onclose: vi.fn(),
+      initialCategory: "externalTools",
+    });
 
-    await fireEvent.click(await screen.findByRole("button", { name: "GitHub" }));
+    await fireEvent.click(
+      await screen.findByRole("button", { name: "GitHub" }),
+    );
     await fireEvent.click(screen.getAllByLabelText("Enabled")[0]);
 
     expect(get(settings).startupTarget).toBe("externalTool");
@@ -392,11 +438,19 @@ describe("SettingsPanel external tools", () => {
       ...DEFAULT_SETTINGS,
       startupTarget: "externalTool",
       startupExternalToolId: "github",
-      externalTools: (DEFAULT_SETTINGS.externalTools ?? []).filter((tool) => tool.id === "github"),
+      externalTools: (DEFAULT_SETTINGS.externalTools ?? []).filter(
+        (tool) => tool.id === "github",
+      ),
     });
-    render(SettingsPanel, { visible: true, onclose: vi.fn(), initialCategory: "externalTools" });
+    render(SettingsPanel, {
+      visible: true,
+      onclose: vi.fn(),
+      initialCategory: "externalTools",
+    });
 
-    await fireEvent.click(await screen.findByRole("button", { name: "GitHub" }));
+    await fireEvent.click(
+      await screen.findByRole("button", { name: "GitHub" }),
+    );
     await fireEvent.click(screen.getByLabelText("Requires active session"));
 
     expect(get(settings).startupTarget).toBe("restore");
@@ -412,15 +466,21 @@ describe("SettingsPanel external tools", () => {
   it("keeps focus while editing an external tool ID", async () => {
     render(SettingsPanel, { visible: true, onclose: vi.fn() });
 
-    await fireEvent.click(screen.getByRole("button", { name: "External Tools" }));
-    await fireEvent.click(await screen.findByRole("button", { name: "GitHub" }));
+    await fireEvent.click(
+      screen.getByRole("button", { name: "External Tools" }),
+    );
+    await fireEvent.click(
+      await screen.findByRole("button", { name: "GitHub" }),
+    );
 
     const input = screen.getByDisplayValue("github");
     input.focus();
     await fireEvent.input(input, { target: { value: "n" } });
 
     expect(document.activeElement).toBe(input);
-    expect(get(settings).externalTools?.some((tool) => tool.id === "n")).toBe(true);
+    expect(get(settings).externalTools?.some((tool) => tool.id === "n")).toBe(
+      true,
+    );
   });
 
   it("does not replay an external tool focus request after the section remounts", async () => {
@@ -440,7 +500,9 @@ describe("SettingsPanel external tools", () => {
     });
 
     await fireEvent.click(screen.getByRole("button", { name: "General" }));
-    await fireEvent.click(screen.getByRole("button", { name: "External Tools" }));
+    await fireEvent.click(
+      screen.getByRole("button", { name: "External Tools" }),
+    );
 
     expect(screen.queryByDisplayValue("github")).toBeNull();
   });
@@ -466,35 +528,52 @@ describe("SettingsPanel external tools", () => {
   it("clamps preferred ports before saving external web tools", async () => {
     render(SettingsPanel, { visible: true, onclose: vi.fn() });
 
-    await fireEvent.click(screen.getByRole("button", { name: "External Tools" }));
+    await fireEvent.click(
+      screen.getByRole("button", { name: "External Tools" }),
+    );
     await fireEvent.click(await screen.findByRole("button", { name: "Difit" }));
 
     const input = screen.getByLabelText("Preferred port");
     await fireEvent.input(input, { target: { value: "70000" } });
-    expect(get(settings).externalTools?.find((tool) => tool.id === "difit")?.preferredPort).toBe(
-      65535,
-    );
+    expect(
+      get(settings).externalTools?.find((tool) => tool.id === "difit")
+        ?.preferredPort,
+    ).toBe(65535);
 
     await fireEvent.input(input, { target: { value: "0" } });
-    expect(get(settings).externalTools?.find((tool) => tool.id === "difit")?.preferredPort).toBe(1);
+    expect(
+      get(settings).externalTools?.find((tool) => tool.id === "difit")
+        ?.preferredPort,
+    ).toBe(1);
 
     await fireEvent.input(input, { target: { value: "" } });
-    expect(get(settings).externalTools?.find((tool) => tool.id === "difit")?.preferredPort).toBeNull();
+    expect(
+      get(settings).externalTools?.find((tool) => tool.id === "difit")
+        ?.preferredPort,
+    ).toBeNull();
   });
 
   it("toggles keep-active mode for native webview tools", async () => {
     render(SettingsPanel, { visible: true, onclose: vi.fn() });
 
-    await fireEvent.click(screen.getByRole("button", { name: "External Tools" }));
-    await fireEvent.click(await screen.findByRole("button", { name: "GitHub" }));
+    await fireEvent.click(
+      screen.getByRole("button", { name: "External Tools" }),
+    );
+    await fireEvent.click(
+      await screen.findByRole("button", { name: "GitHub" }),
+    );
 
-    const checkbox = screen.getByLabelText("Keep webview active") as HTMLInputElement;
+    const checkbox = screen.getByLabelText(
+      "Keep webview active",
+    ) as HTMLInputElement;
     expect(checkbox.checked).toBe(false);
 
     await fireEvent.click(checkbox);
 
-    expect(get(settings).externalTools?.find((tool) => tool.id === "github")?.keepWebviewAlive)
-      .toBe(true);
+    expect(
+      get(settings).externalTools?.find((tool) => tool.id === "github")
+        ?.keepWebviewAlive,
+    ).toBe(true);
   });
 });
 
@@ -507,7 +586,9 @@ describe("SettingsPanel keyboard behavior", () => {
     const onclose = vi.fn();
     render(SettingsPanel, { visible: true, onclose });
 
-    const fontInput = screen.getByDisplayValue(DEFAULT_SETTINGS.uiFontFamily ?? "");
+    const fontInput = screen.getByDisplayValue(
+      DEFAULT_SETTINGS.uiFontFamily ?? "",
+    );
     fontInput.focus();
     await fireEvent.keyDown(fontInput, { key: "Escape" });
 
@@ -529,7 +610,9 @@ describe("SettingsPanel agent notification setup", () => {
     await fireEvent.click(screen.getByRole("button", { name: "Agents" }));
 
     expect(await screen.findByText("Agent notifications")).toBeDefined();
-    expect(await screen.findByText("notification_condition is not set.")).toBeDefined();
+    expect(
+      await screen.findByText("notification_condition is not set."),
+    ).toBeDefined();
     expect(await screen.findByText("/tmp/codex/config.toml")).toBeDefined();
 
     await fireEvent.click(screen.getByRole("button", { name: "Preview" }));
@@ -537,26 +620,36 @@ describe("SettingsPanel agent notification setup", () => {
     await waitFor(() => {
       expect(commands.cmdPreviewCodexNotificationConfig).toHaveBeenCalled();
     });
-    expect(await screen.findByText("Codex config preview ready.")).toBeDefined();
-    expect(await screen.findByText(/notification_condition = "always"/)).toBeDefined();
+    expect(
+      await screen.findByText("Codex config preview ready."),
+    ).toBeDefined();
+    expect(
+      await screen.findByText(/notification_condition = "always"/),
+    ).toBeDefined();
 
     await fireEvent.click(screen.getByRole("button", { name: "Configure" }));
 
     await waitFor(() => {
       expect(commands.cmdConfigureCodexNotificationConfig).toHaveBeenCalled();
     });
-    expect(await screen.findByText("Codex notifications configured.")).toBeDefined();
+    expect(
+      await screen.findByText("Codex notifications configured."),
+    ).toBeDefined();
   });
 
   it("keeps provider actions disabled while agent notification status is loading", async () => {
-    vi.mocked(commands.cmdAgentNotificationSetupStatus).mockReturnValue(new Promise(() => {}));
+    vi.mocked(commands.cmdAgentNotificationSetupStatus).mockReturnValue(
+      new Promise(() => {}),
+    );
     render(SettingsPanel, { visible: true, onclose: vi.fn() });
 
     await fireEvent.click(screen.getByRole("button", { name: "Agents" }));
 
     expect(await screen.findByText("Agent notifications")).toBeDefined();
-    expect((screen.getByRole("button", { name: "Preview" }) as HTMLButtonElement).disabled)
-      .toBe(true);
+    expect(
+      (screen.getByRole("button", { name: "Preview" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
     for (const button of screen.getAllByRole("button", { name: "Configure" })) {
       expect((button as HTMLButtonElement).disabled).toBe(true);
     }

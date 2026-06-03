@@ -3,7 +3,7 @@
 Common issues and how to work around them.
 
 !!! note "Stub page"
-    This page is a placeholder. Real troubleshooting entries will land here as they come up in practice.
+This page is a placeholder. Real troubleshooting entries will land here as they come up in practice.
 
 ## Claude Code isn't found
 

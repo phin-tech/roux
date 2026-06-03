@@ -39,16 +39,11 @@ pub fn remove_worktree(
 ) -> Result<(), WtError> {
     // Look up the branch that owns this worktree.
     let items = list_worktrees_with_env(wt, repo_path, &opts.env)?;
-    let entry = items.into_iter().find(|i| {
-        i.path
-            .as_ref()
-            .map(|p| paths_eq(p, worktree_path))
-            .unwrap_or(false)
-    });
+    let entry = items
+        .into_iter()
+        .find(|i| i.path.as_ref().map(|p| paths_eq(p, worktree_path)).unwrap_or(false));
     let Some(entry) = entry else {
-        return Err(WtError::NotFound {
-            path: worktree_path.to_string_lossy().into_owned(),
-        });
+        return Err(WtError::NotFound { path: worktree_path.to_string_lossy().into_owned() });
     };
     let Some(branch) = entry.branch.as_deref() else {
         return Err(WtError::NotFound {
@@ -87,10 +82,7 @@ pub fn remove_worktree(
             return Err(WtError::Dirty { reason: stderr });
         }
     }
-    Err(WtError::NonZeroExit {
-        status: out.status.code().unwrap_or(-1),
-        stderr,
-    })
+    Err(WtError::NonZeroExit { status: out.status.code().unwrap_or(-1), stderr })
 }
 
 fn paths_eq(a: &Path, b: &Path) -> bool {

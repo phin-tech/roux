@@ -1,4 +1,12 @@
-import type { Bind, KeyRef, KeymapAction, KeymapTree, Modifier, ParsedKeymap, Prefix } from "$lib/bindings";
+import type {
+  Bind,
+  KeyRef,
+  KeymapAction,
+  KeymapTree,
+  Modifier,
+  ParsedKeymap,
+  Prefix,
+} from "$lib/bindings";
 import { isMacPlatform } from "$lib/platform";
 
 export type Resolution =
@@ -159,8 +167,8 @@ function modsMatch(
   // `cmd` is platform-dispatched: Meta on macOS, Ctrl elsewhere. On non-mac
   // `cmd` and `ctrl` collapse to the same physical key (Ctrl), so either
   // modifier name in the keymap maps to the same event flag.
-  let wantsPrimary = false;          // Cmd on mac, Ctrl on non-mac
-  let wantsCtrlSecondary = false;    // mac-only: Ctrl-the-other-key
+  let wantsPrimary = false; // Cmd on mac, Ctrl on non-mac
+  let wantsCtrlSecondary = false; // mac-only: Ctrl-the-other-key
   let wantsAlt = false;
   let wantsShift = false;
 

@@ -2,8 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { paneAtPoint } from "../paneAtPoint";
 
 describe("paneAtPoint", () => {
-  const originalElementFromPoint = (document as Document & { elementFromPoint?: unknown })
-    .elementFromPoint;
+  const originalElementFromPoint = (
+    document as Document & { elementFromPoint?: unknown }
+  ).elementFromPoint;
 
   beforeEach(() => {
     document.body.innerHTML = "";

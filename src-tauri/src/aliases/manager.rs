@@ -5,7 +5,9 @@ use roux_core::{AgentAlias, AliasEvent, ConsumptionMode};
 use tauri::{AppHandle, Emitter};
 
 use super::persistence::{self, load_from_path, save_to_path};
-use super::store::{AliasStore, BindError, BindRequest, GroupError, PaneUnbindResult, ProjectFilter};
+use super::store::{
+    AliasStore, BindError, BindRequest, GroupError, PaneUnbindResult, ProjectFilter,
+};
 
 /// Tauri event name emitted on every alias mutation.
 pub const ALIAS_EVENT: &str = "alias-event";
@@ -40,10 +42,8 @@ impl AliasManager {
         if !had_me {
             store.ensure("me", None);
         }
-        let mgr = Self {
-            inner: Arc::new(Mutex::new(store)),
-            persistence_path: Some(Arc::new(path)),
-        };
+        let mgr =
+            Self { inner: Arc::new(Mutex::new(store)), persistence_path: Some(Arc::new(path)) };
         if !had_me {
             mgr.persist();
         }
@@ -109,10 +109,8 @@ impl AliasManager {
                     // this ordering it would render stale group
                     // membership.
                     if result.membership_changed {
-                        let _ = app.emit(
-                            ALIAS_EVENT,
-                            &AliasEvent::Set { alias: result.alias.clone() },
-                        );
+                        let _ =
+                            app.emit(ALIAS_EVENT, &AliasEvent::Set { alias: result.alias.clone() });
                     }
                     if result.binding_cleared {
                         let _ = app.emit(
@@ -308,10 +306,7 @@ impl AliasManager {
             if was_new_row {
                 store.ensure(canonical, project_id.map(String::from));
             }
-            let before = store
-                .get(canonical, project_id)
-                .map(|a| a.members.len())
-                .unwrap_or(0);
+            let before = store.get(canonical, project_id).map(|a| a.members.len()).unwrap_or(0);
             let alias = store.add_member(canonical, project_id, pane_id)?;
             let added = alias.members.len() != before;
             (alias, was_new_row || added)
@@ -411,7 +406,12 @@ mod tests {
         // First load creates `me`.
         let mgr = AliasManager::load_from(path.clone());
         // Bind some other alias and verify it persists.
-        mgr.bind("reviewer", BindRequest { session_id: Some("sess-1".into()), ..Default::default() }, None).unwrap();
+        mgr.bind(
+            "reviewer",
+            BindRequest { session_id: Some("sess-1".into()), ..Default::default() },
+            None,
+        )
+        .unwrap();
         // Reload from same path.
         let mgr2 = AliasManager::load_from(path);
         assert!(mgr2.get("me", None).is_some());
@@ -423,7 +423,12 @@ mod tests {
         let dir = tempdir().unwrap();
         let path = dir.path().join("aliases.json");
         let mgr = AliasManager::load_from(path.clone());
-        mgr.bind("reviewer", BindRequest { session_id: Some("sess-1".into()), ..Default::default() }, None).unwrap();
+        mgr.bind(
+            "reviewer",
+            BindRequest { session_id: Some("sess-1".into()), ..Default::default() },
+            None,
+        )
+        .unwrap();
 
         let raw = std::fs::read_to_string(&path).unwrap();
         let envelope: serde_json::Value = serde_json::from_str(&raw).unwrap();
@@ -436,7 +441,12 @@ mod tests {
         let dir = tempdir().unwrap();
         let path = dir.path().join("aliases.json");
         let mgr = AliasManager::load_from(path.clone());
-        mgr.bind("reviewer", BindRequest { session_id: Some("sess-1".into()), ..Default::default() }, None).unwrap();
+        mgr.bind(
+            "reviewer",
+            BindRequest { session_id: Some("sess-1".into()), ..Default::default() },
+            None,
+        )
+        .unwrap();
         assert!(mgr.unbind("reviewer", None, None));
 
         let mgr2 = AliasManager::load_from(path);
@@ -470,7 +480,11 @@ mod tests {
         let stolen = mgr
             .bind(
                 "reviewer",
-                BindRequest { session_id: Some("sess-2".into()), force: true, ..Default::default() },
+                BindRequest {
+                    session_id: Some("sess-2".into()),
+                    force: true,
+                    ..Default::default()
+                },
                 None,
             )
             .unwrap();
@@ -591,7 +605,9 @@ mod tests {
         let mgr = AliasManager::in_memory();
         mgr.try_auto_claim_from_pane_name("pane-A", Some("reviewer"), None, None);
         // A second pane named "reviewer" can't auto-claim — pane-A holds it.
-        assert!(mgr.try_auto_claim_from_pane_name("pane-B", Some("reviewer"), None, None).is_none());
+        assert!(mgr
+            .try_auto_claim_from_pane_name("pane-B", Some("reviewer"), None, None)
+            .is_none());
         // pane-A still holds it.
         let held = mgr.find_for_pane("pane-A");
         assert_eq!(held[0].alias, "reviewer");
@@ -619,8 +635,7 @@ mod tests {
         mgr.try_auto_claim_from_pane_name("pane-A", Some("reviewer"), None, None);
         // Rename to something that can't be canonicalized to a valid
         // alias (space + parens).
-        let result =
-            mgr.try_auto_claim_from_pane_name("pane-A", Some("Reviewer (v2)"), None, None);
+        let result = mgr.try_auto_claim_from_pane_name("pane-A", Some("Reviewer (v2)"), None, None);
         assert!(result.is_none(), "invalid name should not claim");
         // The pane has no auto-claimed binding anymore.
         assert!(mgr.find_for_pane("pane-A").is_empty());
@@ -655,8 +670,7 @@ mod tests {
     fn auto_claim_with_empty_name_releases_existing_auto_claim() {
         let mgr = AliasManager::in_memory();
         mgr.try_auto_claim_from_pane_name("pane-A", Some("reviewer"), None, None);
-        let result =
-            mgr.try_auto_claim_from_pane_name("pane-A", Some(""), None, None);
+        let result = mgr.try_auto_claim_from_pane_name("pane-A", Some(""), None, None);
         assert!(result.is_none());
         assert!(mgr.find_for_pane("pane-A").is_empty());
     }
@@ -674,8 +688,7 @@ mod tests {
         // Default is CompetingConsumer — the next line is a no-op.
         let mtime_before = std::fs::metadata(&path).unwrap().modified().unwrap();
         std::thread::sleep(std::time::Duration::from_millis(10));
-        mgr.set_consumption_mode("team", None, ConsumptionMode::CompetingConsumer, None)
-            .unwrap();
+        mgr.set_consumption_mode("team", None, ConsumptionMode::CompetingConsumer, None).unwrap();
         let mtime_after = std::fs::metadata(&path).unwrap().modified().unwrap();
         assert_eq!(
             mtime_before, mtime_after,
@@ -683,13 +696,9 @@ mod tests {
         );
         // A real change DOES rewrite.
         std::thread::sleep(std::time::Duration::from_millis(10));
-        mgr.set_consumption_mode("team", None, ConsumptionMode::Broadcast, None)
-            .unwrap();
+        mgr.set_consumption_mode("team", None, ConsumptionMode::Broadcast, None).unwrap();
         let mtime_change = std::fs::metadata(&path).unwrap().modified().unwrap();
-        assert_ne!(
-            mtime_after, mtime_change,
-            "real mode change must rewrite aliases.json",
-        );
+        assert_ne!(mtime_after, mtime_change, "real mode change must rewrite aliases.json",);
     }
 
     /// add_member is idempotent at the store level (re-adding an

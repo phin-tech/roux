@@ -58,24 +58,24 @@ The formula installs the `roux` CLI. The cask installs the desktop app. The desk
 
 ## Keybindings
 
-| Action | Shortcut |
-|---|---|
-| Split horizontal | `cmd+d` |
-| Split vertical | `cmd+shift+d` |
-| Close pane | `cmd+w` |
-| Toggle stack | `cmd+shift+s` |
-| Focus left | `alt+h` |
-| Focus down | `alt+j` |
-| Focus up | `alt+k` |
-| Focus right | `alt+l` |
-| Toggle notes | `cmd+b` |
-| Toggle sessions history | `cmd+; t s` |
-| Toggle multiline editor | `ctrl+g` |
+| Action                                | Shortcut      |
+| ------------------------------------- | ------------- |
+| Split horizontal                      | `cmd+d`       |
+| Split vertical                        | `cmd+shift+d` |
+| Close pane                            | `cmd+w`       |
+| Toggle stack                          | `cmd+shift+s` |
+| Focus left                            | `alt+h`       |
+| Focus down                            | `alt+j`       |
+| Focus up                              | `alt+k`       |
+| Focus right                           | `alt+l`       |
+| Toggle notes                          | `cmd+b`       |
+| Toggle sessions history               | `cmd+; t s`   |
+| Toggle multiline editor               | `ctrl+g`      |
 | Toggle multiline editor from anywhere | `cmd+shift+e` |
-| Open multiline editor with clipboard | `cmd+shift+v` |
-| Command palette | `cmd+k` |
-| New session | `cmd+n` |
-| Settings | `cmd+,` |
+| Open multiline editor with clipboard  | `cmd+shift+v` |
+| Command palette                       | `cmd+k`       |
+| New session                           | `cmd+n`       |
+| Settings                              | `cmd+,`       |
 
 These are the defaults from the bundled `default` keymap. Roux also ships a `tmux` preset, and every shortcut is editable in `~/.config/roux/keymap.kdl`.
 

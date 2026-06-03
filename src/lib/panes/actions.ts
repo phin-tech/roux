@@ -25,7 +25,10 @@ import { defaultAgentProfileId } from "./defaultAgent";
 import type { SpawnProfileRef } from "./profiles";
 import { killPty, detachPty } from "$lib/tauri";
 import { settings } from "$lib/stores/settings";
-import { multiLineEditor, closeMultiLineEditor } from "$lib/stores/multiLineEditor";
+import {
+  multiLineEditor,
+  closeMultiLineEditor,
+} from "$lib/stores/multiLineEditor";
 
 // Register cleanup hooks on disposePane so every path that disposes a
 // pane (closePane, closeSessionPanes, splitPane rollback, anything
@@ -43,7 +46,10 @@ registerDisposeHook((paneId) => {
 });
 
 export function initSession(sessionId: string): string {
-  return initSessionWithProfile(sessionId, { kind: "registered", id: defaultAgentProfileId() });
+  return initSessionWithProfile(sessionId, {
+    kind: "registered",
+    id: defaultAgentProfileId(),
+  });
 }
 
 /**
@@ -79,9 +85,12 @@ export function initSessionWithProfile(
 export function splitPane(
   sessionId: string,
   direction: SplitDirection,
-  opts: CreatePaneOpts
+  opts: CreatePaneOpts,
 ): string | null {
-  const newPaneId = createPane({ ...opts, sessionId: opts.sessionId ?? sessionId });
+  const newPaneId = createPane({
+    ...opts,
+    sessionId: opts.sessionId ?? sessionId,
+  });
 
   let inserted = false;
   sessionLayouts.update((m) => {

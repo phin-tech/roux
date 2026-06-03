@@ -24,11 +24,11 @@ A **session blueprint** is a saved project session. It records the repo, optiona
 
 Use the **Defaults** section in the project dialog to generate one blueprint per repo. The name template supports:
 
-| Token | Meaning |
-|---|---|
-| `{{project}}` | Project name |
-| `{{repo}}` | Repository folder name |
-| `{{branch}}` | Worktree branch, when set |
+| Token         | Meaning                   |
+| ------------- | ------------------------- |
+| `{{project}}` | Project name              |
+| `{{repo}}`    | Repository folder name    |
+| `{{branch}}`  | Worktree branch, when set |
 
 Generated rows can be edited before saving. You can also add rows manually.
 
@@ -49,10 +49,10 @@ The project prompt is free-form text injected when supported agent profiles star
 
 Supported providers:
 
-| Provider | Startup injection |
-|---|---|
-| Claude | `--append-system-prompt` |
-| Codex | `-c instructions=...` |
+| Provider | Startup injection        |
+| -------- | ------------------------ |
+| Claude   | `--append-system-prompt` |
+| Codex    | `-c instructions=...`    |
 
 Other profiles are left unchanged. The prompt is still exposed as `ROUX_PROJECT_PROMPT`, so custom profiles can opt into it manually.
 
@@ -77,10 +77,10 @@ Roux does not automatically read or paste these files. It only gives the spawned
 
 Project-tagged PTYs include project context when Roux can resolve it:
 
-| Variable | Description |
-|---|---|
-| `ROUX_PROJECT_ID` | Internal project id for the session |
-| `ROUX_PROJECT_PROMPT` | Project prompt text, when configured |
+| Variable                     | Description                              |
+| ---------------------------- | ---------------------------------------- |
+| `ROUX_PROJECT_ID`            | Internal project id for the session      |
+| `ROUX_PROJECT_PROMPT`        | Project prompt text, when configured     |
 | `ROUX_PROJECT_CONTEXT_PATHS` | Project context paths as an OS path list |
 
 Notes also expose project-scoped note variables when the session has a project. See [Notes](notes.md#environment-variables).

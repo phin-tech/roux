@@ -169,9 +169,7 @@ fn host_status(host: McpHostId, cli_path: &str) -> McpHostStatus {
 
     let config_exists = path.exists();
     let plan_result = match host {
-        McpHostId::ClaudeDesktop | McpHostId::ClaudeCode => {
-            svc::plan_config_file(&path, cli_path)
-        }
+        McpHostId::ClaudeDesktop | McpHostId::ClaudeCode => svc::plan_config_file(&path, cli_path),
         McpHostId::Codex => svc::plan_codex_config_file(&path, cli_path),
     };
     match plan_result {

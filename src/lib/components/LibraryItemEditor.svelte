@@ -4,7 +4,10 @@
   import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
   import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
   import { languages } from "@codemirror/language-data";
-  import { defaultHighlightStyle, syntaxHighlighting } from "@codemirror/language";
+  import {
+    defaultHighlightStyle,
+    syntaxHighlighting,
+  } from "@codemirror/language";
   import { EditorView, keymap } from "@codemirror/view";
   import Plus from "@lucide/svelte/icons/plus";
   import Trash2 from "@lucide/svelte/icons/trash-2";
@@ -29,7 +32,15 @@
     ondirtychange?: (dirty: boolean) => void;
   }
 
-  let { item, itemType, sources, activeRepo, onsave, oncancel, ondirtychange }: Props = $props();
+  let {
+    item,
+    itemType,
+    sources,
+    activeRepo,
+    onsave,
+    oncancel,
+    ondirtychange,
+  }: Props = $props();
 
   let editorContainer: HTMLElement | undefined = $state();
   let editorView: EditorView | null = null;
@@ -59,7 +70,8 @@
     const nextDescription = next?.item.description ?? "";
     const nextTags = next?.item.tags.join(", ") ?? "";
     const nextProvider = next?.item.provider ?? "";
-    const nextVariables = next?.item.variables.map((variable) => ({ ...variable })) ?? [];
+    const nextVariables =
+      next?.item.variables.map((variable) => ({ ...variable })) ?? [];
     originalPath = nextOriginalPath;
     originalId = nextOriginalId;
     title = nextTitle;
@@ -160,7 +172,8 @@
 
   function parseTarget(): SaveLibraryTarget {
     if (targetValue === "activeRepo") return { type: "activeRepo" };
-    if (targetValue.startsWith("source:")) return { type: "source", id: targetValue.slice("source:".length) };
+    if (targetValue.startsWith("source:"))
+      return { type: "source", id: targetValue.slice("source:".length) };
     return { type: "global" };
   }
 
@@ -179,7 +192,9 @@
   }
 
   function updateVariable(index: number, patch: Partial<LibraryVariable>) {
-    variables = variables.map((variable, i) => (i === index ? { ...variable, ...patch } : variable));
+    variables = variables.map((variable, i) =>
+      i === index ? { ...variable, ...patch } : variable,
+    );
   }
 
   function updateVariableOptions(index: number, value: string) {
@@ -253,7 +268,9 @@
   });
 
   $effect(() => {
-    const nextKey = item ? `item:${item.item.id}:${item.item.sourcePath}` : `new:${itemType}`;
+    const nextKey = item
+      ? `item:${item.item.id}:${item.item.sourcePath}`
+      : `new:${itemType}`;
     if (nextKey === initializedKey) return;
     initializedKey = nextKey;
     initFromItem(item, item ? targetValueForItem(item) : defaultTargetValue());
@@ -267,7 +284,8 @@
   });
 
   $effect(() => {
-    const nextDirty = initialSnapshot !== "" && currentSnapshot() !== initialSnapshot;
+    const nextDirty =
+      initialSnapshot !== "" && currentSnapshot() !== initialSnapshot;
     if (nextDirty !== dirty) {
       dirty = nextDirty;
       ondirtychange?.(nextDirty);
@@ -291,20 +309,41 @@
   });
 </script>
 
-<div class="flex min-h-[620px] flex-col rounded-xl border border-border-subtle bg-bg-surface/20">
-  <div class="flex items-center justify-between gap-3 border-b border-hairline px-3 py-2.5">
+<div
+  class="flex min-h-[620px] flex-col rounded-xl border border-border-subtle bg-bg-surface/20"
+>
+  <div
+    class="flex items-center justify-between gap-3 border-b border-hairline px-3 py-2.5"
+  >
     <div class="min-w-0">
       <div class="flex items-center gap-2">
-        <div class="text-sm font-semibold text-text-primary">{originalId ? "Edit" : "New"} {itemType}</div>
+        <div class="text-sm font-semibold text-text-primary">
+          {originalId ? "Edit" : "New"}
+          {itemType}
+        </div>
         {#if dirty}
-          <span class="rounded border border-yellow/30 bg-yellow/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-yellow">Unsaved</span>
+          <span
+            class="rounded border border-yellow/30 bg-yellow/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-yellow"
+            >Unsaved</span
+          >
         {/if}
       </div>
-      <div class="mt-0.5 truncate text-[11px] text-text-muted">Structured metadata, markdown body, plain files on disk</div>
+      <div class="mt-0.5 truncate text-[11px] text-text-muted">
+        Structured metadata, markdown body, plain files on disk
+      </div>
     </div>
     <div class="flex gap-1">
-      <button type="button" class="rounded-lg border border-border-subtle bg-bg-surface px-2 py-1 text-xs text-text-secondary hover:bg-bg-hover hover:text-text-primary" onclick={oncancel}>Cancel</button>
-      <button type="button" class="rounded-lg border border-accent-dim/40 bg-accent-dim/15 px-3 py-1 text-xs font-semibold text-accent hover:bg-accent-dim/25 disabled:opacity-50" onclick={save} disabled={saving}>
+      <button
+        type="button"
+        class="rounded-lg border border-border-subtle bg-bg-surface px-2 py-1 text-xs text-text-secondary hover:bg-bg-hover hover:text-text-primary"
+        onclick={oncancel}>Cancel</button
+      >
+      <button
+        type="button"
+        class="rounded-lg border border-accent-dim/40 bg-accent-dim/15 px-3 py-1 text-xs font-semibold text-accent hover:bg-accent-dim/25 disabled:opacity-50"
+        onclick={save}
+        disabled={saving}
+      >
         {saving ? "Saving" : "Save"}
       </button>
     </div>
@@ -314,33 +353,52 @@
     <div class="grid gap-2 lg:grid-cols-2">
       <label class="block">
         <span class="mb-1 block text-[11px] text-text-secondary">Title</span>
-        <input class="w-full border border-border-subtle bg-bg-deep px-2 py-1.5 text-xs text-text-primary outline-none focus:border-border" bind:value={title} />
+        <input
+          class="w-full border border-border-subtle bg-bg-deep px-2 py-1.5 text-xs text-text-primary outline-none focus:border-border"
+          bind:value={title}
+        />
       </label>
       <label class="block">
         <span class="mb-1 block text-[11px] text-text-secondary">ID</span>
-        <input class="w-full border border-border-subtle bg-bg-deep px-2 py-1.5 font-mono text-xs text-text-primary outline-none focus:border-border" bind:value={itemId} />
+        <input
+          class="w-full border border-border-subtle bg-bg-deep px-2 py-1.5 font-mono text-xs text-text-primary outline-none focus:border-border"
+          bind:value={itemId}
+        />
       </label>
     </div>
 
     <label class="block">
-      <span class="mb-1 block text-[11px] text-text-secondary">Description</span>
-      <input class="w-full border border-border-subtle bg-bg-deep px-2 py-1.5 text-xs text-text-primary outline-none focus:border-border" bind:value={description} />
+      <span class="mb-1 block text-[11px] text-text-secondary">Description</span
+      >
+      <input
+        class="w-full border border-border-subtle bg-bg-deep px-2 py-1.5 text-xs text-text-primary outline-none focus:border-border"
+        bind:value={description}
+      />
     </label>
 
     <div class="grid gap-2 lg:grid-cols-2">
       <label class="block">
         <span class="mb-1 block text-[11px] text-text-secondary">Tags</span>
-        <input class="w-full border border-border-subtle bg-bg-deep px-2 py-1.5 text-xs text-text-primary outline-none focus:border-border" placeholder="review, git" bind:value={tags} />
+        <input
+          class="w-full border border-border-subtle bg-bg-deep px-2 py-1.5 text-xs text-text-primary outline-none focus:border-border"
+          placeholder="review, git"
+          bind:value={tags}
+        />
       </label>
       <label class="block">
         <span class="mb-1 block text-[11px] text-text-secondary">Source</span>
-        <select class="w-full border border-border-subtle bg-bg-deep px-2 py-1.5 text-xs text-text-primary outline-none focus:border-border" bind:value={targetValue}>
+        <select
+          class="w-full border border-border-subtle bg-bg-deep px-2 py-1.5 text-xs text-text-primary outline-none focus:border-border"
+          bind:value={targetValue}
+        >
           <option value="global">Global Library</option>
           {#if activeRepo}
             <option value="activeRepo">Active Repo Library</option>
           {/if}
           {#each sources as source (source.id)}
-            <option value={`source:${source.id}`}>{source.name || source.path || source.url}</option>
+            <option value={`source:${source.id}`}
+              >{source.name || source.path || source.url}</option
+            >
           {/each}
         </select>
       </label>
@@ -348,46 +406,93 @@
 
     <label class="block">
       <span class="mb-1 block text-[11px] text-text-secondary">Provider</span>
-      <input class="w-full border border-border-subtle bg-bg-deep px-2 py-1.5 text-xs text-text-primary outline-none focus:border-border" bind:value={provider} />
+      <input
+        class="w-full border border-border-subtle bg-bg-deep px-2 py-1.5 text-xs text-text-primary outline-none focus:border-border"
+        bind:value={provider}
+      />
     </label>
   </div>
 
   {#if itemType === "prompt"}
     <div class="border-b border-hairline p-3">
       <div class="mb-2 flex items-center justify-between">
-        <div class="text-[11px] font-semibold uppercase tracking-[0.14em] text-text-secondary">Variables</div>
-        <button type="button" class="flex items-center gap-1 text-xs text-text-secondary hover:text-text-primary" onclick={addVariable}>
+        <div
+          class="text-[11px] font-semibold uppercase tracking-[0.14em] text-text-secondary"
+        >
+          Variables
+        </div>
+        <button
+          type="button"
+          class="flex items-center gap-1 text-xs text-text-secondary hover:text-text-primary"
+          onclick={addVariable}
+        >
           <Plus size={13} /> Add
         </button>
       </div>
       <div class="space-y-1">
         {#each variables as variable, index}
-          <div class="grid gap-1 lg:grid-cols-[1fr_1fr_0.7fr_1fr_1fr_auto_auto]">
-            <input class="min-w-0 border border-border-subtle bg-bg-deep px-2 py-1.5 text-xs text-text-primary outline-none focus:border-border" placeholder="name" value={variable.name} oninput={(e) => updateVariable(index, { name: e.currentTarget.value })} />
-            <input class="min-w-0 border border-border-subtle bg-bg-deep px-2 py-1.5 text-xs text-text-primary outline-none focus:border-border" placeholder="label" value={variable.label ?? ""} oninput={(e) => updateVariable(index, { label: e.currentTarget.value })} />
+          <div
+            class="grid gap-1 lg:grid-cols-[1fr_1fr_0.7fr_1fr_1fr_auto_auto]"
+          >
+            <input
+              class="min-w-0 border border-border-subtle bg-bg-deep px-2 py-1.5 text-xs text-text-primary outline-none focus:border-border"
+              placeholder="name"
+              value={variable.name}
+              oninput={(e) =>
+                updateVariable(index, { name: e.currentTarget.value })}
+            />
+            <input
+              class="min-w-0 border border-border-subtle bg-bg-deep px-2 py-1.5 text-xs text-text-primary outline-none focus:border-border"
+              placeholder="label"
+              value={variable.label ?? ""}
+              oninput={(e) =>
+                updateVariable(index, { label: e.currentTarget.value })}
+            />
             <select
               class="min-w-0 border border-border-subtle bg-bg-deep px-2 py-1.5 text-xs text-text-primary outline-none focus:border-border"
               value={variable.valueType ?? "string"}
-              onchange={(e) => updateVariable(index, { valueType: e.currentTarget.value as LibraryVariableType })}
+              onchange={(e) =>
+                updateVariable(index, {
+                  valueType: e.currentTarget.value as LibraryVariableType,
+                })}
             >
               <option value="string">string</option>
               <option value="int">int</option>
               <option value="float">float</option>
               <option value="select">pick list</option>
             </select>
-            <input class="min-w-0 border border-border-subtle bg-bg-deep px-2 py-1.5 text-xs text-text-primary outline-none focus:border-border" placeholder="default" value={variable.default ?? ""} oninput={(e) => updateVariable(index, { default: e.currentTarget.value })} />
+            <input
+              class="min-w-0 border border-border-subtle bg-bg-deep px-2 py-1.5 text-xs text-text-primary outline-none focus:border-border"
+              placeholder="default"
+              value={variable.default ?? ""}
+              oninput={(e) =>
+                updateVariable(index, { default: e.currentTarget.value })}
+            />
             <input
               class="min-w-0 border border-border-subtle bg-bg-deep px-2 py-1.5 text-xs text-text-primary outline-none focus:border-border disabled:opacity-40"
               placeholder="options"
               value={(variable.options ?? []).join(", ")}
               disabled={(variable.valueType ?? "string") !== "select"}
-              oninput={(e) => updateVariableOptions(index, e.currentTarget.value)}
+              oninput={(e) =>
+                updateVariableOptions(index, e.currentTarget.value)}
             />
-            <label class="flex items-center gap-1 px-1 text-[11px] text-text-secondary">
-              <input type="checkbox" checked={variable.required} onchange={(e) => updateVariable(index, { required: e.currentTarget.checked })} />
+            <label
+              class="flex items-center gap-1 px-1 text-[11px] text-text-secondary"
+            >
+              <input
+                type="checkbox"
+                checked={variable.required}
+                onchange={(e) =>
+                  updateVariable(index, { required: e.currentTarget.checked })}
+              />
               Required
             </label>
-            <button type="button" class="px-1 text-text-muted hover:text-red" title="Remove variable" onclick={() => removeVariable(index)}>
+            <button
+              type="button"
+              class="px-1 text-text-muted hover:text-red"
+              title="Remove variable"
+              onclick={() => removeVariable(index)}
+            >
               <Trash2 size={14} />
             </button>
           </div>
@@ -396,6 +501,13 @@
     </div>
   {/if}
 
-  <div class="border-t border-hairline bg-bg-surface/35 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-text-secondary">Body</div>
-  <div class="min-h-[320px] flex-1 border-t border-hairline" bind:this={editorContainer}></div>
+  <div
+    class="border-t border-hairline bg-bg-surface/35 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-text-secondary"
+  >
+    Body
+  </div>
+  <div
+    class="min-h-[320px] flex-1 border-t border-hairline"
+    bind:this={editorContainer}
+  ></div>
 </div>

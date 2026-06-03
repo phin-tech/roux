@@ -12,7 +12,9 @@ import {
   upsertWorktreeMetadata,
 } from "$lib/stores/worktreeMetadata";
 
-function makeMeta(overrides: Partial<WorktrunkMetadata> = {}): WorktrunkMetadata {
+function makeMeta(
+  overrides: Partial<WorktrunkMetadata> = {},
+): WorktrunkMetadata {
   return {
     dirty: false,
     ahead: 0,

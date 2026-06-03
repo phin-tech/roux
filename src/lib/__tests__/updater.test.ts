@@ -125,7 +125,10 @@ describe("checkForUpdate", () => {
       error: { kind: "not-found" },
     });
 
-    const status = await checkForUpdate({ silent: false, channel: "preRelease" });
+    const status = await checkForUpdate({
+      silent: false,
+      channel: "preRelease",
+    });
 
     expect(status).toEqual({ kind: "no-update" });
   });
@@ -144,7 +147,9 @@ describe("checkForUpdate", () => {
 
   it("surfaces transport failures as a classified error", async () => {
     const { checkForUpdate } = await import("$lib/updater");
-    checkForUpdateMock.mockRejectedValueOnce(new Error("network connect timeout"));
+    checkForUpdateMock.mockRejectedValueOnce(
+      new Error("network connect timeout"),
+    );
 
     const status = await checkForUpdate({ silent: false, channel: "stable" });
 

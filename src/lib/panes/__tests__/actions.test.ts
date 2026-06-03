@@ -24,7 +24,13 @@ import {
 } from "../actions";
 import { paneInstances, resetInstances, getInstance } from "../instances";
 import { sessionLayouts, resetLayouts, collectLeafIds } from "../layout";
-import { focusedPaneId, fullscreenPaneId, resetFocus, setLogicalFocus, toggleFullscreen } from "../focus";
+import {
+  focusedPaneId,
+  fullscreenPaneId,
+  resetFocus,
+  setLogicalFocus,
+  toggleFullscreen,
+} from "../focus";
 import { killPty, killSession, detachPty } from "$lib/tauri";
 import {
   multiLineEditor,
@@ -56,7 +62,10 @@ describe("pane actions", () => {
       expect(inst).toBeDefined();
       expect(inst!.type).toBe("shell");
       expect(inst!.ptyId).toBe("s1");
-      expect(inst!.spawnProfileRef).toEqual({ kind: "registered", id: "claude" });
+      expect(inst!.spawnProfileRef).toEqual({
+        kind: "registered",
+        id: "claude",
+      });
     });
 
     it("focuses the main pane", () => {
@@ -210,8 +219,14 @@ describe("pane actions", () => {
       // stack's activeIndex, so closing a sibling while a stack had tab 1
       // visible routed focus to the hidden tab at index 0.
       initSession("s1");
-      const stackTab2 = splitPane("s1", "v", { type: "shell", ptyId: "pty-a" })!;
-      const rightPane = splitPane("s1", "h", { type: "shell", ptyId: "pty-b" })!;
+      const stackTab2 = splitPane("s1", "v", {
+        type: "shell",
+        ptyId: "pty-a",
+      })!;
+      const rightPane = splitPane("s1", "h", {
+        type: "shell",
+        ptyId: "pty-b",
+      })!;
       // Build the target layout directly: an outer horizontal split whose
       // left child is a stacked split (s1-main, stackTab2) with tab 2
       // currently visible, and the right child is rightPane.
@@ -324,8 +339,14 @@ describe("pane actions", () => {
 
     it("leaves the editor open when a different pane is closed", () => {
       initSession("s1");
-      const editorPane = splitPane("s1", "h", { type: "shell", ptyId: "pty-editor" })!;
-      const otherPane = splitPane("s1", "h", { type: "shell", ptyId: "pty-other" })!;
+      const editorPane = splitPane("s1", "h", {
+        type: "shell",
+        ptyId: "pty-editor",
+      })!;
+      const otherPane = splitPane("s1", "h", {
+        type: "shell",
+        ptyId: "pty-other",
+      })!;
       openMultiLineEditor({
         paneId: editorPane,
         paneLabel: "editor",

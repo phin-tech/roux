@@ -49,10 +49,7 @@ fn default_version() -> u32 {
 
 impl Default for SkillSyncManifest {
     fn default() -> Self {
-        Self {
-            version: MANIFEST_VERSION,
-            entries: HashMap::new(),
-        }
+        Self { version: MANIFEST_VERSION, entries: HashMap::new() }
     }
 }
 
@@ -493,10 +490,7 @@ pub(crate) struct UnsyncReport {
 /// the entry is left alone (and reported as `KeptDueToDrift`). The
 /// manifest is updated in place: drifted entries stay, deleted/missing
 /// entries are removed.
-pub(crate) fn unsync_skills(
-    scope: &UnsyncScope,
-    manifest: &mut SkillSyncManifest,
-) -> UnsyncReport {
+pub(crate) fn unsync_skills(scope: &UnsyncScope, manifest: &mut SkillSyncManifest) -> UnsyncReport {
     let target_keys: Vec<String> = match scope {
         UnsyncScope::All => manifest.entries.keys().cloned().collect(),
         UnsyncScope::Stale(keys) => keys.clone(),
@@ -514,10 +508,8 @@ pub(crate) fn unsync_skills(
             continue;
         };
         let outcome = unsync_one(&entry);
-        let should_drop_entry = matches!(
-            outcome,
-            UnsyncOutcome::Deleted | UnsyncOutcome::AlreadyGone
-        );
+        let should_drop_entry =
+            matches!(outcome, UnsyncOutcome::Deleted | UnsyncOutcome::AlreadyGone);
         report.results.push(UnsyncResult {
             skill_id: entry.skill_id.clone(),
             source_id: entry.source_id.clone(),
@@ -605,9 +597,9 @@ fn effective_mode(item: &LibraryItem, request: &SkillSyncRunRequest) -> SkillSyn
 }
 
 fn find_layer<'a>(item: &LibraryItem, layers: &'a [LibraryLayer]) -> Option<&'a LibraryLayer> {
-    layers
-        .iter()
-        .find(|layer| layer.kind() == item.source_layer && layer.source_id() == item.source_id.as_deref())
+    layers.iter().find(|layer| {
+        layer.kind() == item.source_layer && layer.source_id() == item.source_id.as_deref()
+    })
 }
 
 pub(crate) fn load_manifest(global_root: &Path) -> Result<SkillSyncManifest, String> {
@@ -745,11 +737,8 @@ mod tests {
     #[test]
     fn destination_for_active_repo_layer_is_repo_local_claude_skills() {
         let user_skills = PathBuf::from("/home/user/.claude/skills");
-        let l = layer(
-            LibraryLayerKind::ActiveRepo,
-            None,
-            PathBuf::from("/active/repo/.roux/library"),
-        );
+        let l =
+            layer(LibraryLayerKind::ActiveRepo, None, PathBuf::from("/active/repo/.roux/library"));
         assert_eq!(
             skill_destination_dir(&l, &user_skills),
             Some(PathBuf::from("/active/repo/.claude/skills"))
@@ -944,10 +933,7 @@ mod tests {
         let mut manifest = SkillSyncManifest::default();
 
         assert_eq!(
-            sync_skill_symlink(
-                &symlink_request(None, "rust", &source, &dest),
-                &mut manifest
-            ),
+            sync_skill_symlink(&symlink_request(None, "rust", &source, &dest), &mut manifest),
             SkillSyncOutcome::Skipped(SkillSyncSkipReason::UntrackedFile)
         );
         assert!(manifest.entries.is_empty());
@@ -967,10 +953,7 @@ mod tests {
         std::fs::write(&dest, "user content\n").unwrap();
 
         assert_eq!(
-            sync_skill_symlink(
-                &symlink_request(None, "rust", &source, &dest),
-                &mut manifest
-            ),
+            sync_skill_symlink(&symlink_request(None, "rust", &source, &dest), &mut manifest),
             SkillSyncOutcome::Skipped(SkillSyncSkipReason::UserEdited)
         );
     }
@@ -1126,10 +1109,7 @@ mod tests {
 
         // Now switch the user to symlink mode without unsync first.
         assert_eq!(
-            sync_skill_symlink(
-                &symlink_request(None, "rust", &source, &dest),
-                &mut manifest
-            ),
+            sync_skill_symlink(&symlink_request(None, "rust", &source, &dest), &mut manifest),
             SkillSyncOutcome::Skipped(SkillSyncSkipReason::UntrackedFile)
         );
     }

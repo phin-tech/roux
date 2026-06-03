@@ -139,13 +139,17 @@ export function installXtermWatchDecorations(
       el.addEventListener("mouseenter", () => {
         el.firstElementChild!.setAttribute(
           "style",
-          el.firstElementChild!.getAttribute("style")!.replace("opacity:0.7", "opacity:1"),
+          el
+            .firstElementChild!.getAttribute("style")!
+            .replace("opacity:0.7", "opacity:1"),
         );
       });
       el.addEventListener("mouseleave", () => {
         el.firstElementChild!.setAttribute(
           "style",
-          el.firstElementChild!.getAttribute("style")!.replace("opacity:1", "opacity:0.7"),
+          el
+            .firstElementChild!.getAttribute("style")!
+            .replace("opacity:1", "opacity:0.7"),
         );
       });
       el.addEventListener("click", async (e) => {
@@ -283,7 +287,9 @@ export function installXtermWatchDecorations(
         addWatchDecoration(
           yOffset,
           column,
-          target.kind === "githubAction" ? "Watch this GitHub Action" : "Watch this PR",
+          target.kind === "githubAction"
+            ? "Watch this GitHub Action"
+            : "Watch this PR",
           async () => {
             await createWatchFn(
               buildWatchConfigForTarget(target, getActiveSessionId()),

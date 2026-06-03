@@ -71,7 +71,8 @@ function webTool(): ExternalTool {
     name: "Difit",
     enabled: true,
     surface: "web",
-    commandTemplate: "difit . --host 127.0.0.1 --port {{ port }} --no-open --keep-alive",
+    commandTemplate:
+      "difit . --host 127.0.0.1 --port {{ port }} --no-open --keep-alive",
     cwdTemplate: ".",
     requiresSession: false,
     urlTemplate: "http://127.0.0.1:4966",
@@ -113,7 +114,9 @@ function webLaunchResult(runtimeId: string | null): ExternalToolLaunchResult {
   };
 }
 
-function terminalLaunchResult(runtimeId: string | null): ExternalToolLaunchResult {
+function terminalLaunchResult(
+  runtimeId: string | null,
+): ExternalToolLaunchResult {
   return {
     toolId: "lazygit",
     surface: "terminal",
@@ -173,7 +176,9 @@ describe("externalTools store helpers", () => {
   });
 
   it("closes the registered view before waiting for runtime cleanup", async () => {
-    let finishKill: (value: ReturnType<typeof processRecord>) => void = () => {};
+    let finishKill: (
+      value: ReturnType<typeof processRecord>,
+    ) => void = () => {};
     vi.mocked(daemonProcessKill).mockReturnValueOnce(
       new Promise((resolve) => {
         finishKill = resolve;
@@ -209,7 +214,9 @@ describe("externalTools store helpers", () => {
 
     const opened = openExternalTool("difit");
     const runId = externalToolRunId("difit", null);
-    expect(get(externalToolRuns).get(runId)).toMatchObject({ status: "launching" });
+    expect(get(externalToolRuns).get(runId)).toMatchObject({
+      status: "launching",
+    });
 
     await closeExternalToolRun(runId);
     expect(get(externalToolRuns).has(runId)).toBe(false);
@@ -231,7 +238,9 @@ describe("externalTools store helpers", () => {
 
     const opened = openExternalTool("difit");
     const runId = externalToolRunId("difit", null);
-    expect(get(externalToolRuns).get(runId)).toMatchObject({ status: "launching" });
+    expect(get(externalToolRuns).get(runId)).toMatchObject({
+      status: "launching",
+    });
 
     await closeExternalToolRun(runId);
     const reopened = openExternalTool("difit");
@@ -288,7 +297,10 @@ describe("externalTools store helpers", () => {
       order.push("launch");
       return terminalLaunchResult("pty-new");
     });
-    settings.update((current) => ({ ...current, externalTools: [terminalTool()] }));
+    settings.update((current) => ({
+      ...current,
+      externalTools: [terminalTool()],
+    }));
     const runId = externalToolRunId("lazygit", null);
     externalToolRuns.set(
       new Map([
@@ -319,8 +331,13 @@ describe("externalTools store helpers", () => {
   it("does not duplicate launches while a restart is retiring the old runtime", async () => {
     const kill = deferred<void>();
     vi.mocked(killPty).mockReturnValueOnce(kill.promise);
-    vi.mocked(launchExternalTool).mockResolvedValueOnce(terminalLaunchResult("pty-new"));
-    settings.update((current) => ({ ...current, externalTools: [terminalTool()] }));
+    vi.mocked(launchExternalTool).mockResolvedValueOnce(
+      terminalLaunchResult("pty-new"),
+    );
+    settings.update((current) => ({
+      ...current,
+      externalTools: [terminalTool()],
+    }));
     const runId = externalToolRunId("lazygit", null);
     externalToolRuns.set(
       new Map([
@@ -363,8 +380,13 @@ describe("externalTools store helpers", () => {
   it("does not duplicate launches while an errored runtime is being retired", async () => {
     const kill = deferred<void>();
     vi.mocked(killPty).mockReturnValueOnce(kill.promise);
-    vi.mocked(launchExternalTool).mockResolvedValueOnce(terminalLaunchResult("pty-new"));
-    settings.update((current) => ({ ...current, externalTools: [terminalTool()] }));
+    vi.mocked(launchExternalTool).mockResolvedValueOnce(
+      terminalLaunchResult("pty-new"),
+    );
+    settings.update((current) => ({
+      ...current,
+      externalTools: [terminalTool()],
+    }));
     const runId = externalToolRunId("lazygit", null);
     externalToolRuns.set(
       new Map([
@@ -393,7 +415,10 @@ describe("externalTools store helpers", () => {
     });
 
     setExternalToolRunError(runId, "stale attach failed", "pty-old", 1);
-    expect(get(externalToolRuns).get(runId)).toMatchObject({ status: "launching", error: null });
+    expect(get(externalToolRuns).get(runId)).toMatchObject({
+      status: "launching",
+      error: null,
+    });
 
     await openExternalTool("lazygit");
     expect(killPty).toHaveBeenCalledTimes(1);
@@ -413,8 +438,13 @@ describe("externalTools store helpers", () => {
     const kill = deferred<void>();
     const replacementLaunch = deferred<ExternalToolLaunchResult>();
     vi.mocked(killPty).mockReturnValueOnce(kill.promise);
-    vi.mocked(launchExternalTool).mockReturnValueOnce(replacementLaunch.promise);
-    settings.update((current) => ({ ...current, externalTools: [terminalTool()] }));
+    vi.mocked(launchExternalTool).mockReturnValueOnce(
+      replacementLaunch.promise,
+    );
+    settings.update((current) => ({
+      ...current,
+      externalTools: [terminalTool()],
+    }));
     const runId = externalToolRunId("lazygit", null);
     externalToolRuns.set(
       new Map([
@@ -461,7 +491,11 @@ describe("externalTools store helpers", () => {
   });
 
   it("ignores stale exit events from an older runtime id", () => {
-    const run = { ...runWithStatus("running"), runtimeId: "pty-new", runtimeGeneration: 2 };
+    const run = {
+      ...runWithStatus("running"),
+      runtimeId: "pty-new",
+      runtimeGeneration: 2,
+    };
     externalToolRuns.set(new Map([[run.id, run]]));
     openMainView({ kind: "externalTool", runId: run.id });
 
@@ -565,7 +599,9 @@ describe("externalTools store helpers", () => {
   });
 
   it("marks a launched run errored before awaiting runtime cleanup", async () => {
-    let finishKill: (value: ReturnType<typeof processRecord>) => void = () => {};
+    let finishKill: (
+      value: ReturnType<typeof processRecord>,
+    ) => void = () => {};
     vi.mocked(daemonProcessKill).mockReturnValueOnce(
       new Promise((resolve) => {
         finishKill = resolve;

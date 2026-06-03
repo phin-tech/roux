@@ -110,9 +110,13 @@ describe("NewSessionDialog profile defaults", () => {
     await rerender({ visible: true, onclose });
 
     await waitFor(() => {
-      expect((document.getElementById("new-session-profile") as HTMLInputElement | null)?.value).toBe(
-        "Codex (user)",
-      );
+      expect(
+        (
+          document.getElementById(
+            "new-session-profile",
+          ) as HTMLInputElement | null
+        )?.value,
+      ).toBe("Codex (user)");
     });
   });
 });

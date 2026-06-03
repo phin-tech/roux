@@ -11,7 +11,9 @@ export const sessionState = writable<SessionState>({
   activeSessionId: null,
 });
 
-function selectSessionState<T>(selector: (state: SessionState) => T): Readable<T> {
+function selectSessionState<T>(
+  selector: (state: SessionState) => T,
+): Readable<T> {
   let current = selector(get(sessionState));
   return readable(current, (set) =>
     sessionState.subscribe((state) => {
@@ -24,7 +26,9 @@ function selectSessionState<T>(selector: (state: SessionState) => T): Readable<T
 }
 
 export const sessionList = selectSessionState((state) => state.sessions);
-export const activeSessionId = selectSessionState((state) => state.activeSessionId);
+export const activeSessionId = selectSessionState(
+  (state) => state.activeSessionId,
+);
 export const activeSession = selectSessionState(
   (state) => state.sessions.find((s) => s.id === state.activeSessionId) ?? null,
 );
@@ -47,7 +51,7 @@ export function removeSession(id: string) {
     const sessions = state.sessions.filter((s) => s.id !== id);
     const activeSessionId =
       state.activeSessionId === id
-        ? sessions[sessions.length - 1]?.id ?? null
+        ? (sessions[sessions.length - 1]?.id ?? null)
         : state.activeSessionId;
     return { sessions, activeSessionId };
   });
@@ -63,7 +67,7 @@ export function updateSessionStatus(
   id: string,
   status: Session["status"],
   model?: string | null,
-  cost?: number | null
+  cost?: number | null,
 ) {
   sessionState.update((state) => ({
     ...state,
@@ -75,7 +79,7 @@ export function updateSessionStatus(
             model: model ?? s.model,
             cost: cost ?? s.cost,
           }
-        : s
+        : s,
     ),
   }));
 }
@@ -108,7 +112,9 @@ export function renameSession(id: string, newName: string) {
   sessionState.update((state) => ({
     ...state,
     sessions: state.sessions.map((s) =>
-      s.id === id ? { ...s, nameOverride: trimmed, name: trimmed ?? s.name } : s
+      s.id === id
+        ? { ...s, nameOverride: trimmed, name: trimmed ?? s.name }
+        : s,
     ),
   }));
   import("../tauri").then(({ setSessionNameOverride }) => {
@@ -120,7 +126,7 @@ export function clearSessionNameOverride(id: string) {
   sessionState.update((state) => ({
     ...state,
     sessions: state.sessions.map((s) =>
-      s.id === id ? { ...s, nameOverride: null } : s
+      s.id === id ? { ...s, nameOverride: null } : s,
     ),
   }));
   import("../tauri").then(({ setSessionNameOverride }) => {
@@ -132,7 +138,7 @@ export function updateSessionGitStatus(id: string, isGitRepo: boolean) {
   sessionState.update((state) => ({
     ...state,
     sessions: state.sessions.map((s) =>
-      s.id === id ? { ...s, isGitRepo } : s
+      s.id === id ? { ...s, isGitRepo } : s,
     ),
   }));
 }
@@ -141,7 +147,7 @@ export function setSessionProject(id: string, projectId: string | null) {
   sessionState.update((state) => ({
     ...state,
     sessions: state.sessions.map((s) =>
-      s.id === id ? { ...s, projectId } : s
+      s.id === id ? { ...s, projectId } : s,
     ),
   }));
 }
@@ -150,7 +156,9 @@ export function clearSessionsProject(projectId: string) {
   sessionState.update((state) => ({
     ...state,
     sessions: state.sessions.map((s) =>
-      s.projectId === projectId ? { ...s, projectId: null, blueprintId: null } : s
+      s.projectId === projectId
+        ? { ...s, projectId: null, blueprintId: null }
+        : s,
     ),
   }));
 }

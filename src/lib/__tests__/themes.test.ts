@@ -41,7 +41,9 @@ describe("themes", () => {
 
   it("falls back to the default preset when theme input is invalid", () => {
     expect(normalizeTheme("not-a-theme")).toBe("deep-blue");
-    expect(getTerminalTheme("not-a-theme")).toEqual(getTerminalTheme("deep-blue"));
+    expect(getTerminalTheme("not-a-theme")).toEqual(
+      getTerminalTheme("deep-blue"),
+    );
   });
 
   it("recognizes the warm-burnout presets and surfaces their palettes", () => {
@@ -126,9 +128,9 @@ describe("themes", () => {
       });
 
       it("resolveTerminalTheme returns the user palette when present", () => {
-        expect(resolveTerminalTheme("deep-blue", "user:my-fav", [userTheme])).toEqual(
-          userTheme.palette,
-        );
+        expect(
+          resolveTerminalTheme("deep-blue", "user:my-fav", [userTheme]),
+        ).toEqual(userTheme.palette);
       });
 
       it("resolveTerminalTheme falls back to GUI palette when the user theme is missing", () => {

@@ -298,13 +298,21 @@ body {
   letter-spacing: 0.08em;
 }
 .md-typeset .admonition.note,
-.md-typeset details.note { border-left-color: #00ffd0; }
+.md-typeset details.note {
+  border-left-color: #00ffd0;
+}
 .md-typeset .admonition.warning,
-.md-typeset details.warning { border-left-color: #ffe600; }
+.md-typeset details.warning {
+  border-left-color: #ffe600;
+}
 .md-typeset .admonition.danger,
-.md-typeset details.danger { border-left-color: #ff2e63; }
+.md-typeset details.danger {
+  border-left-color: #ff2e63;
+}
 .md-typeset .admonition.tip,
-.md-typeset details.tip { border-left-color: #00ffd0; }
+.md-typeset details.tip {
+  border-left-color: #00ffd0;
+}
 
 /* =====================================================================
    FOOTER
@@ -331,17 +339,24 @@ body {
   width: 8px;
   height: 8px;
 }
-::-webkit-scrollbar-track { background: #0a0a0a; }
+::-webkit-scrollbar-track {
+  background: #0a0a0a;
+}
 ::-webkit-scrollbar-thumb {
   background: var(--md-default-fg-color--lightest);
   border-radius: 0;
 }
-::-webkit-scrollbar-thumb:hover { background: #00ffd0; }
+::-webkit-scrollbar-thumb:hover {
+  background: #00ffd0;
+}
 
 /* =====================================================================
    REDUCED MOTION
    ===================================================================== */
 
 @media (prefers-reduced-motion: reduce) {
-  * { transition: none !important; animation: none !important; }
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
 }

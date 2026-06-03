@@ -23,7 +23,11 @@ import {
 import type { SpawnProfile } from "../profiles";
 import { commands } from "$lib/bindings";
 
-function builtin(id: string, name: string, extras: Partial<SpawnProfile> = {}): SpawnProfile {
+function builtin(
+  id: string,
+  name: string,
+  extras: Partial<SpawnProfile> = {},
+): SpawnProfile {
   return {
     id,
     name,
@@ -32,7 +36,11 @@ function builtin(id: string, name: string, extras: Partial<SpawnProfile> = {}): 
   };
 }
 
-function user(id: string, name: string, extras: Partial<SpawnProfile> = {}): SpawnProfile {
+function user(
+  id: string,
+  name: string,
+  extras: Partial<SpawnProfile> = {},
+): SpawnProfile {
   return {
     id,
     name,
@@ -49,7 +57,10 @@ describe("profile registry", () => {
 
   it("loadBuiltinProfiles populates the built-in segment from the Tauri command", async () => {
     vi.mocked(commands.getBuiltinProfiles).mockResolvedValue([
-      builtin("claude", "Claude", { provider: "claude", startupCommand: "claude" }),
+      builtin("claude", "Claude", {
+        provider: "claude",
+        startupCommand: "claude",
+      }),
       builtin("plain-shell", "Plain shell"),
     ]);
 
@@ -63,11 +74,15 @@ describe("profile registry", () => {
 
   it("loadBuiltinProfiles clears the built-in segment when the Tauri call throws", async () => {
     // Seed a profile so we can observe it being cleared.
-    vi.mocked(commands.getBuiltinProfiles).mockResolvedValueOnce([builtin("stale", "Stale")]);
+    vi.mocked(commands.getBuiltinProfiles).mockResolvedValueOnce([
+      builtin("stale", "Stale"),
+    ]);
     await loadBuiltinProfiles();
     expect(get(profileRegistry).has("stale")).toBe(true);
 
-    vi.mocked(commands.getBuiltinProfiles).mockRejectedValue(new Error("IPC down"));
+    vi.mocked(commands.getBuiltinProfiles).mockRejectedValue(
+      new Error("IPC down"),
+    );
     await loadBuiltinProfiles();
     expect(get(profileRegistry).has("stale")).toBe(false);
   });
@@ -77,7 +92,11 @@ describe("profile registry", () => {
     setUserProfiles([user("my-dev-server", "Dev server")]);
     // Simulate a malicious JSON blob claiming builtin; the stamp must override.
     setUserProfiles([
-      { id: "sneaky", name: "Sneaky", source: "builtin" } as unknown as SpawnProfile,
+      {
+        id: "sneaky",
+        name: "Sneaky",
+        source: "builtin",
+      } as unknown as SpawnProfile,
     ]);
 
     const registry = get(profileRegistry);
@@ -89,7 +108,9 @@ describe("profile registry", () => {
       builtin("claude", "Claude (built-in)", { startupCommand: "claude" }),
     ]);
     await loadBuiltinProfiles();
-    setUserProfiles([user("claude", "Claude (mine)", { startupCommand: "claude --mcp" })]);
+    setUserProfiles([
+      user("claude", "Claude (mine)", { startupCommand: "claude --mcp" }),
+    ]);
 
     const profile = get(profileRegistry).get("claude");
     expect(profile?.name).toBe("Claude (mine)");
@@ -111,13 +132,17 @@ describe("profile registry", () => {
   });
 
   it("resolveProfileRef returns the captured profile for inline refs", () => {
-    const inline = user("inline-xyz", "Custom task", { startupCommand: "echo hi" });
+    const inline = user("inline-xyz", "Custom task", {
+      startupCommand: "echo hi",
+    });
     const resolved = resolveProfileRef({ kind: "inline", profile: inline });
     expect(resolved).toEqual(inline);
   });
 
   it("resolveProfileRef returns the registry hit for registered refs", async () => {
-    vi.mocked(commands.getBuiltinProfiles).mockResolvedValue([builtin("claude", "Claude")]);
+    vi.mocked(commands.getBuiltinProfiles).mockResolvedValue([
+      builtin("claude", "Claude"),
+    ]);
     await loadBuiltinProfiles();
 
     const resolved = resolveProfileRef({ kind: "registered", id: "claude" });

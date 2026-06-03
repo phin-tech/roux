@@ -25,7 +25,11 @@
     type SidebarId,
   } from "$lib/stores/ui";
   import { sidebarLayout } from "$lib/stores/sidebarLayout";
-  import { mainViewRoute, openMainView, closeMainView } from "$lib/stores/mainView";
+  import {
+    mainViewRoute,
+    openMainView,
+    closeMainView,
+  } from "$lib/stores/mainView";
   import { unreadTotal } from "$lib/stores/notifications";
   import { meUnread } from "$lib/stores/mailbox";
 
@@ -65,7 +69,10 @@
     return items;
   });
 
-  const settingsItem: RailActionItem = { label: "Settings", icon: SettingsIcon };
+  const settingsItem: RailActionItem = {
+    label: "Settings",
+    icon: SettingsIcon,
+  };
 
   function handleClick(event: MouseEvent, id: SidebarId): void {
     event.preventDefault();
@@ -146,12 +153,16 @@
       <item.icon size={16} />
       <span class={tooltipClass()} aria-hidden="true">{buttonTitle(item)}</span>
       {#if pinned}
-        <span class="absolute -top-0.5 -right-0.5 flex h-3 w-3 items-center justify-center rounded-full bg-accent text-[8px] text-bg-deep">
+        <span
+          class="absolute -top-0.5 -right-0.5 flex h-3 w-3 items-center justify-center rounded-full bg-accent text-[8px] text-bg-deep"
+        >
           <Pin size={8} />
         </span>
       {/if}
       {#if showBadge}
-        <span class="absolute -top-1 -right-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-semibold leading-none text-white">
+        <span
+          class="absolute -top-1 -right-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-semibold leading-none text-white"
+        >
           {badgeCount > 9 ? "9+" : badgeCount}
         </span>
       {/if}
@@ -164,7 +175,10 @@
     type="button"
     aria-label={settingsItem.label}
     aria-pressed={$mainViewRoute?.kind === "preferences"}
-    class="group relative flex h-7 w-7 shrink-0 items-center justify-center rounded text-text-secondary transition-colors hover:bg-white/5 hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 {$mainViewRoute?.kind === 'preferences' ? 'bg-white/10 text-text-primary' : ''}"
+    class="group relative flex h-7 w-7 shrink-0 items-center justify-center rounded text-text-secondary transition-colors hover:bg-white/5 hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 {$mainViewRoute?.kind ===
+    'preferences'
+      ? 'bg-white/10 text-text-primary'
+      : ''}"
     onclick={handleSettingsClick}
   >
     <settingsItem.icon size={16} />

@@ -78,12 +78,18 @@ describe("LibraryVariablePrompt", () => {
     render(LibraryVariablePrompt);
 
     const count = await waitFor(() => {
-      const input = document.querySelector<HTMLInputElement>("input[name='count']");
+      const input = document.querySelector<HTMLInputElement>(
+        "input[name='count']",
+      );
       expect(input).toBeTruthy();
       return input!;
     });
-    const temperature = document.querySelector<HTMLInputElement>("input[name='temperature']");
-    const tone = document.querySelector<HTMLSelectElement>("select[name='tone']");
+    const temperature = document.querySelector<HTMLInputElement>(
+      "input[name='temperature']",
+    );
+    const tone = document.querySelector<HTMLSelectElement>(
+      "select[name='tone']",
+    );
 
     expect(count.type).toBe("number");
     expect(count.step).toBe("1");
@@ -96,7 +102,11 @@ describe("LibraryVariablePrompt", () => {
     ]);
 
     await fireEvent.input(count, { target: { value: "1.5" } });
-    await fireEvent.click(document.querySelector<HTMLButtonElement>("button[type='button']:last-child")!);
+    await fireEvent.click(
+      document.querySelector<HTMLButtonElement>(
+        "button[type='button']:last-child",
+      )!,
+    );
 
     await waitFor(() => {
       expect(document.body.textContent).toContain("Count must be an integer.");
@@ -104,7 +114,11 @@ describe("LibraryVariablePrompt", () => {
 
     await fireEvent.input(count, { target: { value: "3" } });
     await fireEvent.change(tone!, { target: { value: "direct" } });
-    await fireEvent.click(document.querySelector<HTMLButtonElement>("button[type='button']:last-child")!);
+    await fireEvent.click(
+      document.querySelector<HTMLButtonElement>(
+        "button[type='button']:last-child",
+      )!,
+    );
 
     await expect(promise).resolves.toEqual({
       count: "3",
@@ -116,7 +130,9 @@ describe("LibraryVariablePrompt", () => {
   it("closes a superseded prompt before returning zero-variable values", async () => {
     const first = requestLibraryVariables({
       title: "First",
-      variables: [{ name: "value", label: "Value", default: null, required: true }],
+      variables: [
+        { name: "value", label: "Value", default: null, required: true },
+      ],
     });
     render(LibraryVariablePrompt);
 

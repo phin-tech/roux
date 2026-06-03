@@ -1,9 +1,17 @@
 import { connectPaneTerminal } from "$lib/panes/terminals";
-import { clearPaneOutputChannel, getTerminalController } from "$lib/panes/terminalRuntime";
+import {
+  clearPaneOutputChannel,
+  getTerminalController,
+} from "$lib/panes/terminalRuntime";
 import { killPty, spawnTask, type SessionExitPayload } from "$lib/tauri";
 import { get, type Writable } from "svelte/store";
 
-import { getInstance, paneInstances, updateInstance, type PaneInstance } from "./instances";
+import {
+  getInstance,
+  paneInstances,
+  updateInstance,
+  type PaneInstance,
+} from "./instances";
 
 interface RerunCommandPaneOptions {
   now?: () => number;

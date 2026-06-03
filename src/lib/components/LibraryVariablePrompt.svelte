@@ -17,7 +17,10 @@
   let dragging = $state(false);
   let dragOffset = { x: 0, y: 0 };
 
-  function firstInput(node: HTMLInputElement | HTMLSelectElement, enabled: boolean) {
+  function firstInput(
+    node: HTMLInputElement | HTMLSelectElement,
+    enabled: boolean,
+  ) {
     if (enabled) firstInputEl = node;
     return {
       update(nextEnabled: boolean) {
@@ -39,7 +42,10 @@
     return clampPosition({ x, y });
   }
 
-  function clampPosition(p: { x: number; y: number }): { x: number; y: number } {
+  function clampPosition(p: { x: number; y: number }): {
+    x: number;
+    y: number;
+  } {
     const maxX = window.innerWidth - MIN_VISIBLE;
     const maxY = window.innerHeight - MIN_VISIBLE;
     const minX = MIN_VISIBLE - PANEL_WIDTH;
@@ -99,7 +105,10 @@
 
   function isInteractiveTarget(target: EventTarget | null): boolean {
     if (!(target instanceof Element)) return false;
-    return target.closest("button, input, select, textarea, [role='button']") !== null;
+    return (
+      target.closest("button, input, select, textarea, [role='button']") !==
+      null
+    );
   }
 
   function onHeaderPointerDown(e: PointerEvent): void {
@@ -171,7 +180,9 @@
   >
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
-      class="flex select-none items-center gap-3 border-b border-border-subtle bg-bg-surface/55 px-4 py-3 {dragging ? 'cursor-grabbing' : 'cursor-grab'}"
+      class="flex select-none items-center gap-3 border-b border-border-subtle bg-bg-surface/55 px-4 py-3 {dragging
+        ? 'cursor-grabbing'
+        : 'cursor-grab'}"
       onpointerdown={onHeaderPointerDown}
       onpointermove={onHeaderPointerMove}
       onpointerup={onHeaderPointerUp}
@@ -188,12 +199,17 @@
         <X size={14} />
       </button>
       <div class="min-w-0 flex-1">
-        <div id="library-variable-title" class="truncate text-sm font-semibold text-text-primary">
+        <div
+          id="library-variable-title"
+          class="truncate text-sm font-semibold text-text-primary"
+        >
           {$libraryVariablePrompt.title}
         </div>
         <div class="mt-0.5 text-[11px] text-text-muted">
           {$libraryVariablePrompt.variables.length}
-          {$libraryVariablePrompt.variables.length === 1 ? "variable" : "variables"}
+          {$libraryVariablePrompt.variables.length === 1
+            ? "variable"
+            : "variables"}
         </div>
       </div>
     </div>
@@ -202,10 +218,15 @@
       <div class="space-y-3">
         {#each $libraryVariablePrompt.variables as variable, index (variable.name)}
           <label class="block">
-            <span class="mb-1.5 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-text-muted">
+            <span
+              class="mb-1.5 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-text-muted"
+            >
               <span>{variable.label ?? variable.name}</span>
               {#if variable.required}
-                <span class="rounded bg-yellow/10 px-1.5 py-0.5 text-[9px] text-yellow">required</span>
+                <span
+                  class="rounded bg-yellow/10 px-1.5 py-0.5 text-[9px] text-yellow"
+                  >required</span
+                >
               {/if}
             </span>
             {#if (variable.valueType ?? "string") === "select"}
@@ -213,8 +234,12 @@
                 use:firstInput={index === 0}
                 name={variable.name}
                 value={$libraryVariablePrompt.values[variable.name] ?? ""}
-                onchange={(e) => setLibraryVariableValue(variable.name, e.currentTarget.value)}
-                class="w-full rounded border border-border bg-bg-deep px-3 py-2 font-mono text-sm text-text-primary outline-none focus:border-accent-dim {$libraryVariablePrompt.errors[variable.name] ? 'border-red/50' : ''}"
+                onchange={(e) =>
+                  setLibraryVariableValue(variable.name, e.currentTarget.value)}
+                class="w-full rounded border border-border bg-bg-deep px-3 py-2 font-mono text-sm text-text-primary outline-none focus:border-accent-dim {$libraryVariablePrompt
+                  .errors[variable.name]
+                  ? 'border-red/50'
+                  : ''}"
               >
                 {#if !variable.required}
                   <option value="">None</option>
@@ -227,16 +252,29 @@
               <input
                 use:firstInput={index === 0}
                 name={variable.name}
-                type={(variable.valueType ?? "string") === "int" || (variable.valueType ?? "string") === "float" ? "number" : "text"}
-                step={(variable.valueType ?? "string") === "int" ? "1" : (variable.valueType ?? "string") === "float" ? "any" : undefined}
+                type={(variable.valueType ?? "string") === "int" ||
+                (variable.valueType ?? "string") === "float"
+                  ? "number"
+                  : "text"}
+                step={(variable.valueType ?? "string") === "int"
+                  ? "1"
+                  : (variable.valueType ?? "string") === "float"
+                    ? "any"
+                    : undefined}
                 value={$libraryVariablePrompt.values[variable.name] ?? ""}
-                oninput={(e) => setLibraryVariableValue(variable.name, e.currentTarget.value)}
-                class="w-full rounded border border-border bg-bg-deep px-3 py-2 font-mono text-sm text-text-primary outline-none placeholder:text-text-muted focus:border-accent-dim {$libraryVariablePrompt.errors[variable.name] ? 'border-red/50' : ''}"
+                oninput={(e) =>
+                  setLibraryVariableValue(variable.name, e.currentTarget.value)}
+                class="w-full rounded border border-border bg-bg-deep px-3 py-2 font-mono text-sm text-text-primary outline-none placeholder:text-text-muted focus:border-accent-dim {$libraryVariablePrompt
+                  .errors[variable.name]
+                  ? 'border-red/50'
+                  : ''}"
                 placeholder={variable.default ?? variable.name}
               />
             {/if}
             {#if $libraryVariablePrompt.errors[variable.name]}
-              <div class="mt-1 text-[11px] text-red">{$libraryVariablePrompt.errors[variable.name]}</div>
+              <div class="mt-1 text-[11px] text-red">
+                {$libraryVariablePrompt.errors[variable.name]}
+              </div>
             {/if}
           </label>
         {/each}

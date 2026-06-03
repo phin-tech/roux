@@ -42,7 +42,11 @@ vi.mock("@codemirror/view", () => {
 
     state: { doc: { length: number; toString: () => string } };
 
-    constructor({ state }: { state: { doc: { length: number; toString: () => string } } }) {
+    constructor({
+      state,
+    }: {
+      state: { doc: { length: number; toString: () => string } };
+    }) {
       this.state = state;
     }
 

@@ -39,8 +39,12 @@ function makeClass(kind: string, hasChecked = false) {
 }
 
 vi.mock("@tauri-apps/api/menu/menu", () => ({ Menu: makeClass("Menu") }));
-vi.mock("@tauri-apps/api/menu/submenu", () => ({ Submenu: makeClass("Submenu") }));
-vi.mock("@tauri-apps/api/menu/menuItem", () => ({ MenuItem: makeClass("MenuItem") }));
+vi.mock("@tauri-apps/api/menu/submenu", () => ({
+  Submenu: makeClass("Submenu"),
+}));
+vi.mock("@tauri-apps/api/menu/menuItem", () => ({
+  MenuItem: makeClass("MenuItem"),
+}));
 vi.mock("@tauri-apps/api/menu/predefinedMenuItem", () => ({
   PredefinedMenuItem: makeClass("PredefinedMenuItem"),
 }));
@@ -59,7 +63,12 @@ vi.mock("$lib/logging", () => ({
 }));
 
 // Platform mock; each test sets the value it wants before dynamic import.
-const platformMock = { isMacPlatform: vi.fn(() => true), hasPrimaryModifier: vi.fn(() => true), shortcutDisplayPart: vi.fn((s: string) => s), formatShortcut: vi.fn((s: string) => s) };
+const platformMock = {
+  isMacPlatform: vi.fn(() => true),
+  hasPrimaryModifier: vi.fn(() => true),
+  shortcutDisplayPart: vi.fn((s: string) => s),
+  formatShortcut: vi.fn((s: string) => s),
+};
 vi.mock("$lib/platform", () => platformMock);
 
 // ---------------------------------------------------------------------------
@@ -78,9 +87,8 @@ function flatten(root: FakeItem): FakeItem[] {
 
 function findSubmenu(root: FakeItem, text: string): FakeItem | null {
   return (
-    flatten(root).find(
-      (n) => n.__type === "Submenu" && n.opts.text === text,
-    ) ?? null
+    flatten(root).find((n) => n.__type === "Submenu" && n.opts.text === text) ??
+    null
   );
 }
 
@@ -150,7 +158,9 @@ describe("setupAppMenu", () => {
 
     expect(itemIds(app!)).not.toContain("cmd:app.quit");
     expect(
-      items.some((n) => n.__type === "PredefinedMenuItem" && n.opts.item === "Quit"),
+      items.some(
+        (n) => n.__type === "PredefinedMenuItem" && n.opts.item === "Quit",
+      ),
     ).toBe(true);
   });
 
@@ -224,7 +234,8 @@ describe("setupAppMenu", () => {
     const { Menu } = (await import("@tauri-apps/api/menu/menu")) as unknown as {
       Menu: { new: ReturnType<typeof vi.fn> };
     };
-    const menu = await (Menu.new.mock.results.at(-1)!.value as Promise<FakeItem>);
+    const menu = await (Menu.new.mock.results.at(-1)!
+      .value as Promise<FakeItem>);
 
     const menuCommandIds = flatten(menu)
       .filter((n) => n.__type === "MenuItem")

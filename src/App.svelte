@@ -34,9 +34,23 @@
   } from "$lib/stores/commandSurface";
   import { runStartupCheck, runManualCheck } from "$lib/stores/updater";
   import { initSettings, settings } from "$lib/stores/settings";
-  import { addSession, removeSession, setActiveSession, sessionState, updateSessionStatus } from "$lib/stores/sessions";
-  import { addOrUpdateWatch, watchState, ghAvailable as ghAvailableStore, flashSession } from "$lib/stores/watches";
-  import { hydrateNotifications, applyNotificationEvent } from "$lib/stores/notifications";
+  import {
+    addSession,
+    removeSession,
+    setActiveSession,
+    sessionState,
+    updateSessionStatus,
+  } from "$lib/stores/sessions";
+  import {
+    addOrUpdateWatch,
+    watchState,
+    ghAvailable as ghAvailableStore,
+    flashSession,
+  } from "$lib/stores/watches";
+  import {
+    hydrateNotifications,
+    applyNotificationEvent,
+  } from "$lib/stores/notifications";
   import { hydrateWorkItems, applyWorkItemEvent } from "$lib/stores/workItems";
   import {
     hydrateMailbox,
@@ -48,12 +62,23 @@
     startSubscriptionEventListenerWithCleanup,
   } from "$lib/stores/subscriptions";
   import { initPtyInventoryPolling } from "$lib/stores/ptyInventory";
-  import { initSessionWithProfile, splitPane, closeSessionPanes } from "$lib/panes/actions";
+  import {
+    initSessionWithProfile,
+    splitPane,
+    closeSessionPanes,
+  } from "$lib/panes/actions";
   import { findSessionForPane, hasSplitPanes } from "$lib/panes/layout";
   import { setLogicalFocus, focusedPaneId } from "$lib/panes/focus";
   import { getTerminalController } from "$lib/panes/terminalRuntime";
-  import { initPersistence, flushPaneState, loadPaneState } from "$lib/panes/persistence";
-  import { loadBuiltinProfiles, type SpawnProfileRef } from "$lib/panes/profiles";
+  import {
+    initPersistence,
+    flushPaneState,
+    loadPaneState,
+  } from "$lib/panes/persistence";
+  import {
+    loadBuiltinProfiles,
+    type SpawnProfileRef,
+  } from "$lib/panes/profiles";
   import { loadBuiltinLayouts, loadUserLayouts } from "$lib/panes/layouts";
   import {
     customProfileModalState,
@@ -65,7 +90,10 @@
     closeNewProjectDialog,
   } from "$lib/stores/newProjectDialog";
   import NewProjectDialog from "$lib/components/NewProjectDialog.svelte";
-  import { routeStatusUpdate, applyStatusRouting } from "$lib/panes/statusRouting";
+  import {
+    routeStatusUpdate,
+    applyStatusRouting,
+  } from "$lib/panes/statusRouting";
   import { initAgentNotifications } from "$lib/panes/agentNotifications";
   import {
     initNotificationAutoRead,
@@ -77,7 +105,24 @@
   } from "$lib/stores/sessionPrLookup";
   import { installSessionBranchPoller } from "$lib/stores/sessionBranchPoller";
   import { clearPermissionInfo } from "$lib/panes/agentState";
-  import { listSessions, checkSetupStatus, checkSetupNeeded, checkDoctorStatus, onRouxStatusUpdate, onAgentAttentionCleared, onRouxCommand, spawnShell, onWatchUpdate, listWatches, onNotificationEvent, onMailboxEvent, onAliasEvent, onWorkItemEvent, quitApp, submitRouxReply } from "$lib/tauri";
+  import {
+    listSessions,
+    checkSetupStatus,
+    checkSetupNeeded,
+    checkDoctorStatus,
+    onRouxStatusUpdate,
+    onAgentAttentionCleared,
+    onRouxCommand,
+    spawnShell,
+    onWatchUpdate,
+    listWatches,
+    onNotificationEvent,
+    onMailboxEvent,
+    onAliasEvent,
+    onWorkItemEvent,
+    quitApp,
+    submitRouxReply,
+  } from "$lib/tauri";
   import { collectPaneTree } from "$lib/panes/query";
   import { profileRegistry } from "$lib/panes/profiles";
   import { runProfileInPane } from "$lib/panes/profileRunner";
@@ -91,8 +136,15 @@
   import { eventToAccelerator } from "$lib/menu/accelerators";
   import { closeFocusedPane } from "$lib/panes/actions";
   import { queries } from "$lib/queries";
-  import { normalizeTheme, isLightTheme, resolveTerminalTheme } from "$lib/themes";
-  import { userTerminalThemes, loadUserTerminalThemes } from "$lib/stores/userTerminalThemes";
+  import {
+    normalizeTheme,
+    isLightTheme,
+    resolveTerminalTheme,
+  } from "$lib/themes";
+  import {
+    userTerminalThemes,
+    loadUserTerminalThemes,
+  } from "$lib/stores/userTerminalThemes";
   import { initLogging, log, logError } from "$lib/logging";
   import { isMacPlatform } from "$lib/platform";
   import {
@@ -105,7 +157,11 @@
     closeWorkItemSessionStart,
     workItemSessionStart,
   } from "$lib/stores/ui";
-  import { closeMainView, mainViewRoute, openMainView } from "$lib/stores/mainView";
+  import {
+    closeMainView,
+    mainViewRoute,
+    openMainView,
+  } from "$lib/stores/mainView";
   import { closeExternalToolRun } from "$lib/stores/externalTools";
   import {
     commandBlockedByMainView,
@@ -115,12 +171,15 @@
   } from "$lib/mainView/keyGate";
 
   let showNewSessionDialog = $state(false);
-  let showSessionDialog = $derived(showNewSessionDialog || $workItemSessionStart !== null);
+  let showSessionDialog = $derived(
+    showNewSessionDialog || $workItemSessionStart !== null,
+  );
   let showSetupPrompt = $state(false);
   let startupDoctorNotices = $state<string[]>([]);
   let showQuitDialog = $state(false);
 
-  const DISMISSED_STARTUP_DOCTOR_NOTICES_KEY = "roux:dismissed-startup-doctor-notices";
+  const DISMISSED_STARTUP_DOCTOR_NOTICES_KEY =
+    "roux:dismissed-startup-doctor-notices";
 
   function closeSessionDialog() {
     showNewSessionDialog = false;
@@ -132,7 +191,9 @@
       const raw = localStorage.getItem(DISMISSED_STARTUP_DOCTOR_NOTICES_KEY);
       const parsed = raw ? JSON.parse(raw) : [];
       if (!Array.isArray(parsed)) return new Set();
-      return new Set(parsed.filter((notice): notice is string => typeof notice === "string"));
+      return new Set(
+        parsed.filter((notice): notice is string => typeof notice === "string"),
+      );
     } catch {
       return new Set();
     }
@@ -167,7 +228,9 @@
 
   async function forceQuit() {
     // Flush any pending pane state debounce before quitting.
-    try { await flushPaneState(); } catch {}
+    try {
+      await flushPaneState();
+    } catch {}
     // Do NOT close/remove sessions here. The Rust quit_app command kills PTYs
     // and persists sessions to disk (they load as "disconnected" on next launch).
     // Removing sessions before quit empties sessions.json, breaking restore.
@@ -285,7 +348,11 @@
     if (cmd.execute) void cmd.execute();
   }
 
-  function dispatchKeymapAction(action: { kind: "command"; id: string } | { kind: "enterTree"; tree: string }) {
+  function dispatchKeymapAction(
+    action:
+      | { kind: "command"; id: string }
+      | { kind: "enterTree"; tree: string },
+  ) {
     if (action.kind === "enterTree") {
       keymapEnterTree(action.tree);
       return;
@@ -313,7 +380,10 @@
   // non-whitelisted chord (Cmd+W, Cmd+1, etc.) through the gate's
   // early-return, silently dropping them in pane B.
   function focusIsInMultiLineEditor(target: EventTarget | null): boolean {
-    return target instanceof Element && target.closest("[data-multiline-editor-root]") !== null;
+    return (
+      target instanceof Element &&
+      target.closest("[data-multiline-editor-root]") !== null
+    );
   }
 
   function getLeaderPromptInitialValue(commandId: string): string {
@@ -353,7 +423,10 @@
     // pressed on its own. The store handles the 200ms delay; quick chords
     // like Cmd/Ctrl+K or Cmd/Ctrl+1 release before the delay elapses and
     // never reveal the overlay.
-    if ((isMacPlatform() && e.key === "Meta") || (!isMacPlatform() && e.key === "Control")) {
+    if (
+      (isMacPlatform() && e.key === "Meta") ||
+      (!isMacPlatform() && e.key === "Control")
+    ) {
       if ($settings.showSessionHintsOnCommand !== false) armSessionHints();
     }
     if (e.key === "Alt") {
@@ -401,7 +474,11 @@
     if (get(libraryVariablePrompt).open) {
       return;
     }
-    if (surface.open && surface.mode === "leader" && surface.leaderPromptCommandId) {
+    if (
+      surface.open &&
+      surface.mode === "leader" &&
+      surface.leaderPromptCommandId
+    ) {
       if (e.key === "Escape") {
         e.preventDefault();
         closeCommandSurface();
@@ -471,11 +548,13 @@
         if (km.treePath.length > 0) e.preventDefault();
         break;
     }
-
   }
 
   function handleKeyUp(e: KeyboardEvent) {
-    if ((isMacPlatform() && e.key === "Meta") || (!isMacPlatform() && e.key === "Control")) {
+    if (
+      (isMacPlatform() && e.key === "Meta") ||
+      (!isMacPlatform() && e.key === "Control")
+    ) {
       hideSessionHints();
     }
     if (e.key === "Alt") hidePaneHints();
@@ -492,7 +571,8 @@
     if (prevSurfaceOpen && !open) {
       queueMicrotask(() => {
         const active = document.activeElement as HTMLElement | null;
-        if (active && active !== document.body && active.tagName !== "HTML") return;
+        if (active && active !== document.body && active.tagName !== "HTML")
+          return;
         const focused = get(focusedPaneId);
         if (focused) setLogicalFocus(focused);
       });
@@ -513,11 +593,17 @@
       paneFocusBeforeMainView = null;
       queueMicrotask(() => {
         const active = document.activeElement as HTMLElement | null;
-        if (active && active !== document.body && active.tagName !== "HTML") return;
+        if (active && active !== document.body && active.tagName !== "HTML")
+          return;
         if (!restorePaneId || get(focusedPaneId) !== null) return;
         const activeSession = get(sessionState).activeSessionId;
-        if (!activeSession || findSessionForPane(restorePaneId) !== activeSession) return;
-        if (getTerminalController(restorePaneId)) setLogicalFocus(restorePaneId);
+        if (
+          !activeSession ||
+          findSessionForPane(restorePaneId) !== activeSession
+        )
+          return;
+        if (getTerminalController(restorePaneId))
+          setLogicalFocus(restorePaneId);
       });
     }
     mainViewWasOpen = open;
@@ -527,8 +613,13 @@
     const theme = normalizeTheme($settings.theme);
     document.documentElement.dataset.theme = theme;
     document.body.dataset.theme = theme;
-    document.documentElement.style.setProperty("--font-sans", $settings.uiFontFamily ?? "sans-serif");
-    document.documentElement.style.colorScheme = isLightTheme(theme) ? "light" : "dark";
+    document.documentElement.style.setProperty(
+      "--font-sans",
+      $settings.uiFontFamily ?? "sans-serif",
+    );
+    document.documentElement.style.colorScheme = isLightTheme(theme)
+      ? "light"
+      : "dark";
     // Drive the terminal frame chrome from the *actual* terminal palette so a
     // light terminal theme inside a light GUI doesn't get wrapped in a dark
     // frame (and vice versa).
@@ -537,7 +628,10 @@
       $settings.terminalTheme,
       $userTerminalThemes,
     ).background;
-    document.documentElement.style.setProperty("--color-terminal-bg", terminalBg);
+    document.documentElement.style.setProperty(
+      "--color-terminal-bg",
+      terminalBg,
+    );
   });
 
   let unlistenDragDrop: (() => void) | null = null;
@@ -605,9 +699,13 @@
     window.addEventListener("beforeunload", cleanupAppLifecycle);
 
     // Listen for Tauri close-requested event (red button / Cmd+W)
-    tauriUnlisteners.push(await listen("close-requested", () => void handleCloseRequested()));
+    tauriUnlisteners.push(
+      await listen("close-requested", () => void handleCloseRequested()),
+    );
     // Listen for macOS Quit menu / Dock quit
-    tauriUnlisteners.push(await listen("quit-requested", () => void handleQuitRequested()));
+    tauriUnlisteners.push(
+      await listen("quit-requested", () => void handleQuitRequested()),
+    );
 
     // Native file drag-and-drop: write the dropped path(s) into the target pane's terminal.
     // Tauri reports drop position in PHYSICAL pixels; document.elementFromPoint expects CSS
@@ -632,7 +730,9 @@
     const loadedSettings = await initSettings();
     void loadUserTerminalThemes();
     await initLogging(loadedSettings.enableLogging ?? false);
-    log(`Settings loaded, restoreSessionsOnLaunch=${loadedSettings.restoreSessionsOnLaunch}`);
+    log(
+      `Settings loaded, restoreSessionsOnLaunch=${loadedSettings.restoreSessionsOnLaunch}`,
+    );
 
     // Populate the built-in spawn-profile registry so pane pickers and
     // restored panes can resolve { kind: "registered", id: "claude" } etc.
@@ -676,7 +776,9 @@
       try {
         const doctor = await checkDoctorStatus();
         const dismissed = dismissedStartupDoctorNotices();
-        startupDoctorNotices = (doctor.notices ?? []).filter((notice) => !dismissed.has(notice));
+        startupDoctorNotices = (doctor.notices ?? []).filter(
+          (notice) => !dismissed.has(notice),
+        );
         if (startupDoctorNotices.length > 0) {
           log("Startup Doctor notice available");
           showSetupPrompt = true;
@@ -693,9 +795,8 @@
     // Probe worktrunk once at launch so the activity rail can conditionally
     // render the Worktrunk icon without each consumer running its own probe.
     // Non-blocking; failures leave the store in "not detected" state.
-    const { refreshWorktrunkDetection } = await import(
-      "$lib/stores/worktrunkDetection"
-    );
+    const { refreshWorktrunkDetection } =
+      await import("$lib/stores/worktrunkDetection");
     void refreshWorktrunkDetection();
 
     if (loadedSettings.restoreSessionsOnLaunch) {
@@ -704,11 +805,14 @@
       // Fan out a worktrunk-metadata refresh in parallel so session cards
       // can surface dirty/ahead/behind/dev-server chips without each card
       // making its own Tauri call. Non-blocking; failures are silent.
-      const { refreshWorktreeMetadataForRepos } = await import(
-        "$lib/stores/worktreeMetadata"
-      );
+      const { refreshWorktreeMetadataForRepos } =
+        await import("$lib/stores/worktreeMetadata");
       void refreshWorktreeMetadataForRepos(sessions.map((s) => s.repoRoot));
-      const [{ initTerminal, attachPtyListeners }, { attachPtyToPane }, { listAllPtys }] = await Promise.all([
+      const [
+        { initTerminal, attachPtyListeners },
+        { attachPtyToPane },
+        { listAllPtys },
+      ] = await Promise.all([
         import("$lib/panes/terminals"),
         import("$lib/panes/attach"),
         import("$lib/tauri"),
@@ -743,218 +847,273 @@
     initPersistence();
 
     // Listen for commands from the Roux CLI via socket server
-    tauriUnlisteners.push(await onRouxCommand(async (cmd: RouxCommand) => {
-      log(`roux-command: ${JSON.stringify(cmd)}`);
-      switch (cmd.action) {
-        case "split": {
-          const sessionId = cmd.sessionId;
-          if (!sessionId) break;
-          const ptyId = crypto.randomUUID();
-          const paneId = crypto.randomUUID();
-          const session = $sessionState.sessions.find((s) => s.id === sessionId);
-          if (!session) break;
-          spawnShell(ptyId, session.worktreePath, session.id, paneId).then(async () => {
-            const direction = cmd.direction === "vertical" ? "v" : "h";
-            const newPaneId = splitPane(sessionId, direction, { id: paneId, type: "shell", ptyId });
+    tauriUnlisteners.push(
+      await onRouxCommand(async (cmd: RouxCommand) => {
+        log(`roux-command: ${JSON.stringify(cmd)}`);
+        switch (cmd.action) {
+          case "split": {
+            const sessionId = cmd.sessionId;
+            if (!sessionId) break;
+            const ptyId = crypto.randomUUID();
+            const paneId = crypto.randomUUID();
+            const session = $sessionState.sessions.find(
+              (s) => s.id === sessionId,
+            );
+            if (!session) break;
+            spawnShell(ptyId, session.worktreePath, session.id, paneId)
+              .then(async () => {
+                const direction = cmd.direction === "vertical" ? "v" : "h";
+                const newPaneId = splitPane(sessionId, direction, {
+                  id: paneId,
+                  type: "shell",
+                  ptyId,
+                });
+                if (newPaneId) {
+                  const { initTerminal, attachPtyListeners } =
+                    await import("$lib/panes/terminals");
+                  initTerminal(newPaneId);
+                  await attachPtyListeners(newPaneId);
+                }
+              })
+              .catch((e) =>
+                logError("Failed to spawn shell for socket split", e),
+              );
+            break;
+          }
+          case "session-created": {
+            // Reload sessions to pick up the newly created one
+            const profileId = cmd.profileId;
+            listSessions().then(async (sessions) => {
+              const newSession = sessions.find((s) => s.id === cmd.sessionId);
+              if (!newSession) return;
+              addSession(newSession);
+              // Default to the Claude built-in if the socket didn't specify a
+              // profile. Use initSessionWithProfile so the pane instance carries
+              // the spawnProfileRef — persistence + reconnect read it from
+              // there to replay the startup command on reconnect. Bare
+              // initSession drops the ref, so socket-created sessions would
+              // come back as plain shells after restart.
+              const effectiveProfileId = profileId ?? "claude";
+              const profileRef: SpawnProfileRef = {
+                kind: "registered",
+                id: effectiveProfileId,
+              };
+              const mainPaneId = initSessionWithProfile(
+                newSession.id,
+                profileRef,
+              );
+              const { initTerminal, attachPtyListeners } =
+                await import("$lib/panes/terminals");
+              initTerminal(mainPaneId);
+              await attachPtyListeners(mainPaneId);
+              // Backend spawned a bare shell via create_session_shell; the
+              // frontend replays every profile's startup command into it,
+              // including Claude (the legacy direct-spawn path is gone).
+              const profile = get(profileRegistry).get(effectiveProfileId);
+              if (profile) {
+                runProfileInPane(newSession.id, profile, {
+                  appendSystemPrompt: getProjectPrompt(newSession.projectId),
+                }).catch((e) =>
+                  logError(
+                    `runProfileInPane failed for ${effectiveProfileId}`,
+                    e,
+                  ),
+                );
+              } else {
+                logError(
+                  `session-created: profile '${effectiveProfileId}' not in registry; startup commands skipped`,
+                  null,
+                );
+              }
+            });
+            break;
+          }
+          case "shell-opened": {
+            const sessionId = cmd.sessionId;
+            if (!sessionId || !cmd.paneId || !cmd.ptyId) break;
+            // Use the backend-provided paneId so socket focus commands can target it
+            const newPaneId = splitPane(sessionId, "h", {
+              id: cmd.paneId,
+              type: "shell",
+              ptyId: cmd.ptyId,
+            });
             if (newPaneId) {
-              const { initTerminal, attachPtyListeners } = await import("$lib/panes/terminals");
+              const { initTerminal, attachPtyListeners } =
+                await import("$lib/panes/terminals");
               initTerminal(newPaneId);
               await attachPtyListeners(newPaneId);
             }
-          }).catch((e) => logError("Failed to spawn shell for socket split", e));
-          break;
-        }
-        case "session-created": {
-          // Reload sessions to pick up the newly created one
-          const profileId = cmd.profileId;
-          listSessions().then(async (sessions) => {
-            const newSession = sessions.find((s) => s.id === cmd.sessionId);
-            if (!newSession) return;
-            addSession(newSession);
-            // Default to the Claude built-in if the socket didn't specify a
-            // profile. Use initSessionWithProfile so the pane instance carries
-            // the spawnProfileRef — persistence + reconnect read it from
-            // there to replay the startup command on reconnect. Bare
-            // initSession drops the ref, so socket-created sessions would
-            // come back as plain shells after restart.
-            const effectiveProfileId = profileId ?? "claude";
-            const profileRef: SpawnProfileRef = { kind: "registered", id: effectiveProfileId };
-            const mainPaneId = initSessionWithProfile(newSession.id, profileRef);
-            const { initTerminal, attachPtyListeners } = await import("$lib/panes/terminals");
-            initTerminal(mainPaneId);
-            await attachPtyListeners(mainPaneId);
-            // Backend spawned a bare shell via create_session_shell; the
-            // frontend replays every profile's startup command into it,
-            // including Claude (the legacy direct-spawn path is gone).
-            const profile = get(profileRegistry).get(effectiveProfileId);
-            if (profile) {
-              runProfileInPane(newSession.id, profile, {
-                appendSystemPrompt: getProjectPrompt(newSession.projectId),
-              }).catch((e) =>
-                logError(`runProfileInPane failed for ${effectiveProfileId}`, e),
-              );
-            } else {
-              logError(
-                `session-created: profile '${effectiveProfileId}' not in registry; startup commands skipped`,
-                null,
-              );
-            }
-          });
-          break;
-        }
-        case "shell-opened": {
-          const sessionId = cmd.sessionId;
-          if (!sessionId || !cmd.paneId || !cmd.ptyId) break;
-          // Use the backend-provided paneId so socket focus commands can target it
-          const newPaneId = splitPane(sessionId, "h", { id: cmd.paneId, type: "shell", ptyId: cmd.ptyId });
-          if (newPaneId) {
-            const { initTerminal, attachPtyListeners } = await import("$lib/panes/terminals");
-            initTerminal(newPaneId);
-            await attachPtyListeners(newPaneId);
-          }
-          break;
-        }
-        case "command-opened": {
-          const sessionId = cmd.sessionId;
-          if (!sessionId || !cmd.paneId || !cmd.ptyId) {
-            log(`command-opened: missing fields session=${cmd.sessionId} pane=${cmd.paneId} pty=${cmd.ptyId}`);
             break;
           }
-          log(`command-opened: session=${sessionId} pane=${cmd.paneId} pty=${cmd.ptyId} cmd=${cmd.command}`);
-          // Use the backend-provided paneId so socket focus commands can target it
-          const newPaneId = splitPane(sessionId, "h", {
-            id: cmd.paneId,
-            type: "command",
-            ptyId: cmd.ptyId,
-            command: cmd.command,
-            workingDir: cmd.workingDir,
-          });
-          log(`command-opened: splitPane returned ${newPaneId}`);
-          if (newPaneId) {
-            const { initTerminal, attachPtyListeners } = await import("$lib/panes/terminals");
-            initTerminal(newPaneId);
-            const { updateInstance } = await import("$lib/panes/instances");
-            updateInstance(newPaneId, {
-              commandStatus: "running" as const,
-              commandStartedAt: Date.now(),
-            });
-            await attachPtyListeners(newPaneId);
-            log(`command-opened: terminal and listeners attached for ${newPaneId}`);
-          }
-          break;
-        }
-        case "session-killed": {
-          if (cmd.sessionId) {
-            closeSessionPanes(cmd.sessionId);
-            removeSession(cmd.sessionId);
-          }
-          break;
-        }
-        case "focus": {
-          if (cmd.sessionId) {
-            setActiveSession(cmd.sessionId);
-          }
-          if (cmd.paneId) {
-            setLogicalFocus(cmd.paneId);
-          }
-          break;
-        }
-        case "session-renamed": {
-          // CLI / external renamed a session — pick up the new
-          // nameOverride from the authoritative backend state.
-          const sessionId = cmd.sessionId;
-          if (!sessionId) break;
-          listSessions().then((sessions) => {
-            const updated = sessions.find((s) => s.id === sessionId);
-            if (!updated) return;
-            sessionState.update((state) => ({
-              ...state,
-              sessions: state.sessions.map((s) =>
-                s.id === sessionId
-                  ? { ...s, nameOverride: updated.nameOverride, name: updated.name }
-                  : s,
-              ),
-            }));
-          }).catch((e) => logError("session-renamed: listSessions failed", e));
-          break;
-        }
-        case "panes-list-request": {
-          if (!cmd.sessionId || !cmd.requestId) break;
-          try {
-            const snapshot = collectPaneTree(cmd.sessionId);
-            await submitRouxReply(cmd.requestId, snapshot);
-          } catch (e) {
-            logError("panes-list-request failed", e);
-            await submitRouxReply(cmd.requestId, { error: String(e) }).catch(() => {});
-          }
-          break;
-        }
-        case "pane-create": {
-          if (!cmd.sessionId || !cmd.requestId) break;
-          const requestId = cmd.requestId;
-          const sessionId = cmd.sessionId;
-          try {
-            const session = $sessionState.sessions.find((s) => s.id === sessionId);
-            if (!session) throw new Error("session not found");
-            const workingDir = cmd.workingDir ?? session.worktreePath;
-            const direction = cmd.direction === "vertical" ? "v" : "h";
-            const profileId = cmd.profileId ?? "plain-shell";
-
-            // Bare shell marker — no profile startup commands. Any other id
-            // is backend-validated, so the registry lookup should succeed;
-            // throw if it doesn't so the CLI caller sees the failure.
-            let profile = null;
-            if (profileId !== "plain-shell") {
-              profile = get(profileRegistry).get(profileId) ?? null;
-              if (!profile) {
-                throw new Error(`profile '${profileId}' not found in registry`);
-              }
+          case "command-opened": {
+            const sessionId = cmd.sessionId;
+            if (!sessionId || !cmd.paneId || !cmd.ptyId) {
+              log(
+                `command-opened: missing fields session=${cmd.sessionId} pane=${cmd.paneId} pty=${cmd.ptyId}`,
+              );
+              break;
             }
-
-            const ptyId = crypto.randomUUID();
-            const paneId = crypto.randomUUID();
-            await spawnShell(
-              ptyId,
-              workingDir,
-              sessionId,
-              paneId,
-              profile ? profile.id : null,
+            log(
+              `command-opened: session=${sessionId} pane=${cmd.paneId} pty=${cmd.ptyId} cmd=${cmd.command}`,
             );
-
-            const newPaneId = splitPane(sessionId, direction, {
-              id: paneId,
-              type: "shell",
-              ptyId,
-              workingDir,
-              spawnProfileRef: profile
-                ? { kind: "registered", id: profile.id }
-                : undefined,
+            // Use the backend-provided paneId so socket focus commands can target it
+            const newPaneId = splitPane(sessionId, "h", {
+              id: cmd.paneId,
+              type: "command",
+              ptyId: cmd.ptyId,
+              command: cmd.command,
+              workingDir: cmd.workingDir,
             });
-            if (!newPaneId) throw new Error("splitPane returned null");
-
-            const { initTerminal, attachPtyListeners } = await import("$lib/panes/terminals");
-            initTerminal(newPaneId);
-            await attachPtyListeners(newPaneId);
-
-            if (profile) {
-              // Fire-and-forget: startup commands are typed into the live PTY;
-              // the CLI caller doesn't wait for them to finish running.
-              runProfileInPane(ptyId, profile, {
-                appendSystemPrompt: getProjectPrompt(session.projectId),
-              }).catch((e) =>
-                logError(`runProfileInPane failed for ${profile.id}`, e),
+            log(`command-opened: splitPane returned ${newPaneId}`);
+            if (newPaneId) {
+              const { initTerminal, attachPtyListeners } =
+                await import("$lib/panes/terminals");
+              initTerminal(newPaneId);
+              const { updateInstance } = await import("$lib/panes/instances");
+              updateInstance(newPaneId, {
+                commandStatus: "running" as const,
+                commandStartedAt: Date.now(),
+              });
+              await attachPtyListeners(newPaneId);
+              log(
+                `command-opened: terminal and listeners attached for ${newPaneId}`,
               );
             }
-
-            await submitRouxReply(requestId, { pane_id: paneId, pty_id: ptyId });
-          } catch (e) {
-            logError("pane-create failed", e);
-            await submitRouxReply(requestId, { error: String(e) }).catch(() => {});
+            break;
           }
-          break;
+          case "session-killed": {
+            if (cmd.sessionId) {
+              closeSessionPanes(cmd.sessionId);
+              removeSession(cmd.sessionId);
+            }
+            break;
+          }
+          case "focus": {
+            if (cmd.sessionId) {
+              setActiveSession(cmd.sessionId);
+            }
+            if (cmd.paneId) {
+              setLogicalFocus(cmd.paneId);
+            }
+            break;
+          }
+          case "session-renamed": {
+            // CLI / external renamed a session — pick up the new
+            // nameOverride from the authoritative backend state.
+            const sessionId = cmd.sessionId;
+            if (!sessionId) break;
+            listSessions()
+              .then((sessions) => {
+                const updated = sessions.find((s) => s.id === sessionId);
+                if (!updated) return;
+                sessionState.update((state) => ({
+                  ...state,
+                  sessions: state.sessions.map((s) =>
+                    s.id === sessionId
+                      ? {
+                          ...s,
+                          nameOverride: updated.nameOverride,
+                          name: updated.name,
+                        }
+                      : s,
+                  ),
+                }));
+              })
+              .catch((e) =>
+                logError("session-renamed: listSessions failed", e),
+              );
+            break;
+          }
+          case "panes-list-request": {
+            if (!cmd.sessionId || !cmd.requestId) break;
+            try {
+              const snapshot = collectPaneTree(cmd.sessionId);
+              await submitRouxReply(cmd.requestId, snapshot);
+            } catch (e) {
+              logError("panes-list-request failed", e);
+              await submitRouxReply(cmd.requestId, { error: String(e) }).catch(
+                () => {},
+              );
+            }
+            break;
+          }
+          case "pane-create": {
+            if (!cmd.sessionId || !cmd.requestId) break;
+            const requestId = cmd.requestId;
+            const sessionId = cmd.sessionId;
+            try {
+              const session = $sessionState.sessions.find(
+                (s) => s.id === sessionId,
+              );
+              if (!session) throw new Error("session not found");
+              const workingDir = cmd.workingDir ?? session.worktreePath;
+              const direction = cmd.direction === "vertical" ? "v" : "h";
+              const profileId = cmd.profileId ?? "plain-shell";
+
+              // Bare shell marker — no profile startup commands. Any other id
+              // is backend-validated, so the registry lookup should succeed;
+              // throw if it doesn't so the CLI caller sees the failure.
+              let profile = null;
+              if (profileId !== "plain-shell") {
+                profile = get(profileRegistry).get(profileId) ?? null;
+                if (!profile) {
+                  throw new Error(
+                    `profile '${profileId}' not found in registry`,
+                  );
+                }
+              }
+
+              const ptyId = crypto.randomUUID();
+              const paneId = crypto.randomUUID();
+              await spawnShell(
+                ptyId,
+                workingDir,
+                sessionId,
+                paneId,
+                profile ? profile.id : null,
+              );
+
+              const newPaneId = splitPane(sessionId, direction, {
+                id: paneId,
+                type: "shell",
+                ptyId,
+                workingDir,
+                spawnProfileRef: profile
+                  ? { kind: "registered", id: profile.id }
+                  : undefined,
+              });
+              if (!newPaneId) throw new Error("splitPane returned null");
+
+              const { initTerminal, attachPtyListeners } =
+                await import("$lib/panes/terminals");
+              initTerminal(newPaneId);
+              await attachPtyListeners(newPaneId);
+
+              if (profile) {
+                // Fire-and-forget: startup commands are typed into the live PTY;
+                // the CLI caller doesn't wait for them to finish running.
+                runProfileInPane(ptyId, profile, {
+                  appendSystemPrompt: getProjectPrompt(session.projectId),
+                }).catch((e) =>
+                  logError(`runProfileInPane failed for ${profile.id}`, e),
+                );
+              }
+
+              await submitRouxReply(requestId, {
+                pane_id: paneId,
+                pty_id: ptyId,
+              });
+            } catch (e) {
+              logError("pane-create failed", e);
+              await submitRouxReply(requestId, { error: String(e) }).catch(
+                () => {},
+              );
+            }
+            break;
+          }
         }
-      }
-    }));
+      }),
+    );
 
     // Hydrate watches from backend
     listWatches().then((watches) => {
@@ -962,18 +1121,22 @@
     });
 
     // Listen for watch updates
-    tauriUnlisteners.push(await onWatchUpdate((event) => {
-      addOrUpdateWatch(event.watch);
-      if (event.changed && event.watch.scope.type === "session") {
-        flashSession(event.watch.scope.sessionId);
-      }
-    }));
+    tauriUnlisteners.push(
+      await onWatchUpdate((event) => {
+        addOrUpdateWatch(event.watch);
+        if (event.changed && event.watch.scope.type === "session") {
+          flashSession(event.watch.scope.sessionId);
+        }
+      }),
+    );
 
     // Hydrate + subscribe to notifications
     await hydrateNotifications();
-    tauriUnlisteners.push(await onNotificationEvent((payload) => {
-      applyNotificationEvent(payload);
-    }));
+    tauriUnlisteners.push(
+      await onNotificationEvent((payload) => {
+        applyNotificationEvent(payload);
+      }),
+    );
     initNotificationAutoRead();
 
     // Hydrate + subscribe to the mailbox / alias stream. Hydration is
@@ -1004,31 +1167,35 @@
     // the session-card aggregate and provider-specific UI light up. Legacy
     // events without a pane id fall through to cwd-based session status,
     // which still drives notification fan-out.
-    tauriUnlisteners.push(await onRouxStatusUpdate((update) => {
-      const routing = applyStatusRouting(routeStatusUpdate(update));
-      if (routing.kind === "pane") {
-        // Tier-1 routing already wrote to agentState; the session aggregate
-        // is derived from pane state so we don't also poke session.status.
-        return;
-      }
+    tauriUnlisteners.push(
+      await onRouxStatusUpdate((update) => {
+        const routing = applyStatusRouting(routeStatusUpdate(update));
+        if (routing.kind === "pane") {
+          // Tier-1 routing already wrote to agentState; the session aggregate
+          // is derived from pane state so we don't also poke session.status.
+          return;
+        }
 
-      const sessions = $sessionState.sessions;
-      const match = sessions.find(
-        (s) => s.worktreePath === update.cwd || s.repoRoot === update.cwd,
-      );
-      if (match) {
-        updateSessionStatus(match.id, update.status as any, null, null);
-      }
-    }));
+        const sessions = $sessionState.sessions;
+        const match = sessions.find(
+          (s) => s.worktreePath === update.cwd || s.repoRoot === update.cwd,
+        );
+        if (match) {
+          updateSessionStatus(match.id, update.status as any, null, null);
+        }
+      }),
+    );
 
     // Backend FSM tells us when a pane exited `Attention`; clear any
     // stale `permissionInfo` so the Allow/Deny affordance disappears
     // alongside the auto-dismissed notification. Backend already gates
     // on the `autoClearAttentionState` setting — the event simply
     // doesn't fire when it's off.
-    tauriUnlisteners.push(await onAgentAttentionCleared(({ paneId }) => {
-      clearPermissionInfo(paneId);
-    }));
+    tauriUnlisteners.push(
+      await onAgentAttentionCleared(({ paneId }) => {
+        clearPermissionInfo(paneId);
+      }),
+    );
   });
 
   function openPreferences(): void {
@@ -1036,9 +1203,7 @@
   }
 </script>
 
-<Layout
-  onNewSession={() => (showNewSessionDialog = true)}
-/>
+<Layout onNewSession={() => (showNewSessionDialog = true)} />
 
 <NewSessionDialog
   visible={showSessionDialog}
@@ -1068,7 +1233,10 @@
   onclose={closeCommandSurface}
   onNewSession={() => (showNewSessionDialog = true)}
   onSettings={openPreferences}
-  onCheckForUpdates={() => { openPreferences(); void runManualCheck(); }}
+  onCheckForUpdates={() => {
+    openPreferences();
+    void runManualCheck();
+  }}
   initialCommandId={$commandSurface.initialCommandId}
 />
 
@@ -1080,8 +1248,13 @@
 
 {#if $hudVisible || ($commandSurface.open && $commandSurface.mode === "leader" && $commandSurface.leaderPromptCommandId)}
   <KeymapHud
-    promptLabel={$commandSurface.leaderPromptCommandId ? registry.get($commandSurface.leaderPromptCommandId)?.label ?? "Input" : null}
-    promptPlaceholder={$commandSurface.leaderPromptCommandId ? registry.get($commandSurface.leaderPromptCommandId)?.inputPlaceholder ?? "" : null}
+    promptLabel={$commandSurface.leaderPromptCommandId
+      ? (registry.get($commandSurface.leaderPromptCommandId)?.label ?? "Input")
+      : null}
+    promptPlaceholder={$commandSurface.leaderPromptCommandId
+      ? (registry.get($commandSurface.leaderPromptCommandId)
+          ?.inputPlaceholder ?? "")
+      : null}
     promptValue={$commandSurface.leaderPromptValue}
     onPromptInput={setLeaderPromptValue}
     onPromptSubmit={submitLeaderPrompt}

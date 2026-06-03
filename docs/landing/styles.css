@@ -24,9 +24,13 @@
 
 *,
 *::before,
-*::after { box-sizing: border-box; }
+*::after {
+  box-sizing: border-box;
+}
 
-html { background: var(--bg); }
+html {
+  background: var(--bg);
+}
 
 body {
   margin: 0;
@@ -38,16 +42,24 @@ body {
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   /* tile a tiny dot grid behind everything for that k10k page-feel */
-  background-image:
-    radial-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+  background-image: radial-gradient(
+    rgba(255, 255, 255, 0.035) 1px,
+    transparent 1px
+  );
   background-size: 4px 4px;
   background-position: 0 0;
 }
 
-a { color: var(--cyan); text-decoration: none; }
-a:hover { color: var(--magenta); }
+a {
+  color: var(--cyan);
+  text-decoration: none;
+}
+a:hover {
+  color: var(--magenta);
+}
 
-code, kbd {
+code,
+kbd {
   font-family: var(--font-mono);
   font-size: 0.92em;
 }
@@ -81,10 +93,19 @@ hr.rule-thin {
   margin: 12px 0;
 }
 
-.dim { color: var(--fg-dim); }
-.small { font-size: 11px; }
-.spacer { flex: 1 1 auto; }
-.sep { color: var(--rule-strong); margin: 0 6px; }
+.dim {
+  color: var(--fg-dim);
+}
+.small {
+  font-size: 11px;
+}
+.spacer {
+  flex: 1 1 auto;
+}
+.sep {
+  color: var(--rule-strong);
+  margin: 0 6px;
+}
 
 .brand {
   font-family: var(--font-pixel);
@@ -113,7 +134,9 @@ hr.rule-thin {
   mix-blend-mode: multiply;
 }
 
-.scanlines[data-scanlines="on"] { opacity: 1; }
+.scanlines[data-scanlines="on"] {
+  opacity: 1;
+}
 
 /* =====================================================================
    MASTHEAD
@@ -136,13 +159,19 @@ hr.rule-thin {
   text-transform: uppercase;
 }
 
-.masthead .issue { color: var(--fg-dim); }
-.masthead .meta-date { color: var(--fg-dim); }
+.masthead .issue {
+  color: var(--fg-dim);
+}
+.masthead .meta-date {
+  color: var(--fg-dim);
+}
 .masthead .meta-version {
   color: var(--yellow);
   font-family: var(--font-pixel);
 }
-.masthead .meta-version:hover { color: var(--cyan); }
+.masthead .meta-version:hover {
+  color: var(--cyan);
+}
 
 .scanline-toggle {
   font-family: var(--font-pixel);
@@ -154,8 +183,14 @@ hr.rule-thin {
   padding: 2px 8px;
   cursor: pointer;
 }
-.scanline-toggle:hover { color: var(--cyan); border-color: var(--cyan); }
-.scanline-toggle[aria-pressed="true"] { color: var(--cyan); border-color: var(--cyan); }
+.scanline-toggle:hover {
+  color: var(--cyan);
+  border-color: var(--cyan);
+}
+.scanline-toggle[aria-pressed="true"] {
+  color: var(--cyan);
+  border-color: var(--cyan);
+}
 
 /* =====================================================================
    MAIN LAYOUT
@@ -171,7 +206,9 @@ main {
    001 — HERO
    ===================================================================== */
 
-.hero { padding: 24px 0 16px; }
+.hero {
+  padding: 24px 0 16px;
+}
 
 .hero-grid {
   display: grid;
@@ -289,7 +326,9 @@ main {
   margin: 0 0 8px;
   font-size: 13px;
 }
-.index-list li { padding: 2px 0; }
+.index-list li {
+  padding: 2px 0;
+}
 
 .ticker {
   font-family: var(--font-pixel);
@@ -302,8 +341,12 @@ main {
   white-space: nowrap;
   overflow: hidden;
 }
-.ticker span:nth-child(odd) { color: var(--cyan); }
-.ticker span:nth-child(even) { color: var(--rule-strong); }
+.ticker span:nth-child(odd) {
+  color: var(--cyan);
+}
+.ticker span:nth-child(even) {
+  color: var(--rule-strong);
+}
 
 /* =====================================================================
    SECTION HEADERS (used by 002–006)
@@ -326,7 +369,9 @@ main {
   font-size: 14px;
 }
 
-.section-rule { color: var(--rule-strong); }
+.section-rule {
+  color: var(--rule-strong);
+}
 
 .section-rule-fill {
   flex: 1 1 auto;
@@ -343,7 +388,9 @@ main {
   color: var(--fg);
 }
 
-.section-count { color: var(--fg-dim); }
+.section-count {
+  color: var(--fg-dim);
+}
 
 /* =====================================================================
    002 — FEATURES GRID
@@ -365,7 +412,9 @@ main {
   background: var(--bg);
   transition: background 100ms linear;
 }
-.feature:hover { background: var(--bg-elev); }
+.feature:hover {
+  background: var(--bg-elev);
+}
 
 .feature-num {
   font-family: var(--font-pixel);
@@ -426,8 +475,18 @@ main {
   height: 12px;
   border: 1px solid var(--magenta);
 }
-.shot-frame-inner::before { top: -1px; left: -1px; border-right: 0; border-bottom: 0; }
-.shot-frame-inner::after { bottom: -1px; right: -1px; border-left: 0; border-top: 0; }
+.shot-frame-inner::before {
+  top: -1px;
+  left: -1px;
+  border-right: 0;
+  border-bottom: 0;
+}
+.shot-frame-inner::after {
+  bottom: -1px;
+  right: -1px;
+  border-left: 0;
+  border-top: 0;
+}
 
 .shot-frame img {
   display: block;
@@ -468,10 +527,18 @@ main {
   color: var(--fg-dim);
   border-bottom: 1px solid var(--rule-strong);
 }
-.keys-table tbody tr:hover { background: var(--bg-elev); }
-.keys-table td:last-child { white-space: nowrap; text-align: right; }
+.keys-table tbody tr:hover {
+  background: var(--bg-elev);
+}
+.keys-table td:last-child {
+  white-space: nowrap;
+  text-align: right;
+}
 
-.keys-note { margin-top: 12px; color: var(--fg); }
+.keys-note {
+  margin-top: 12px;
+  color: var(--fg);
+}
 
 /* =====================================================================
    005 — STACK
@@ -502,7 +569,9 @@ main {
   color: var(--magenta);
   min-width: 96px;
 }
-.stack-val { color: var(--fg); }
+.stack-val {
+  color: var(--fg);
+}
 
 /* =====================================================================
    006 — INSTALL
@@ -542,7 +611,10 @@ main {
   margin: 0 0 6px;
   color: var(--yellow);
 }
-.install-card p { margin: 0 0 10px; font-size: 13px; }
+.install-card p {
+  margin: 0 0 10px;
+  font-size: 13px;
+}
 .install-card .install-link {
   font-family: var(--font-pixel);
   font-size: 10px;
@@ -571,32 +643,61 @@ main {
   text-transform: uppercase;
   color: var(--fg-dim);
 }
-.bottom-row + .bottom-row { margin-top: 8px; }
-.bottom-row a { color: var(--fg-dim); }
-.bottom-row a:hover { color: var(--cyan); }
+.bottom-row + .bottom-row {
+  margin-top: 8px;
+}
+.bottom-row a {
+  color: var(--fg-dim);
+}
+.bottom-row a:hover {
+  color: var(--cyan);
+}
 
 /* =====================================================================
    RESPONSIVE
    ===================================================================== */
 
 @media (max-width: 900px) {
-  .hero-grid { grid-template-columns: 1fr; }
-  .features-grid { grid-template-columns: repeat(2, 1fr); }
-  .install-grid { grid-template-columns: 1fr; }
-  .stack-list { grid-template-columns: 1fr; }
+  .hero-grid {
+    grid-template-columns: 1fr;
+  }
+  .features-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .install-grid {
+    grid-template-columns: 1fr;
+  }
+  .stack-list {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 560px) {
-  body { font-size: 13px; }
-  .features-grid { grid-template-columns: 1fr; }
-  .ascii-logo { font-size: 9px; }
-  .section-title { font-size: 14px; }
+  body {
+    font-size: 13px;
+  }
+  .features-grid {
+    grid-template-columns: 1fr;
+  }
+  .ascii-logo {
+    font-size: 9px;
+  }
+  .section-title {
+    font-size: 14px;
+  }
   .keys-table th,
-  .keys-table td { padding: 6px 8px; }
-  .keys-table td:last-child { text-align: left; white-space: normal; }
+  .keys-table td {
+    padding: 6px 8px;
+  }
+  .keys-table td:last-child {
+    text-align: left;
+    white-space: normal;
+  }
 }
 
 /* respect users who prefer reduced motion / no flicker */
 @media (prefers-reduced-motion: reduce) {
-  * { transition: none !important; }
+  * {
+    transition: none !important;
+  }
 }

@@ -120,8 +120,7 @@ function buildLayoutNode(
     buildLayoutNode(child, leaves, counter),
   );
   const sizes = normalizeSizes(node.children);
-  const direction: SplitDirection =
-    node.direction === "horizontal" ? "h" : "v";
+  const direction: SplitDirection = node.direction === "horizontal" ? "h" : "v";
 
   const result: LayoutNode = { kind: "split", direction, children };
   if (sizes) result.sizes = sizes;
@@ -200,7 +199,9 @@ export async function applyLayoutToSession(
       for (const ptyId of spawned) {
         try {
           await killPty(ptyId);
-        } catch { /* best-effort cleanup */ }
+        } catch {
+          /* best-effort cleanup */
+        }
       }
       return {
         ok: false,
@@ -239,9 +240,7 @@ export async function applyLayoutToSession(
   const warnings: string[] = [];
 
   // Step 9: Connect pane terminals
-  const { connectPaneTerminal } = await import(
-    "$lib/panes/terminals"
-  );
+  const { connectPaneTerminal } = await import("$lib/panes/terminals");
   const { updateInstance } = await import("$lib/panes/instances");
 
   for (const leaf of leaves) {
@@ -257,9 +256,7 @@ export async function applyLayoutToSession(
       });
     } catch (e) {
       const label = leaf.name ?? leaf.paneId;
-      warnings.push(
-        `Terminal init failed for pane '${label}': ${e}`,
-      );
+      warnings.push(`Terminal init failed for pane '${label}': ${e}`);
     }
   }
 

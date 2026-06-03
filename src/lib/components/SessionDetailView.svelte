@@ -39,7 +39,9 @@
   let session = $derived($sessionList.find((s) => s.id === sessionId) ?? null);
   let displayName = $derived(session ? sessionDisplayName(session) : "");
   let project = $derived(
-    session?.projectId ? ($projects.find((p) => p.id === session.projectId) ?? null) : null,
+    session?.projectId
+      ? ($projects.find((p) => p.id === session.projectId) ?? null)
+      : null,
   );
   let paneRows = $derived.by(() => {
     const layout = $sessionLayouts.get(sessionId);
@@ -166,7 +168,7 @@
   function profileLabel(pane: PaneInstance | null): string {
     const ref = pane?.spawnProfileRef;
     if (!ref) return "plain";
-    return ref.kind === "registered" ? ref.id : (ref.profile.name || "custom");
+    return ref.kind === "registered" ? ref.id : ref.profile.name || "custom";
   }
 
   function formatEpochSeconds(epoch: number | null | undefined): string | null {
@@ -214,7 +216,9 @@
               />
             {:else}
               <div class="flex min-w-0 items-center gap-2">
-                <h2 class="truncate text-base font-semibold text-text-primary">{displayName}</h2>
+                <h2 class="truncate text-base font-semibold text-text-primary">
+                  {displayName}
+                </h2>
                 <button
                   type="button"
                   class="flex h-7 w-7 items-center justify-center rounded text-text-muted transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
@@ -226,7 +230,9 @@
                 </button>
               </div>
             {/if}
-            <div class="mt-1 truncate font-mono text-[11px] text-text-muted">{session.id}</div>
+            <div class="mt-1 truncate font-mono text-[11px] text-text-muted">
+              {session.id}
+            </div>
           </div>
           <div class="flex shrink-0 items-center gap-2">
             {#if session.status === "disconnected"}
@@ -238,7 +244,9 @@
                 aria-label="Continue session"
               >
                 <RotateCcw size={13} />
-                <span>{reconnecting ? "Continuing..." : "Continue session"}</span>
+                <span
+                  >{reconnecting ? "Continuing..." : "Continue session"}</span
+                >
               </button>
             {/if}
             <button
@@ -254,14 +262,26 @@
         </div>
       </section>
 
-      <div class="grid gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
+      <div
+        class="grid gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]"
+      >
         <div class="flex min-w-0 flex-col gap-5">
           <section>
-            <h3 class="mb-2 text-xs font-semibold uppercase tracking-wide text-text-muted">Session</h3>
-            <dl class="grid gap-px overflow-hidden rounded border border-border-subtle bg-border-subtle sm:grid-cols-[160px_minmax(0,1fr)]">
+            <h3
+              class="mb-2 text-xs font-semibold uppercase tracking-wide text-text-muted"
+            >
+              Session
+            </h3>
+            <dl
+              class="grid gap-px overflow-hidden rounded border border-border-subtle bg-border-subtle sm:grid-cols-[160px_minmax(0,1fr)]"
+            >
               {#each metadataRows(session) as [label, value] (label)}
-                <dt class="bg-bg-surface px-3 py-2 text-xs text-text-muted">{label}</dt>
-                <dd class="min-w-0 bg-bg-base px-3 py-2 font-mono text-xs text-text-primary">
+                <dt class="bg-bg-surface px-3 py-2 text-xs text-text-muted">
+                  {label}
+                </dt>
+                <dd
+                  class="min-w-0 bg-bg-base px-3 py-2 font-mono text-xs text-text-primary"
+                >
                   {#if value}
                     <span class="break-all">{value}</span>
                   {:else}
@@ -273,23 +293,51 @@
           </section>
 
           <section>
-            <h3 class="mb-2 text-xs font-semibold uppercase tracking-wide text-text-muted">Panes</h3>
+            <h3
+              class="mb-2 text-xs font-semibold uppercase tracking-wide text-text-muted"
+            >
+              Panes
+            </h3>
             {#if paneRows.length === 0}
-              <div class="rounded border border-border-subtle bg-bg-base px-3 py-3 text-xs text-text-muted">
+              <div
+                class="rounded border border-border-subtle bg-bg-base px-3 py-3 text-xs text-text-muted"
+              >
                 No pane layout is registered for this session.
               </div>
             {:else}
               <div class="overflow-hidden rounded border border-border-subtle">
                 {#each paneRows as row (row.paneId)}
-                  <div class="grid gap-px border-b border-border-subtle bg-border-subtle last:border-b-0 sm:grid-cols-[minmax(0,1fr)_100px_120px_160px]">
+                  <div
+                    class="grid gap-px border-b border-border-subtle bg-border-subtle last:border-b-0 sm:grid-cols-[minmax(0,1fr)_100px_120px_160px]"
+                  >
                     <div class="min-w-0 bg-bg-base px-3 py-2">
-                      <div class="truncate text-xs font-medium text-text-primary">{paneName(row.paneId, row.pane)}</div>
-                      <div class="truncate font-mono text-[10px] text-text-muted">{row.paneId}</div>
+                      <div
+                        class="truncate text-xs font-medium text-text-primary"
+                      >
+                        {paneName(row.paneId, row.pane)}
+                      </div>
+                      <div
+                        class="truncate font-mono text-[10px] text-text-muted"
+                      >
+                        {row.paneId}
+                      </div>
                     </div>
-                    <div class="bg-bg-base px-3 py-2 text-xs text-text-secondary">{row.pane?.type ?? "missing"}</div>
-                    <div class="bg-bg-base px-3 py-2 font-mono text-xs text-text-secondary">{profileLabel(row.pane)}</div>
-                    <div class="min-w-0 bg-bg-base px-3 py-2 font-mono text-xs text-text-secondary">
-                      <span class="block truncate">{row.pane?.ptyId || "-"}</span>
+                    <div
+                      class="bg-bg-base px-3 py-2 text-xs text-text-secondary"
+                    >
+                      {row.pane?.type ?? "missing"}
+                    </div>
+                    <div
+                      class="bg-bg-base px-3 py-2 font-mono text-xs text-text-secondary"
+                    >
+                      {profileLabel(row.pane)}
+                    </div>
+                    <div
+                      class="min-w-0 bg-bg-base px-3 py-2 font-mono text-xs text-text-secondary"
+                    >
+                      <span class="block truncate"
+                        >{row.pane?.ptyId || "-"}</span
+                      >
                     </div>
                   </div>
                 {/each}
@@ -300,7 +348,11 @@
 
         <section class="min-w-0">
           <div class="mb-2 flex items-center justify-between gap-2">
-            <h3 class="text-xs font-semibold uppercase tracking-wide text-text-muted">Attachments</h3>
+            <h3
+              class="text-xs font-semibold uppercase tracking-wide text-text-muted"
+            >
+              Attachments
+            </h3>
             <button
               type="button"
               class="flex h-7 w-7 items-center justify-center rounded text-text-muted transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
@@ -311,23 +363,34 @@
               <RefreshCw size={13} />
             </button>
           </div>
-          <div class="grid min-h-[360px] overflow-hidden rounded border border-border-subtle bg-bg-base md:grid-cols-[220px_minmax(0,1fr)] xl:grid-cols-1 2xl:grid-cols-[220px_minmax(0,1fr)]">
-            <div class="min-h-0 border-b border-border-subtle md:border-b-0 md:border-r xl:border-b xl:border-r-0 2xl:border-b-0 2xl:border-r">
+          <div
+            class="grid min-h-[360px] overflow-hidden rounded border border-border-subtle bg-bg-base md:grid-cols-[220px_minmax(0,1fr)] xl:grid-cols-1 2xl:grid-cols-[220px_minmax(0,1fr)]"
+          >
+            <div
+              class="min-h-0 border-b border-border-subtle md:border-b-0 md:border-r xl:border-b xl:border-r-0 2xl:border-b-0 2xl:border-r"
+            >
               {#if documentsLoading}
-                <div class="px-3 py-3 text-xs text-text-muted">Loading attachments...</div>
+                <div class="px-3 py-3 text-xs text-text-muted">
+                  Loading attachments...
+                </div>
               {:else if documents.length === 0}
-                <div class="px-3 py-3 text-xs text-text-muted">No attachments.</div>
+                <div class="px-3 py-3 text-xs text-text-muted">
+                  No attachments.
+                </div>
               {:else}
                 <div class="app-scrollbar max-h-72 overflow-y-auto">
                   {#each documents as attachment (attachment.id)}
                     <button
                       type="button"
                       class="flex w-full flex-col items-start gap-1 border-b border-border-subtle bg-transparent px-3 py-2 text-left last:border-b-0 hover:bg-bg-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent-dim/50"
-                      class:bg-bg-active={selectedDocument?.attachment.id === attachment.id}
+                      class:bg-bg-active={selectedDocument?.attachment.id ===
+                        attachment.id}
                       onclick={() => openDocument(attachment)}
                       aria-label={attachment.title || attachment.documentId}
                     >
-                      <span class="line-clamp-2 text-xs font-medium text-text-primary">
+                      <span
+                        class="line-clamp-2 text-xs font-medium text-text-primary"
+                      >
                         {attachment.title || attachment.documentId}
                       </span>
                       <span class="font-mono text-[10px] text-text-muted">
@@ -341,16 +404,25 @@
 
             <div class="app-scrollbar min-h-0 overflow-y-auto p-3">
               {#if documentError}
-                <div class="rounded border border-red/30 bg-red/10 px-3 py-2 text-xs text-red" role="alert">{documentError}</div>
+                <div
+                  class="rounded border border-red/30 bg-red/10 px-3 py-2 text-xs text-red"
+                  role="alert"
+                >
+                  {documentError}
+                </div>
               {:else if documentLoadingId}
                 <div class="text-xs text-text-muted">Loading attachment...</div>
               {:else if selectedDocument}
                 <div class="mb-2 text-xs font-semibold text-text-primary">
-                  {selectedDocument.attachment.title || selectedDocument.attachment.documentId}
+                  {selectedDocument.attachment.title ||
+                    selectedDocument.attachment.documentId}
                 </div>
-                <pre class="max-h-[520px] whitespace-pre-wrap break-words rounded border border-border-subtle bg-bg-deep p-3 font-mono text-xs leading-5 text-text-primary">{selectedDocument.content}</pre>
+                <pre
+                  class="max-h-[520px] whitespace-pre-wrap break-words rounded border border-border-subtle bg-bg-deep p-3 font-mono text-xs leading-5 text-text-primary">{selectedDocument.content}</pre>
               {:else}
-                <div class="flex h-full min-h-44 items-center justify-center text-center text-xs text-text-muted">
+                <div
+                  class="flex h-full min-h-44 items-center justify-center text-center text-xs text-text-muted"
+                >
                   Select an attachment to read it.
                 </div>
               {/if}

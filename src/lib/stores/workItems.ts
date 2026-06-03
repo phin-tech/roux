@@ -42,7 +42,13 @@ export {
   type WorkItemStatus,
 };
 
-export const WORK_ITEM_COLUMNS: WorkItemStatus[] = ["todo", "ready", "doing", "review", "done"];
+export const WORK_ITEM_COLUMNS: WorkItemStatus[] = [
+  "todo",
+  "ready",
+  "doing",
+  "review",
+  "done",
+];
 
 export const COLUMN_LABELS: Record<WorkItemStatus, string> = {
   todo: "To Do",
@@ -73,7 +79,9 @@ export const itemsByColumn = derived(workItems, ($items) => {
     else map.set(col, [item]);
   }
   for (const bucket of map.values()) {
-    bucket.sort((a, b) => a.sortOrder - b.sortOrder || a.createdAt - b.createdAt);
+    bucket.sort(
+      (a, b) => a.sortOrder - b.sortOrder || a.createdAt - b.createdAt,
+    );
   }
   return map;
 });
@@ -102,7 +110,8 @@ export const runsByItem = derived(workItemRuns, ($runs) => {
 export const activePlanningRunByItem = derived(workItemRuns, ($runs) => {
   const map = new Map<string, WorkItemRun>();
   for (const run of $runs) {
-    if (run.kind !== "planning" || TERMINAL_RUN_STATUSES.has(run.status)) continue;
+    if (run.kind !== "planning" || TERMINAL_RUN_STATUSES.has(run.status))
+      continue;
     map.set(run.workItemId, run);
   }
   return map;
@@ -264,7 +273,10 @@ export async function createWorkItem(input: WorkItemInput): Promise<WorkItem> {
   return tauriWorkItemCreate(input);
 }
 
-export async function updateWorkItem(id: string, input: WorkItemInput): Promise<WorkItem> {
+export async function updateWorkItem(
+  id: string,
+  input: WorkItemInput,
+): Promise<WorkItem> {
   return tauriWorkItemUpdate(id, input);
 }
 
@@ -305,7 +317,9 @@ export async function startWorkItem(
     bindSessionToWorkItem(id, result.run.sessionId);
     return result.run.sessionId;
   }
-  throw new Error(`Work item run ${result.run.id} did not include a session id`);
+  throw new Error(
+    `Work item run ${result.run.id} did not include a session id`,
+  );
 }
 
 export interface WorkItemPlanOptions {
@@ -324,7 +338,9 @@ export async function planWorkItem(
   upsertItem(result.item);
   upsertRun(result.run);
   if (result.run.sessionId) return result.run.sessionId;
-  throw new Error(`Work item planning run ${result.run.id} did not include a session id`);
+  throw new Error(
+    `Work item planning run ${result.run.id} did not include a session id`,
+  );
 }
 
 export async function acceptWorkItemReview(id: string): Promise<WorkItem> {
@@ -350,7 +366,9 @@ export async function stopWorkItemRun(runId: string): Promise<WorkItemRun> {
   return run;
 }
 
-export async function attachDocument(input: AttachmentInput): Promise<Attachment> {
+export async function attachDocument(
+  input: AttachmentInput,
+): Promise<Attachment> {
   return tauriDocumentAttach(input);
 }
 

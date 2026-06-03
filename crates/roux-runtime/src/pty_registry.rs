@@ -2,9 +2,7 @@ use std::collections::HashMap;
 
 use roux_core::PtyInfo;
 
-use crate::pty_lifecycle::{
-    apply_metadata_command, PtyMetadataCommand, PtyMetadataCommandResult,
-};
+use crate::pty_lifecycle::{apply_metadata_command, PtyMetadataCommand, PtyMetadataCommandResult};
 use crate::pty_session::PtySessionMetadata;
 
 pub trait PtySessionRegistryEntry {
@@ -99,10 +97,7 @@ impl<Entry: PtySessionRegistryEntry> PtySessionRegistry<Entry> {
     }
 
     pub fn list_all(&self) -> Vec<PtyInfo> {
-        self.sessions
-            .iter()
-            .map(|(id, entry)| entry.metadata().to_info(id))
-            .collect()
+        self.sessions.iter().map(|(id, entry)| entry.metadata().to_info(id)).collect()
     }
 }
 
@@ -205,14 +200,12 @@ mod tests {
         registry.insert("pty-a".to_string(), TestEntry::new(Some("session-a"), 7));
 
         assert_eq!(
-            registry.apply_metadata_command(
-                &PtyMetadataCommand::MarkExitedIfGenerationMatches {
-                    pty_id: "pty-a".to_string(),
-                    generation: 6,
-                    code: Some(1),
-                    at_ms: 99,
-                },
-            ),
+            registry.apply_metadata_command(&PtyMetadataCommand::MarkExitedIfGenerationMatches {
+                pty_id: "pty-a".to_string(),
+                generation: 6,
+                code: Some(1),
+                at_ms: 99,
+            },),
             PtyMetadataCommandResult::StaleGeneration
         );
         assert!(matches!(

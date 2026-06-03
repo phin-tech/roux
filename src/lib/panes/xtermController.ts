@@ -48,7 +48,9 @@ class XtermTerminalController implements TerminalController {
       scrollback: s.scrollback,
       cursorStyle: s.cursorStyle as "block" | "underline" | "bar",
       cursorBlink: s.cursorBlink,
-      theme: toXtermTheme(resolveTerminalTheme(s.theme, s.terminalTheme, get(userTerminalThemes))),
+      theme: toXtermTheme(
+        resolveTerminalTheme(s.theme, s.terminalTheme, get(userTerminalThemes)),
+      ),
       disableStdin: false,
       allowProposedApi: true,
     });
@@ -62,11 +64,14 @@ class XtermTerminalController implements TerminalController {
       if (!this.customKeyHandler) return true;
       return this.customKeyHandler(event);
     });
-    if (options?.allowKeyboardEvent) this.setCustomKeyHandler(options.allowKeyboardEvent);
+    if (options?.allowKeyboardEvent)
+      this.setCustomKeyHandler(options.allowKeyboardEvent);
 
-    this.terminal.loadAddon(new WebLinksAddon((_event, uri) => {
-      openUrl(uri);
-    }));
+    this.terminal.loadAddon(
+      new WebLinksAddon((_event, uri) => {
+        openUrl(uri);
+      }),
+    );
 
     this.watchDecorations = installXtermWatchDecorations(this.terminal);
   }
@@ -130,8 +135,11 @@ class XtermTerminalController implements TerminalController {
     if (!this.terminal.element) {
       this.terminal.open(container);
       try {
-        (container.querySelector(".xterm-helper-textarea") as HTMLElement | null)
-          ?.blur();
+        (
+          container.querySelector(
+            ".xterm-helper-textarea",
+          ) as HTMLElement | null
+        )?.blur();
       } catch {
         // best-effort
       }
@@ -227,7 +235,9 @@ class XtermTerminalController implements TerminalController {
     this.terminal.options.theme = toXtermTheme(theme);
   }
 
-  setCustomKeyHandler(handler: ((event: KeyboardEvent) => boolean) | null): void {
+  setCustomKeyHandler(
+    handler: ((event: KeyboardEvent) => boolean) | null,
+  ): void {
     this.customKeyHandler = handler;
   }
 

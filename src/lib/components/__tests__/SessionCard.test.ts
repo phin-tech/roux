@@ -45,7 +45,9 @@ function makeSession(overrides: Partial<Session> = {}): Session {
   };
 }
 
-function makeMetadata(overrides: Partial<WorktrunkMetadata> = {}): WorktrunkMetadata {
+function makeMetadata(
+  overrides: Partial<WorktrunkMetadata> = {},
+): WorktrunkMetadata {
   return {
     dirty: false,
     ahead: 0,
@@ -117,9 +119,14 @@ function resetStores() {
 describe("SessionCard", () => {
   beforeEach(() => {
     resetStores();
-    ptyInventoryBySession.set(new Map([
-      ["session-1", { attachedCount: 2, detachedCount: 1, detachedHasUnread: true }],
-    ]));
+    ptyInventoryBySession.set(
+      new Map([
+        [
+          "session-1",
+          { attachedCount: 2, detachedCount: 1, detachedHasUnread: true },
+        ],
+      ]),
+    );
   });
 
   afterEach(() => {
@@ -161,7 +168,9 @@ describe("SessionCard", () => {
       groupBy: "repo",
     });
 
-    expect(screen.getByTestId("session-secondary-context").textContent).toBe("feature-x");
+    expect(screen.getByTestId("session-secondary-context").textContent).toBe(
+      "feature-x",
+    );
   });
 
   it("shows the worktree directory name as secondary when grouping by session", () => {
@@ -174,7 +183,9 @@ describe("SessionCard", () => {
       groupBy: "session",
     });
 
-    expect(screen.getByTestId("session-secondary-context").textContent).toBe("feature-x");
+    expect(screen.getByTestId("session-secondary-context").textContent).toBe(
+      "feature-x",
+    );
   });
 
   it("derives the basename from Windows-style paths", () => {
@@ -188,7 +199,9 @@ describe("SessionCard", () => {
       groupBy: "repo",
     });
 
-    expect(screen.getByTestId("session-secondary-context").textContent).toBe("feature-x");
+    expect(screen.getByTestId("session-secondary-context").textContent).toBe(
+      "feature-x",
+    );
   });
 
   it("shows the repo name as secondary when grouping by project", () => {
@@ -202,7 +215,9 @@ describe("SessionCard", () => {
       groupBy: "project",
     });
 
-    expect(screen.getByTestId("session-secondary-context").textContent).toBe("cool-repo");
+    expect(screen.getByTestId("session-secondary-context").textContent).toBe(
+      "cool-repo",
+    );
   });
 
   it("renders branch and contextual name together when a custom name overrides the branch", () => {
@@ -216,7 +231,9 @@ describe("SessionCard", () => {
       groupBy: "repo",
     });
 
-    expect(screen.getByTestId("session-primary-label").textContent).toBe("notes/design");
+    expect(screen.getByTestId("session-primary-label").textContent).toBe(
+      "notes/design",
+    );
     expect(screen.getByTestId("session-secondary-branch").textContent).toBe(
       "feature/restore-closed-sessions",
     );
