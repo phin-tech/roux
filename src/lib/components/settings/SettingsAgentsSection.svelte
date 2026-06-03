@@ -26,8 +26,8 @@
 
   const autonomousProfiles = $derived(
     availableProfiles.filter((profile: SpawnProfile) => {
-      const provider = profile.provider ?? (profile.id === "claude" ? "claude" : null);
-      const command = (profile.startupCommand ?? profile.setupCommand ?? "").trim();
+      const provider = profile.provider;
+      const command = (profile.startupCommand ?? "").trim();
       return (
         (provider === "claude" || provider === "codex") &&
         profile.startupBehavior !== "typeOnly" &&

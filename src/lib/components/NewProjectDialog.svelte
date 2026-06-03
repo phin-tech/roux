@@ -1,7 +1,7 @@
 <script lang="ts">
   import { fade, scale } from "svelte/transition";
   import { open } from "@tauri-apps/plugin-dialog";
-  import { defaultAgentProfileId } from "$lib/panes/defaultAgent";
+  import { effectiveDefaultAgentProfileId } from "$lib/panes/defaultAgent";
   import { profileList, type SpawnProfile } from "$lib/panes/profiles";
   import {
     createProjectFull,
@@ -158,8 +158,8 @@
   const isEdit = $derived(project !== null);
   const profiles: SpawnProfile[] = $derived($profileList);
   const defaultProfileId = $derived(
-    profiles.some((profile) => profile.id === defaultAgentProfileId())
-      ? defaultAgentProfileId()
+    profiles.some((profile) => profile.id === effectiveDefaultAgentProfileId($settings))
+      ? effectiveDefaultAgentProfileId($settings)
       : (profiles[0]?.id ?? "claude"),
   );
   const effectiveDefaultProfile = $derived(defaultProfileChoice || defaultProfileId);
