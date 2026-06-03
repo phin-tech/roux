@@ -22,6 +22,7 @@ import {
   hidePaneHints,
   hideSessionHints,
   isPinned,
+  notesOverrideSessionId,
   openSidebar,
   pinnedSidebar,
   pinSidebar,
@@ -278,12 +279,14 @@ describe("startup target preference", () => {
   it("opens Kanban in the wide main view", async () => {
     pinSidebar("sessions");
     openSidebar("watches");
+    notesOverrideSessionId.set("archived-session");
 
     await applyStartupTargetPreference("kanbanWide");
 
     expect(get(mainViewRoute)).toEqual({ kind: "board" });
     expect(get(pinnedSidebar)).toBeNull();
     expect(get(activeSidebar)).toBeNull();
+    expect(get(notesOverrideSessionId)).toBeNull();
   });
 
   it("pins the sessions sidebar", async () => {

@@ -5,6 +5,21 @@ import { DEFAULT_SETTINGS } from "$lib/types";
 import { resetProfileRegistry, setUserProfiles } from "$lib/panes/profiles";
 import { settings } from "$lib/stores/settings";
 
+if (typeof Element !== "undefined" && !Element.prototype.animate) {
+  Element.prototype.animate = () =>
+    ({
+      cancel() {},
+      play() {},
+      pause() {},
+      finished: Promise.resolve(),
+      onfinish: null,
+      currentTime: 0,
+      playState: "finished",
+      addEventListener() {},
+      removeEventListener() {},
+    }) as unknown as Animation;
+}
+
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
 vi.mock("$lib/logging", () => ({
   logError: vi.fn(),

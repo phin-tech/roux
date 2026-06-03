@@ -64,6 +64,11 @@
     externalToolFocusToken = ++nextExternalToolFocusToken;
   }
 
+  function clearExternalToolFocus(): void {
+    focusedExternalToolId = null;
+    externalToolFocusToken = 0;
+  }
+
   $effect(() => {
     const justOpened = visible && !wasVisible;
     wasVisible = visible;
@@ -160,6 +165,7 @@
           <SettingsExternalToolsSection
             focusedToolId={focusedExternalToolId}
             focusToken={externalToolFocusToken}
+            onfocusapplied={clearExternalToolFocus}
           />
         {:else if selected === "notes"}
           <SettingsNotesSection />

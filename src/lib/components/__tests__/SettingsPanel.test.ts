@@ -318,6 +318,28 @@ describe("SettingsPanel external tools", () => {
     expect(get(settings).externalTools?.some((tool) => tool.id === "n")).toBe(true);
   });
 
+  it("does not replay an external tool focus request after the section remounts", async () => {
+    render(SettingsPanel, {
+      visible: true,
+      onclose: vi.fn(),
+      initialCategory: "externalTools",
+      externalToolId: "github",
+    });
+
+    expect(await screen.findByDisplayValue("github")).toBeDefined();
+
+    await fireEvent.click(screen.getByRole("button", { name: "GitHub" }));
+
+    await waitFor(() => {
+      expect(screen.queryByDisplayValue("github")).toBeNull();
+    });
+
+    await fireEvent.click(screen.getByRole("button", { name: "General" }));
+    await fireEvent.click(screen.getByRole("button", { name: "External Tools" }));
+
+    expect(screen.queryByDisplayValue("github")).toBeNull();
+  });
+
   it("clamps preferred ports before saving external web tools", async () => {
     render(SettingsPanel, { visible: true, onclose: vi.fn() });
 

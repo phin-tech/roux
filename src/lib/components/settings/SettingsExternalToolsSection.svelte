@@ -11,9 +11,14 @@
   interface Props {
     focusedToolId?: string | null;
     focusToken?: number;
+    onfocusapplied?: () => void;
   }
 
-  let { focusedToolId = null, focusToken = 0 }: Props = $props();
+  let {
+    focusedToolId = null,
+    focusToken = 0,
+    onfocusapplied,
+  }: Props = $props();
 
   let expandedExternalToolId = $state<string | null>(null);
   let externalToolPreviewById = $state<
@@ -24,9 +29,10 @@
   let appliedFocusToken = 0;
 
   $effect(() => {
-    if (focusToken === appliedFocusToken) return;
+    if (focusToken === 0 || focusToken === appliedFocusToken) return;
     appliedFocusToken = focusToken;
     expandedExternalToolId = focusedToolId ?? null;
+    onfocusapplied?.();
   });
 
   function externalTools(): ExternalTool[] {

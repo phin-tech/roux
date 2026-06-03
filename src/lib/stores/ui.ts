@@ -163,6 +163,7 @@ export async function applyStartupTargetPreference(
       return;
     case "kanbanWide":
       sidebarState.set({ pinned: null, active: null });
+      clearNotesOverrideIfLeaving(null);
       openMainView({ kind: "board" });
       return;
     case "lastSession": {
