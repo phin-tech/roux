@@ -162,7 +162,7 @@ export async function applyStartupTargetPreference(
       applyStartupSidebarPreference("sessions");
       return;
     case "kanbanWide":
-      closeSidebar();
+      sidebarState.set({ pinned: null, active: null });
       openMainView({ kind: "board" });
       return;
     case "lastSession": {

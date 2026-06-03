@@ -276,9 +276,14 @@ describe("startup target preference", () => {
   });
 
   it("opens Kanban in the wide main view", async () => {
+    pinSidebar("sessions");
+    openSidebar("watches");
+
     await applyStartupTargetPreference("kanbanWide");
 
     expect(get(mainViewRoute)).toEqual({ kind: "board" });
+    expect(get(pinnedSidebar)).toBeNull();
+    expect(get(activeSidebar)).toBeNull();
   });
 
   it("pins the sessions sidebar", async () => {
