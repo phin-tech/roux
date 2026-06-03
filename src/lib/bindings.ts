@@ -1615,6 +1615,7 @@ export type WorkItemRun = {
 	workItemId: string,
 	kind: WorkItemRunKind,
 	sessionId: string | null,
+	ptyId: string | null,
 	provider: string | null,
 	profileId: string | null,
 	status: WorkItemRunStatus,

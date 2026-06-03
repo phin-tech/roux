@@ -544,6 +544,7 @@ pub struct WorkItemRun {
     pub work_item_id: String,
     pub kind: WorkItemRunKind,
     pub session_id: Option<String>,
+    pub pty_id: Option<String>,
     pub provider: Option<String>,
     pub profile_id: Option<String>,
     pub status: WorkItemRunStatus,

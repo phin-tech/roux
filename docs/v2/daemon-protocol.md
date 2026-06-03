@@ -702,7 +702,7 @@ Daemon-owned planning action. Requires `args.id`. Optional args: `repoPath`,
 The daemon creates or reuses one active planning run for the card, creates a
 planning session/PTY, generates a planning prompt, launches the selected
 autonomous agent with that prompt as its initial positional prompt, records
-lifecycle events, and returns:
+lifecycle events, stores the spawned PTY id on `run.ptyId`, and returns:
 
 ```json
 {
@@ -734,12 +734,13 @@ repo path or project repo to derive from. Start profile resolution is request
 `profile`, then card `agentProfile`, then `settings.kanban.defaultAgentProfile`.
 Plain-shell and type-only profiles are not valid Start profiles.
 
-On success, the daemon creates or reuses the card's dedicated worktree, creates
-a daemon session/PTY, creates a `starting` `WorkItemRun`, appends lifecycle
-events for session creation and prompt dispatch, launches the selected
-autonomous agent with the generated task prompt as its initial positional
-prompt, transitions the run to `running`, binds the session to the card, moves
-the card to `doing`, clears `startError`, and returns:
+On success for an unbound card, the daemon creates or reuses the card's
+dedicated worktree, creates a daemon session/PTY, creates a `starting`
+`WorkItemRun`, appends lifecycle events for session creation and prompt
+dispatch, launches the selected autonomous agent with the generated task prompt
+as its initial positional prompt, stores the spawned PTY id on `run.ptyId`,
+transitions the run to `running`, binds the session to the card, moves the card
+to `doing`, clears `startError`, and returns:
 
 ```json
 {
@@ -752,6 +753,12 @@ the card to `doing`, clears `startError`, and returns:
 The generated implementation prompt includes
 `settings.kanban.implementationPromptAppend` when configured. The review
 handoff prompt includes `settings.kanban.reviewPromptAppend`.
+
+If the card already has a bound implementation `sessionId`, Start reuses that
+session and creates an additional implementation run/PTY in it instead of
+creating a second top-level session. The first run in a session generally uses
+the session primary PTY id; later runs use secondary PTY ids and expose the
+exact target as `run.ptyId`.
 
 If session/worktree creation succeeds but prompt dispatch fails, the daemon
 marks the run `failed`, records `startError` on the card, preserves the
@@ -779,7 +786,8 @@ The linked session remains available; cleanup is a separate explicit action.
 
 Optional `args.workItemId` / `args.work_item_id`. Returns persisted
 `WorkItemRun` rows, ordered by creation. Runs include `kind`:
-`"planning"`, `"implementation"`, or `"review"`.
+`"planning"`, `"implementation"`, or `"review"`, and may include `ptyId`, the
+exact daemon PTY used by that run.
 
 `work-item-run-events`
 
@@ -795,10 +803,13 @@ review-requested runs are not overwritten by later PTY exit events.
 `work-item-run-stop`
 
 Requires `args.runId` / `args.run_id` / `args.id`. Stops a daemon-owned run by
-removing PTYs for the linked session, archiving the session record, setting the
-run status to `stopped`, stamping `endedAt`, appending a `statusChanged` run
-event, and broadcasting `WorkItemEvent::RunUpdated` plus
-`WorkItemEvent::RunEventAppended`. Returns the updated `WorkItemRun`.
+setting the run status to `stopped`, stamping `endedAt`, appending a
+`statusChanged` run event, and broadcasting `WorkItemEvent::RunUpdated` plus
+`WorkItemEvent::RunEventAppended`. If no other active runs share the linked
+session, the daemon removes the session PTYs and archives the session record.
+If another active run still uses the session, the daemon removes only the
+stopped run's `ptyId` and leaves the session active. Returns the updated
+`WorkItemRun`.
 
 `work-item-decision-create`
 

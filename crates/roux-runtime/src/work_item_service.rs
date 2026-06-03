@@ -521,6 +521,24 @@ impl WorkItemHandle {
             .map_err(|e| format!("work-item run event list: {e}"))
     }
 
+    pub fn set_run_pty_id(
+        &self,
+        id: &str,
+        pty_id: Option<&str>,
+    ) -> Result<Option<WorkItemRun>, String> {
+        let now = now_secs();
+        let run = self
+            .inner
+            .lock()
+            .unwrap()
+            .set_run_pty_id(id, pty_id, now)
+            .map_err(|e| format!("work-item run pty update: {e}"))?;
+        if let Some(ref run) = run {
+            self.broadcast(WorkItemEvent::RunUpdated { run: run.clone() });
+        }
+        Ok(run)
+    }
+
     pub fn set_run_status(
         &self,
         id: &str,
