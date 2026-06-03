@@ -1752,6 +1752,8 @@ async fn run_dispatched_profile_with_task_prompt(
                 worktree_path: session.is_worktree.then(|| session.worktree_path.clone()),
                 env: parse_pty_env_request(&env_args, identity),
                 profile: Some(profile_id.to_string()),
+                profile_data: Some(profile.clone()),
+                terminal_defaults: settings.terminal_defaults.clone(),
                 role: roux_core::PtyRole::SessionPrimary,
                 ..PtySpawnRequest::default()
             },

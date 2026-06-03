@@ -6,7 +6,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
-use roux_core::{PtyInfo, PtyRole, PtyStatus};
+use roux_core::{PtyInfo, PtyRole, PtyStatus, SpawnProfile, TerminalDefaults, TerminalEnvRule};
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio::task::JoinHandle;
 
@@ -15,6 +15,7 @@ use crate::pty_live::WaitedChild;
 use crate::pty_session::{PtySessionMetadata, PtySessionMetadataInputs};
 use crate::pty_spawn::{self, ShellSpawnPlanInputs, TaskSpawnPlanInputs};
 use crate::terminal_env::{self, NotesEnvInputs};
+use crate::terminal_profile_env::{resolve_terminal_profile_env, TerminalProfileEnvInputs};
 
 pub const PTY_OUTPUT_LIMIT_BYTES: usize = 256 * 1024;
 pub const PTY_OUTPUT_DEFAULT_POLL_BYTES: usize = 64 * 1024;
@@ -46,6 +47,9 @@ pub struct PtySpawnRequest {
     pub notes: Option<NotesEnvInputs>,
     pub env: PtyEnvRequest,
     pub profile: Option<String>,
+    pub profile_data: Option<SpawnProfile>,
+    pub terminal_defaults: TerminalDefaults,
+    pub launch_env: Option<std::collections::BTreeMap<String, TerminalEnvRule>>,
     pub initial_size: Option<(u16, u16)>,
     pub role: PtyRole,
 }
@@ -62,6 +66,9 @@ impl Default for PtySpawnRequest {
             notes: None,
             env: PtyEnvRequest::default(),
             profile: None,
+            profile_data: None,
+            terminal_defaults: TerminalDefaults::default(),
+            launch_env: None,
             initial_size: None,
             role: PtyRole::Secondary,
         }
@@ -598,12 +605,22 @@ fn spawn_pty(
     let working_dir_str = working_dir.to_string_lossy().to_string();
     let shell = resolve_default_shell();
     let roux_env = roux_env_for_request(&request);
+    let terminal_env = resolve_terminal_profile_env(TerminalProfileEnvInputs {
+        base_env: std::env::vars().collect(),
+        terminal_defaults: Some(&request.terminal_defaults),
+        roux_env: &roux_env,
+        profile: request.profile_data.as_ref(),
+        launch_env: request.launch_env.as_ref(),
+        shell: &shell,
+        working_dir: &working_dir,
+    })
+    .map_err(|err| err.to_string())?;
 
-    let spawn_plan = match kind {
+    let mut spawn_plan = match kind {
         PtyKind::Shell => pty_spawn::shell_spawn_plan(ShellSpawnPlanInputs {
             working_dir: &working_dir_str,
             shell: &shell,
-            roux_env: &roux_env,
+            roux_env: &terminal_env.env,
             worktree_path: request.worktree_path.as_deref(),
             initial_size: request.initial_size,
         }),
@@ -611,11 +628,12 @@ fn spawn_pty(
             command: command.as_deref().unwrap_or_default(),
             working_dir: &working_dir_str,
             shell: &shell,
-            roux_env: &roux_env,
+            roux_env: &terminal_env.env,
             worktree_path: request.worktree_path.as_deref(),
             initial_size: request.initial_size,
         }),
     };
+    spawn_plan.command.env_remove = terminal_env.env_remove;
 
     let pty_system = native_pty_system();
     let pair = pty_system
@@ -712,6 +730,9 @@ fn command_builder_from_plan(plan: &pty_spawn::PtyCommandPlan) -> CommandBuilder
     }
     for (key, value) in &plan.env {
         cmd.env(key, value);
+    }
+    for key in &plan.env_remove {
+        cmd.env_remove(key);
     }
     cmd.cwd(&plan.cwd);
     cmd

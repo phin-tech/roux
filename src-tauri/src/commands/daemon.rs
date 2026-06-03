@@ -146,6 +146,8 @@ pub(crate) async fn daemon_pty_spawn_shell(
             session_id,
             pane_id,
             profile,
+            None,
+            None,
             initial_size,
         )
         .await
@@ -165,7 +167,17 @@ pub(crate) async fn daemon_pty_spawn_task(
 ) -> Result<PtyRecord, String> {
     let client = required_daemon_client_ref(&state)?;
     client
-        .spawn_daemon_pty_task(command, id, working_dir, session_id, pane_id, profile, initial_size)
+        .spawn_daemon_pty_task(
+            command,
+            id,
+            working_dir,
+            session_id,
+            pane_id,
+            profile,
+            None,
+            None,
+            initial_size,
+        )
         .await
         .map_err(Into::into)
 }

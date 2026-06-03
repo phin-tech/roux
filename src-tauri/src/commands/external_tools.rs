@@ -151,6 +151,8 @@ async fn launch_terminal_tool(
             session_id,
             None,
             None,
+            None,
+            None,
             initial_size,
         )
         .await

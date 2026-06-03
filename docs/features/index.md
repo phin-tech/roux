@@ -11,6 +11,7 @@ Roux is a terminal-first workspace for running agent sessions, shells, notes, wa
 - [Kanban Board](kanban.md) — plan card-based agent work, start daemon-owned runs, and resolve blocked decisions.
 - [Project Prompt Templates](project-prompt-templates.md) — Minijinja variables for branch, worktree, model, and sibling-session context.
 - [Layouts](layouts.md) — start sessions from KDL templates and spawn profiles.
+- [Terminal Profiles](terminal-profiles.md) — global terminal defaults, profile env rules, preflight commands, and split profile behavior.
 - [Worktrees](worktrees.md) — manage isolated git checkouts for session work.
 
 ## Context

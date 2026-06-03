@@ -39,7 +39,7 @@ vi.mock("$lib/panes/actions", () => ({
 
 // ── Imports (after mocks) ───────────────────────────────────────────────────
 
-import { applyLayoutToSession } from "../layoutRunner";
+import { applyLayoutToSession, resolveFirstLeafInfo } from "../layoutRunner";
 import { spawnShell, killPty } from "$lib/tauri";
 import { initTerminal, attachPtyListeners } from "$lib/panes/terminals";
 import { runProfileInPane } from "$lib/panes/profileRunner";
@@ -128,6 +128,33 @@ function layoutSpec(root: LayoutPaneNode, id = "test-layout"): LayoutSpec {
 }
 
 // ── Setup / teardown ────────────────────────────────────────────────────────
+
+describe("resolveFirstLeafInfo", () => {
+  it("returns inline profile data for daemon spawn-time resolution", () => {
+    const inlineProfile = stubProfile("custom-inline", {
+      source: "inline",
+      env: {
+        AWS_PROFILE: { mode: "value", value: "prod" },
+      },
+      beforeShellStarts: "aws sts get-caller-identity --profile prod",
+    });
+    const layout = layoutSpec(inlineLeafNode(inlineProfile));
+
+    expect(resolveFirstLeafInfo(layout)).toEqual({
+      profileId: "custom-inline",
+      profileData: inlineProfile,
+    });
+  });
+
+  it("returns only a profile id for registered first leaves", () => {
+    const layout = layoutSpec(leafNode("claude"));
+
+    expect(resolveFirstLeafInfo(layout)).toEqual({
+      profileId: "claude",
+      profileData: null,
+    });
+  });
+});
 
 describe("applyLayoutToSession", () => {
   beforeEach(() => {

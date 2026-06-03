@@ -111,6 +111,9 @@ Supported `args`:
 - `base`: optional branch start point.
 - `fetchFirst`: run `git fetch origin` before resolving `base`.
 - `profile`: spawn profile id.
+- `profileData`: optional inline spawn profile. When present, it is used for
+  spawn-time env/preflight resolution without requiring a registered profile.
+- `envOverrides`: optional per-launch terminal env rules.
 - `initialSize`: `[cols, rows]`.
 - `projectId`, `blueprintId`.
 - `notesEnv`: notes env snapshot for the primary PTY.
@@ -118,11 +121,15 @@ Supported `args`:
 Returns the created session. If daemon PTY spawn fails after creating a new
 worktree, the daemon attempts to remove the worktree before returning an error.
 
+The daemon applies terminal defaults from settings, Roux session env,
+profile env, and per-launch env overrides before creating the PTY. Profile env
+is not typed into the frontend terminal as `export` commands.
+
 `session-reconnect-shell`
 
 Requires `session_id`. Respawns the primary PTY using the existing session
 record and returns the updated session. Supported `args`: `profile`,
-`initialSize`, `notesEnv`.
+`profileData`, `envOverrides`, `initialSize`, `notesEnv`.
 
 `session-archive`
 
@@ -921,8 +928,36 @@ Starts a daemon-owned shell PTY. Common `args`:
 
 - `id`, `workingDir`, `sessionId`, `paneId`
 - `projectId`, `worktreePath`, `notesEnv`
-- `profile`, `initialSize`
+- `profile`, `profileData`, `envOverrides`, `initialSize`
 - `role`: `sessionPrimary` or `secondary`
+
+`profileData` is an inline `SpawnProfile`. `envOverrides` is a map of terminal
+environment rules. Rules accept either legacy string values or structured
+objects:
+
+```json
+{
+  "AWS_PROFILE": "prod",
+  "AWS_REGION": { "mode": "value", "value": "us-east-1" },
+  "AWS_TOKEN": { "mode": "command", "command": "op read op://Work/aws/token" },
+  "AWS_SESSION_TOKEN": { "mode": "unset" }
+}
+```
+
+The daemon resolves env in this order:
+
+```text
+daemon base env -> global terminal env -> Roux session env -> profile env -> per-launch overrides -> protected Roux session env
+```
+
+If `profileData` is omitted and `profile` is supplied, the daemon resolves the
+profile id from settings and built-ins. Terminal-default `beforeShellStarts`
+runs before profile `beforeShellStarts`; command-mode env stdout is trimmed
+and not logged by default. Command-mode env commands must return promptly and
+are not intended for interactive authentication. Roux-owned session variables
+are re-applied last so profile or launch rules cannot corrupt hook routing.
+Preflight commands may perform authentication work, so the daemon does not
+impose a fixed timeout.
 
 Returns a PTY record.
 

@@ -45,6 +45,7 @@
     "bits-ui": "^2.17.0",
     "codemirror": "^6.0.2",
     "dompurify": "^3.4.1",
-    "marked": "^17.0.6"
+    "marked": "^17.0.6",
+    "svelte-jsoneditor": "^3.12.0"
   }
 }

@@ -406,6 +406,8 @@ mod tests {
                 base: Some("origin/main".to_string()),
                 fetch_first: true,
                 profile: Some("plain-shell".to_string()),
+                profile_data: None,
+                env_overrides: None,
                 initial_size: Some((100, 30)),
                 project_id: Some("project-a".to_string()),
                 blueprint_id: Some("blueprint-a".to_string()),
@@ -465,6 +467,8 @@ mod tests {
             .block_on(client.reconnect_session_shell(ReconnectSessionShell {
                 id: "session-a".to_string(),
                 profile: Some("plain-shell".to_string()),
+                profile_data: None,
+                env_overrides: None,
                 initial_size: Some((120, 40)),
                 notes: Some(NotesEnv {
                     vault_root: "/vault".to_string(),

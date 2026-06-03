@@ -70,6 +70,9 @@ fn command_builder_from_plan(plan: &pty_spawn::PtyCommandPlan) -> CommandBuilder
     for (key, value) in &plan.env {
         cmd.env(key, value);
     }
+    for key in &plan.env_remove {
+        cmd.env_remove(key);
+    }
     cmd.cwd(&plan.cwd);
     cmd
 }

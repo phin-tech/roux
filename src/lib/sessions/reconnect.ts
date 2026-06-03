@@ -283,6 +283,8 @@ async function rehydratePane(
         sessionId,
         paneId,
         profileId,
+        null,
+        descriptor.spawnProfileRef?.kind === "inline" ? descriptor.spawnProfileRef.profile : null,
       );
       createPane({
         id: paneId,
@@ -348,6 +350,8 @@ async function reconnectPrimaryPaneOnly(
   const updated = await reconnectSessionShellPty(
     session.id,
     profile?.id ?? null,
+    null,
+    instance?.spawnProfileRef?.kind === "inline" ? instance.spawnProfileRef.profile : null,
   );
   const { connectPaneTerminal } = await import("$lib/panes/terminals");
   await connectPaneTerminal(primaryPaneId);
@@ -591,6 +595,8 @@ export async function retryShellPane(paneId: string, sessionId: string): Promise
       sessionId,
       paneId,
       profileId,
+      null,
+      instance.spawnProfileRef?.kind === "inline" ? instance.spawnProfileRef.profile : null,
     );
     updateInstance(paneId, { ptyId, restoreError: undefined });
     const { connectPaneTerminal } = await import("$lib/panes/terminals");

@@ -32,6 +32,7 @@ pub mod subscription_persistence;
 pub mod subscription_service;
 pub mod subscription_store;
 pub mod terminal_env;
+pub mod terminal_profile_env;
 pub mod watch_checks;
 pub mod watch_runner;
 pub mod watch_service;

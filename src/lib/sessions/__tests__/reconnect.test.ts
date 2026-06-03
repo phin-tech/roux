@@ -127,7 +127,7 @@ describe("reconnectSession — existing behavior preserved", () => {
 
     await reconnectSession(session);
 
-    expect(reconnectSessionShellPty).toHaveBeenCalledWith(session.id, null);
+    expect(reconnectSessionShellPty).toHaveBeenCalledWith(session.id, null, null, null);
   });
 
   it("invokes reconnect with extra flags without error", async () => {
@@ -140,7 +140,7 @@ describe("reconnectSession — existing behavior preserved", () => {
 
     await reconnectSession(session, ["--resume", "abc123"]);
 
-    expect(reconnectSessionShellPty).toHaveBeenCalledWith(session.id, null);
+    expect(reconnectSessionShellPty).toHaveBeenCalledWith(session.id, null, null, null);
   });
 
   it("continues a Claude primary profile with claude --continue", async () => {
@@ -346,21 +346,22 @@ describe("reconnectSession — existing behavior preserved", () => {
     const session = makeSession();
     addSession(session);
     initSession(session.id);
+    const inlineProfile = {
+      id: "custom-inline",
+      name: "Custom Inline",
+      source: "user" as const,
+      provider: null,
+      icon: null,
+      startupCommand: "echo hi",
+      setupCommand: null,
+      startupBehavior: "autoRun" as const,
+      cwdOverride: null,
+      env: {},
+    };
     updateInstance(`${session.id}-main`, {
       spawnProfileRef: {
         kind: "inline",
-        profile: {
-          id: "custom-inline",
-          name: "Custom Inline",
-          source: "user",
-          provider: null,
-          icon: null,
-          startupCommand: "echo hi",
-          setupCommand: null,
-          startupBehavior: "autoRun",
-          cwdOverride: null,
-          env: {},
-        },
+        profile: inlineProfile,
       },
     });
 
@@ -369,6 +370,8 @@ describe("reconnectSession — existing behavior preserved", () => {
     expect(reconnectSessionShellPty).toHaveBeenCalledWith(
       session.id,
       "custom-inline",
+      null,
+      inlineProfile,
     );
   });
 
@@ -482,7 +485,7 @@ describe("reconnectSession — full rehydration", () => {
 
     await reconnectSession(session);
 
-    expect(reconnectSessionShellPty).toHaveBeenCalledWith(session.id, null);
+    expect(reconnectSessionShellPty).toHaveBeenCalledWith(session.id, null, null, null);
     expect(get(sessionLayouts).get(session.id)).toEqual({
       kind: "leaf",
       paneId: `${session.id}-main`,
@@ -500,12 +503,14 @@ describe("reconnectSession — full rehydration", () => {
 
     await reconnectSession(session);
 
-    expect(reconnectSessionShellPty).toHaveBeenCalledWith(session.id, null);
+    expect(reconnectSessionShellPty).toHaveBeenCalledWith(session.id, null, null, null);
     expect(spawnShell).toHaveBeenCalledWith(
       expect.any(String),
       "/repo/a",
       session.id,
       "shell-a",
+      null,
+      null,
       null,
     );
     const tree = get(sessionLayouts).get(session.id);
@@ -531,8 +536,8 @@ describe("reconnectSession — full rehydration", () => {
     await reconnectSession(session);
 
     expect(spawnShell).toHaveBeenCalledTimes(2);
-    expect(spawnShell).toHaveBeenCalledWith(expect.any(String), "/repo/a", session.id, "shell-a", null);
-    expect(spawnShell).toHaveBeenCalledWith(expect.any(String), "/repo/b", session.id, "shell-b", null);
+    expect(spawnShell).toHaveBeenCalledWith(expect.any(String), "/repo/a", session.id, "shell-a", null, null, null);
+    expect(spawnShell).toHaveBeenCalledWith(expect.any(String), "/repo/b", session.id, "shell-b", null, null, null);
 
     const instances = get(paneInstances);
     expect(instances.has("shell-a")).toBe(true);
@@ -830,6 +835,8 @@ describe("reconnectSession — full rehydration", () => {
       session.id,
       "shell-pane",
       "plain-shell",
+      null,
+      null,
     );
   });
 
@@ -946,7 +953,7 @@ describe("retryShellPane", () => {
 
     await retryShellPane(paneId, "sess-1");
 
-    expect(spawnShell).toHaveBeenCalledWith(expect.any(String), "/repo", "sess-1", paneId, null);
+    expect(spawnShell).toHaveBeenCalledWith(expect.any(String), "/repo", "sess-1", paneId, null, null, null);
     const inst = get(paneInstances).get(paneId);
     expect(inst?.restoreError).toBeUndefined();
   });

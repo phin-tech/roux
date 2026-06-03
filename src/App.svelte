@@ -900,10 +900,6 @@
             const direction = cmd.direction === "vertical" ? "v" : "h";
             const profileId = cmd.profileId ?? "plain-shell";
 
-            const ptyId = crypto.randomUUID();
-            const paneId = crypto.randomUUID();
-            await spawnShell(ptyId, workingDir, sessionId, paneId);
-
             // Bare shell marker — no profile startup commands. Any other id
             // is backend-validated, so the registry lookup should succeed;
             // throw if it doesn't so the CLI caller sees the failure.
@@ -914,6 +910,16 @@
                 throw new Error(`profile '${profileId}' not found in registry`);
               }
             }
+
+            const ptyId = crypto.randomUUID();
+            const paneId = crypto.randomUUID();
+            await spawnShell(
+              ptyId,
+              workingDir,
+              sessionId,
+              paneId,
+              profile ? profile.id : null,
+            );
 
             const newPaneId = splitPane(sessionId, direction, {
               id: paneId,

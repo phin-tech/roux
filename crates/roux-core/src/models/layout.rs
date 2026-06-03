@@ -12,7 +12,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::profile::{ProfileSource, Provider, SpawnProfile, StartupBehavior};
+use super::profile::{ProfileSource, Provider, SpawnProfile, StartupBehavior, TerminalEnvRule};
 
 /// Direction of a split node in a layout. Matches `SplitDirection`
 /// in `src/lib/panes/layout.ts` (`h`/`v`) but spelled out for KDL
@@ -465,12 +465,7 @@ fn parse_leaf_pane(
         }
     };
 
-    Ok(LayoutPaneNode::Leaf {
-        profile_ref,
-        name: attrs.name.clone(),
-        size: attrs.size,
-        cwd: None,
-    })
+    Ok(LayoutPaneNode::Leaf { profile_ref, name: attrs.name.clone(), size: attrs.size, cwd: None })
 }
 
 fn string_value(src: &str, entry: &kdl::KdlEntry, what: &str) -> Result<String, LayoutParseError> {
@@ -508,7 +503,7 @@ fn parse_inline_profile(
     let mut setup_command: Option<String> = None;
     let mut startup_command: Option<String> = None;
     let mut startup_behavior: Option<StartupBehavior> = None;
-    let mut env: Option<std::collections::BTreeMap<String, String>> = None;
+    let mut env: Option<std::collections::BTreeMap<String, TerminalEnvRule>> = None;
 
     for child in body.nodes() {
         match child.name().value() {
@@ -582,7 +577,7 @@ fn parse_inline_profile(
                             ));
                         }
                     };
-                    map.insert(key, value);
+                    map.insert(key, TerminalEnvRule::value(value));
                 }
                 env = Some(map);
             }
@@ -622,6 +617,7 @@ fn parse_inline_profile(
         startup_command,
         startup_behavior,
         env,
+        before_shell_starts: None,
         cwd_override: None,
         icon: None,
         provider: kind,
@@ -667,12 +663,7 @@ mod tests {
         assert_eq!(spec.description, None);
         assert_eq!(spec.source, LayoutSource::User);
         match spec.root {
-            LayoutPaneNode::Leaf {
-                profile_ref,
-                name,
-                size,
-                cwd,
-            } => {
+            LayoutPaneNode::Leaf { profile_ref, name, size, cwd } => {
                 assert_eq!(profile_ref, LayoutProfileRef::Registered { id: "claude".into() });
                 assert_eq!(name, None);
                 assert_eq!(size, None);
@@ -990,5 +981,4 @@ mod tests {
         let spec = parse(src).unwrap();
         assert!(matches!(spec.root, LayoutPaneNode::Leaf { .. }));
     }
-
 }

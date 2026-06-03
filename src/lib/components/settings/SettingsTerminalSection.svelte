@@ -1,11 +1,64 @@
 <script lang="ts">
   import { open } from "@tauri-apps/plugin-dialog";
   import { revealItemInDir } from "@tauri-apps/plugin-opener";
+  import {
+    JSONEditor,
+    Mode,
+    createAjvValidator,
+    type Content,
+    type ContentErrors,
+    type OnChangeStatus,
+  } from "svelte-jsoneditor";
+  import "svelte-jsoneditor/themes/jse-theme-dark.css";
   import { commands } from "$lib/bindings";
-  import type { GpuAcceleration } from "$lib/bindings";
-  import { settings, updateSetting } from "$lib/stores/settings";
+  import type {
+    GpuAcceleration,
+    SplitProfileBehavior,
+    TerminalDefaults,
+    TerminalEnvRule,
+  } from "$lib/bindings";
+  import { settings, updateSetting, updateSettingsDraft } from "$lib/stores/settings";
   import { userTerminalThemes, loadUserTerminalThemes } from "$lib/stores/userTerminalThemes";
   import { getAllTerminalThemeDefinitions } from "$lib/themes";
+
+  type TerminalEnvRules = Record<string, TerminalEnvRule>;
+
+  const DEFAULT_TERMINAL_DEFAULTS: TerminalDefaults = {
+    env: null,
+    beforeShellStarts: null,
+    splitProfileBehavior: "plainShell",
+  };
+
+  const envRuleValidator = createAjvValidator({
+    schema: {
+      type: "object",
+      additionalProperties: {
+        anyOf: [
+          { type: "string" },
+          {
+            type: "object",
+            required: ["mode"],
+            additionalProperties: false,
+            properties: {
+              mode: { enum: ["value", "inherit", "unset", "command"] },
+              value: { type: "string" },
+              command: { type: "string" },
+            },
+            allOf: [
+              {
+                if: { properties: { mode: { const: "value" } }, required: ["mode"] },
+                then: { required: ["value"] },
+              },
+              {
+                if: { properties: { mode: { const: "command" } }, required: ["mode"] },
+                then: { required: ["command"] },
+              },
+            ],
+          },
+        ],
+      },
+    },
+  });
 
   let allTerminalThemes = $derived(getAllTerminalThemeDefinitions($userTerminalThemes));
   let currentTerminalThemeId = $derived($settings.terminalTheme ?? "match-gui");
@@ -15,6 +68,22 @@
   let isMissingUserTheme = $derived(
     !currentDef && currentTerminalThemeId.startsWith("user:"),
   );
+  let terminalDefaults = $derived({
+    ...DEFAULT_TERMINAL_DEFAULTS,
+    ...($settings.terminalDefaults ?? {}),
+  });
+  let envContent = $state<Content>({ json: {} });
+  let envError = $state<string | null>(null);
+  let lastEnvJson = $state("");
+
+  $effect(() => {
+    const serialized = serializeEnv(terminalDefaults.env);
+    if (serialized !== lastEnvJson) {
+      envContent = { json: terminalDefaults.env ?? {} };
+      envError = null;
+      lastEnvJson = serialized;
+    }
+  });
 
   async function browseShellBinary() {
     const selected = await open({
@@ -31,6 +100,72 @@
     } catch (e) {
       console.error("reveal user themes dir failed", e);
     }
+  }
+
+  function updateTerminalDefaults(patch: Partial<TerminalDefaults>): void {
+    updateSettingsDraft((current) => ({
+      ...current,
+      terminalDefaults: {
+        ...DEFAULT_TERMINAL_DEFAULTS,
+        ...(current.terminalDefaults ?? {}),
+        ...patch,
+      },
+    }));
+  }
+
+  function updateBeforeShellStarts(value: string): void {
+    updateTerminalDefaults({ beforeShellStarts: value.trim() ? value : null });
+  }
+
+  function updateSplitProfileBehavior(value: SplitProfileBehavior): void {
+    updateTerminalDefaults({ splitProfileBehavior: value });
+  }
+
+  function handleEnvChange(
+    content: Content,
+    _previousContent: Content,
+    status: OnChangeStatus,
+  ): void {
+    envContent = content;
+    if (status.contentErrors) {
+      envError = describeContentErrors(status.contentErrors);
+      return;
+    }
+
+    let json: unknown;
+    try {
+      json = "json" in content ? content.json : JSON.parse(content.text);
+    } catch (error) {
+      envError = error instanceof Error ? error.message : "Invalid JSON";
+      return;
+    }
+
+    if (!isPlainObject(json)) {
+      envError = "Terminal environment rules must be a JSON object.";
+      return;
+    }
+
+    const env = Object.keys(json).length > 0 ? (json as TerminalEnvRules) : null;
+    envError = null;
+    lastEnvJson = serializeEnv(env);
+    updateTerminalDefaults({ env });
+  }
+
+  function describeContentErrors(errors: ContentErrors): string {
+    if ("parseError" in errors) {
+      return errors.parseError.message;
+    }
+
+    const [first] = errors.validationErrors;
+    return first?.message ?? "Invalid terminal environment rules.";
+  }
+
+  function isPlainObject(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+  }
+
+  function serializeEnv(env: TerminalDefaults["env"] | undefined): string {
+    return JSON.stringify(env ?? {}, null, 2);
   }
 </script>
 
@@ -141,6 +276,61 @@
   </select>
 </div>
 <div class="mt-3 rounded-xl border border-border-subtle bg-bg-surface/35 p-3">
+  <div class="flex items-start justify-between gap-3">
+    <div>
+      <div class="text-[13px] font-semibold">Terminal defaults</div>
+      <div class="mt-0.5 text-[11px] text-text-muted">Applies to newly spawned shells before profile-specific setup.</div>
+    </div>
+    <select
+      class="bg-bg-deep border border-border rounded px-2 py-1 text-xs text-text-primary outline-none cursor-pointer appearance-none pr-6"
+      value={terminalDefaults.splitProfileBehavior}
+      onchange={(e) => updateSplitProfileBehavior(e.currentTarget.value as SplitProfileBehavior)}
+      title="Plain split behavior"
+    >
+      <option value="plainShell">Plain shell</option>
+      <option value="appDefaultProfile">App default profile</option>
+      <option value="activePaneProfile">Active pane profile</option>
+      <option value="askEveryTime">Ask every time</option>
+    </select>
+  </div>
+
+  <div class="mt-3 flex flex-col gap-1.5">
+    <label for="terminal-before-shell-starts" class="text-[11px] font-semibold uppercase tracking-wider text-text-muted">
+      Before shell starts
+    </label>
+    <textarea
+      id="terminal-before-shell-starts"
+      class="min-h-16 rounded-md border border-border bg-bg-deep px-3 py-2 font-mono text-xs text-text-primary outline-none focus:border-accent-dim"
+      value={terminalDefaults.beforeShellStarts ?? ""}
+      oninput={(e) => updateBeforeShellStarts(e.currentTarget.value)}
+      spellcheck="false"
+      placeholder="aws sts get-caller-identity --profile prod >/dev/null 2>&1 || aws sso login --profile prod"
+    ></textarea>
+  </div>
+
+  <div class="mt-3 flex flex-col gap-1.5">
+    <div class="flex items-center justify-between gap-3">
+      <label for="terminal-env-rules" class="text-[11px] font-semibold uppercase tracking-wider text-text-muted">
+        Environment
+      </label>
+      {#if envError}
+        <span class="text-[11px] text-red">{envError}</span>
+      {/if}
+    </div>
+    <div id="terminal-env-rules" class="roux-json-editor h-56 overflow-hidden rounded-md border border-border bg-bg-deep">
+      <JSONEditor
+        content={envContent}
+        mode={Mode.text}
+        mainMenuBar={false}
+        navigationBar={false}
+        statusBar={true}
+        validator={envRuleValidator}
+        onChange={handleEnvChange}
+      />
+    </div>
+  </div>
+</div>
+<div class="mt-3 rounded-xl border border-border-subtle bg-bg-surface/35 p-3">
   <div class="flex items-center justify-between">
     <div class="text-[13px] font-semibold">Shell</div>
   </div>
@@ -168,3 +358,16 @@
     </div>
   </div>
 </div>
+
+<style>
+  :global(.roux-json-editor .jse-main) {
+    height: 100%;
+    min-height: 0;
+    background: transparent;
+  }
+
+  :global(.roux-json-editor .jse-menu),
+  :global(.roux-json-editor .jse-status-bar) {
+    border-color: var(--border-subtle);
+  }
+</style>

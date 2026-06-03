@@ -39,6 +39,61 @@ pub enum StartupBehavior {
     TypeOnly,
 }
 
+/// Mode for a structured terminal environment rule.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub enum TerminalEnvRuleMode {
+    /// Set the variable to the exact configured value.
+    Value,
+    /// Leave the currently-resolved value alone when one exists.
+    Inherit,
+    /// Remove the variable from the spawned process environment.
+    Unset,
+    /// Run a non-interactive command before spawn and use trimmed stdout.
+    Command,
+}
+
+/// Structured terminal environment rule. `value` is used with `mode:
+/// "value"` and `command` is used with `mode: "command"`. Missing strings
+/// are validated by the runtime resolver so settings can still deserialize
+/// and be edited after a bad value is saved.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalEnvRuleSpec {
+    pub mode: TerminalEnvRuleMode,
+    #[serde(default)]
+    pub value: Option<String>,
+    #[serde(default)]
+    pub command: Option<String>,
+}
+
+/// Environment rule value. The string variant is the legacy settings shape
+/// and is treated as `mode: "value"`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(untagged)]
+pub enum TerminalEnvRule {
+    LegacyValue(String),
+    Structured(TerminalEnvRuleSpec),
+}
+
+impl TerminalEnvRule {
+    pub fn value(value: impl Into<String>) -> Self {
+        Self::LegacyValue(value.into())
+    }
+
+    pub fn structured(mode: TerminalEnvRuleMode) -> Self {
+        Self::Structured(TerminalEnvRuleSpec { mode, value: None, command: None })
+    }
+
+    pub fn command(command: impl Into<String>) -> Self {
+        Self::Structured(TerminalEnvRuleSpec {
+            mode: TerminalEnvRuleMode::Command,
+            value: None,
+            command: Some(command.into()),
+        })
+    }
+}
+
 /// A named recipe for launching something inside a shell pane. Orthogonal to
 /// pane type: every launched pane is a shell, and a profile is just optional
 /// metadata attached at creation describing how the shell was seeded.
@@ -63,7 +118,9 @@ pub struct SpawnProfile {
     #[serde(default)]
     pub startup_behavior: Option<StartupBehavior>,
     #[serde(default)]
-    pub env: Option<BTreeMap<String, String>>,
+    pub env: Option<BTreeMap<String, TerminalEnvRule>>,
+    #[serde(default)]
+    pub before_shell_starts: Option<String>,
     #[serde(default)]
     pub cwd_override: Option<String>,
     #[serde(default)]
@@ -83,6 +140,7 @@ impl SpawnProfile {
             startup_command: None,
             startup_behavior: None,
             env: None,
+            before_shell_starts: None,
             cwd_override: None,
             icon: None,
             provider: None,
@@ -123,5 +181,15 @@ mod tests {
         assert!(json.contains("\"startupCommand\":null"));
         assert!(json.contains("\"provider\":null"));
         assert!(json.contains("\"env\":null"));
+        assert!(json.contains("\"beforeShellStarts\":null"));
+    }
+
+    #[test]
+    fn env_rule_accepts_legacy_string_and_structured_shapes() {
+        let legacy: TerminalEnvRule = serde_json::from_str(r#""prod""#).unwrap();
+        assert_eq!(legacy, TerminalEnvRule::LegacyValue("prod".to_string()));
+
+        let structured: TerminalEnvRule = serde_json::from_str(r#"{"mode":"unset"}"#).unwrap();
+        assert_eq!(structured, TerminalEnvRule::structured(TerminalEnvRuleMode::Unset));
     }
 }
