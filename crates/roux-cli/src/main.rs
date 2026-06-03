@@ -1418,15 +1418,31 @@ fn write_private_config_file(path: &PathBuf, contents: &str) -> Result<(), Strin
         use std::io::Write;
         use std::os::unix::fs::OpenOptionsExt;
         use std::os::unix::fs::PermissionsExt;
-        let mut file = std::fs::OpenOptions::new()
-            .create(true)
-            .truncate(true)
-            .write(true)
-            .mode(0o600)
-            .open(path)
-            .map_err(|err| format!("write config file {}: {err}", path.display()))?;
-        file.write_all(contents.as_bytes())
-            .map_err(|err| format!("write config file {}: {err}", path.display()))?;
+
+        let file_name = path.file_name().and_then(|name| name.to_str()).unwrap_or("roux-config");
+        let tmp_path =
+            path.with_file_name(format!(".{file_name}.{}.tmp", uuid::Uuid::new_v4().simple()));
+
+        let result = (|| {
+            let mut file = std::fs::OpenOptions::new()
+                .create_new(true)
+                .write(true)
+                .mode(0o600)
+                .open(&tmp_path)
+                .map_err(|err| format!("write config file {}: {err}", tmp_path.display()))?;
+            file.write_all(contents.as_bytes())
+                .map_err(|err| format!("write config file {}: {err}", tmp_path.display()))?;
+            drop(file);
+            std::fs::rename(&tmp_path, path).map_err(|err| {
+                format!("replace config file {} with {}: {err}", path.display(), tmp_path.display())
+            })?;
+            Ok::<(), String>(())
+        })();
+        if result.is_err() {
+            let _ = std::fs::remove_file(&tmp_path);
+        }
+        result?;
+
         std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
             .map_err(|err| format!("set permissions on config file {}: {err}", path.display()))?;
     }
@@ -3993,6 +4009,23 @@ mod tests {
         let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o600);
         assert_eq!(std::fs::read_to_string(path).unwrap(), "secret-token");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_config_file_replaces_permissive_existing_file() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("roux-socket-token");
+        std::fs::write(&path, "old-token").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+        write_private_config_file(&path, "new-token").unwrap();
+
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+        assert_eq!(std::fs::read_to_string(path).unwrap(), "new-token");
     }
 
     #[test]
