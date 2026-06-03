@@ -137,11 +137,6 @@ describe("sidebar pin-slot state", () => {
       expect(isPinned("notes")).toBe(true);
     });
 
-    it("pinSidebar is a no-op for non-pinnable panels (settings)", () => {
-      pinSidebar("settings");
-      expect(get(pinnedSidebar)).toBeNull();
-    });
-
     it("pinSidebar is a no-op for non-pinnable panels (docs)", () => {
       pinSidebar("docs");
       expect(get(pinnedSidebar)).toBeNull();
@@ -175,14 +170,6 @@ describe("sidebar pin-slot state", () => {
       expect(get(activeSidebar)).toBe("docs");
     });
 
-    it("unpinSidebar preserves a settings takeover (doesn't close settings)", () => {
-      pinSidebar("notes");
-      openSidebar("settings");
-      unpinSidebar();
-      expect(get(pinnedSidebar)).toBeNull();
-      expect(get(activeSidebar)).toBe("settings");
-    });
-
     it("closePinned clears only the pinned slot, leaving active untouched", () => {
       pinSidebar("notes");
       openSidebar("watches");
@@ -213,19 +200,11 @@ describe("sidebar pin-slot state", () => {
     });
 
     it("PINNABLE_SIDEBARS excludes heavy panels", () => {
-      expect(PINNABLE_SIDEBARS.has("settings")).toBe(false);
       expect(PINNABLE_SIDEBARS.has("docs")).toBe(false);
     });
   });
 
-  describe("takeover behavior for Settings / Docs", () => {
-    it("opening settings while another panel is pinned leaves pinned state intact", () => {
-      pinSidebar("notes");
-      openSidebar("settings");
-      expect(get(pinnedSidebar)).toBe("notes");
-      expect(get(activeSidebar)).toBe("settings");
-    });
-
+  describe("takeover behavior for Docs", () => {
     it("opening docs while another panel is pinned leaves pinned state intact", () => {
       pinSidebar("watches");
       openSidebar("docs");

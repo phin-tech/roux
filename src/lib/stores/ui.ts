@@ -14,7 +14,6 @@ import type { WorkItemStatus } from "$lib/stores/workItems";
  * otherwise the single panel takes the full docked region.
  */
 export type SidebarId =
-  | "settings"
   | "notes"
   | "watches"
   | "library"

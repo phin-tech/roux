@@ -10,14 +10,12 @@
   import { sidebarLayout } from "$lib/stores/sidebarLayout";
   import { mainViewRoute } from "$lib/stores/mainView";
   import { openNewProjectDialog } from "$lib/stores/newProjectDialog";
-  import type { Snippet } from "svelte";
 
   interface Props {
     onNewSession: () => void;
-    settingsPanel?: Snippet;
   }
 
-  let { onNewSession, settingsPanel }: Props = $props();
+  let { onNewSession }: Props = $props();
 
   let statusBarPosition = $derived($settings.statusBarPosition ?? "bottom");
   let railSide = $derived($sidebarLayout.railSide);
@@ -101,10 +99,6 @@
           <MainViewHost />
         {/if}
       </div>
-
-      {#if settingsPanel}
-        {@render settingsPanel()}
-      {/if}
 
       {#if statusBarPosition === "bottom"}
         <StatusBar position="bottom" />

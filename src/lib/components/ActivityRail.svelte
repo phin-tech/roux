@@ -29,15 +29,20 @@
   import { unreadTotal } from "$lib/stores/notifications";
   import { meUnread } from "$lib/stores/mailbox";
 
-  interface Item {
+  interface DockItem {
     id: SidebarId;
+    label: string;
+    icon: Component<{ size?: number; class?: string }>;
+  }
+
+  interface RailActionItem {
     label: string;
     icon: Component<{ size?: number; class?: string }>;
   }
 
   // Static rail items. The Worktrunk icon is appended dynamically below
   // only when its binary is detected.
-  const baseDockItems: Item[] = [
+  const baseDockItems: DockItem[] = [
     { id: "sessions", label: "Sessions", icon: FolderTree },
     { id: "notes", label: "Notes", icon: StickyNote },
     { id: "watches", label: "Watches", icon: Eye },
@@ -48,19 +53,19 @@
     { id: "notifications", label: "Notifications", icon: Bell },
     { id: "mailbox", label: "Mailbox", icon: Inbox },
   ];
-  const worktrunkItem: Item = {
+  const worktrunkItem: DockItem = {
     id: "worktrunk",
     label: "Worktrunk",
     icon: Trees,
   };
 
-  let dockItems = $derived.by<Item[]>(() => {
+  let dockItems = $derived.by<DockItem[]>(() => {
     const items = [...baseDockItems];
     if ($worktrunkDetection.binaryPath) items.push(worktrunkItem);
     return items;
   });
 
-  const settingsItem: Item = { id: "settings", label: "Settings", icon: SettingsIcon };
+  const settingsItem: RailActionItem = { label: "Settings", icon: SettingsIcon };
 
   function handleClick(event: MouseEvent, id: SidebarId): void {
     event.preventDefault();
@@ -103,7 +108,7 @@
     openMainView({ kind: "preferences", category: "general" });
   }
 
-  function buttonTitle(item: Item): string {
+  function buttonTitle(item: DockItem): string {
     return item.label;
   }
 
