@@ -30,6 +30,8 @@ pub enum TerminalProfileEnvError {
     EnvCommandFailed { name: String, status: String },
     #[error("terminal env command for {name} could not run: {error}")]
     EnvCommandIo { name: String, error: String },
+    #[error("terminal env value for {name} is missing")]
+    MissingEnvValue { name: String },
     #[error("{stage} command failed with status {status}")]
     PreflightFailed { stage: &'static str, status: String },
     #[error("{stage} command could not run: {error}")]
@@ -119,7 +121,12 @@ fn apply_structured_rule(
     working_dir: &Path,
 ) -> Result<(), TerminalProfileEnvError> {
     match spec.mode {
-        TerminalEnvRuleMode::Value => env.set(name, spec.value.clone().unwrap_or_default()),
+        TerminalEnvRuleMode::Value => {
+            let value = spec.value.clone().ok_or_else(|| {
+                TerminalProfileEnvError::MissingEnvValue { name: name.to_string() }
+            })?;
+            env.set(name, value);
+        }
         TerminalEnvRuleMode::Inherit => {}
         TerminalEnvRuleMode::Unset => env.unset(name),
         TerminalEnvRuleMode::Command => {
@@ -385,6 +392,28 @@ mod tests {
 
         assert!(!plan.env.iter().any(|(name, _)| name == "BASE_ONLY"));
         assert_eq!(plan.env_remove, vec!["REMOVE_ME".to_string()]);
+    }
+
+    #[test]
+    fn value_mode_requires_a_value() {
+        let dir = tempfile::tempdir().unwrap();
+        let profile = make_profile(BTreeMap::from([(
+            "MISSING".to_string(),
+            rule(TerminalEnvRuleMode::Value),
+        )]));
+
+        let err = resolve_terminal_profile_env(TerminalProfileEnvInputs {
+            base_env: base_env(),
+            terminal_defaults: None,
+            roux_env: &[],
+            profile: Some(&profile),
+            launch_env: None,
+            shell: "/bin/sh",
+            working_dir: dir.path(),
+        })
+        .unwrap_err();
+
+        assert_eq!(err, TerminalProfileEnvError::MissingEnvValue { name: "MISSING".to_string() });
     }
 
     #[cfg(not(windows))]

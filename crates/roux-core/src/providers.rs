@@ -419,7 +419,7 @@ mod tests {
     }
 
     #[test]
-    fn startup_input_emits_env_and_setup_before_startup() {
+    fn startup_input_runs_setup_before_startup_without_env_exports() {
         let mut env = std::collections::BTreeMap::new();
         env.insert("FOO".to_string(), TerminalEnvRule::value("bar baz"));
         env.insert("not valid".to_string(), TerminalEnvRule::value("skip"));

@@ -43,6 +43,33 @@ fn make_watch_config() -> roux_core::CreateWatchConfig {
     }
 }
 
+#[test]
+fn spawn_profile_data_rejects_malformed_inline_payload() {
+    let settings = roux_core::RouxSettings::default();
+    let err = resolve_spawn_profile_data(
+        &serde_json::json!({
+            "profile": "plain-shell",
+            "profileData": { "id": "inline-only" }
+        }),
+        &settings,
+    )
+    .unwrap_err();
+
+    assert!(err.contains("invalid profileData"));
+}
+
+#[test]
+fn launch_env_overrides_reject_malformed_rules() {
+    let err = parse_launch_env_overrides(&serde_json::json!({
+        "envOverrides": {
+            "AWS_PROFILE": { "mode": "bogus" }
+        }
+    }))
+    .unwrap_err();
+
+    assert!(err.contains("invalid envOverrides"));
+}
+
 #[tokio::test]
 async fn daemon_status_is_daemon_only_socket_command() {
     let dir = tempfile::tempdir().unwrap();

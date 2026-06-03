@@ -32,6 +32,7 @@ import { openCustomProfileEditor } from "$lib/stores/customProfileModal";
 import { log, logError } from "$lib/logging";
 import { settings } from "$lib/stores/settings";
 import { openCommandPaletteWithCommand } from "$lib/stores/commandSurface";
+import { resolveAppDefaultSplitProfile } from "$lib/panes/splitProfileBehavior";
 
 async function spawnPlainShellPane(direction: "h" | "v"): Promise<void> {
   const session = queries.activeSession();
@@ -70,7 +71,10 @@ async function splitWithConfiguredBehavior(direction: "h" | "v"): Promise<void> 
 
   let profile: SpawnProfile | null = null;
   if (behavior === "appDefaultProfile") {
-    profile = get(profileRegistry).get(get(settings).defaultAgentProfile ?? "claude") ?? null;
+    profile = resolveAppDefaultSplitProfile(
+      get(profileRegistry),
+      get(settings).defaultAgentProfile,
+    );
   } else if (behavior === "activePaneProfile") {
     profile = resolveProfileRef(queries.focusedPane()?.spawnProfileRef);
   }
