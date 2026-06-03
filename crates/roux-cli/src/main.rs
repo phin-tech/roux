@@ -1413,14 +1413,28 @@ fn write_private_config_file(path: &PathBuf, contents: &str) -> Result<(), Strin
         std::fs::create_dir_all(parent)
             .map_err(|err| format!("create config directory {}: {err}", parent.display()))?;
     }
-    std::fs::write(path, contents)
-        .map_err(|err| format!("write config file {}: {err}", path.display()))?;
-
     #[cfg(unix)]
     {
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
         use std::os::unix::fs::PermissionsExt;
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .write(true)
+            .mode(0o600)
+            .open(path)
+            .map_err(|err| format!("write config file {}: {err}", path.display()))?;
+        file.write_all(contents.as_bytes())
+            .map_err(|err| format!("write config file {}: {err}", path.display()))?;
         std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
             .map_err(|err| format!("set permissions on config file {}: {err}", path.display()))?;
+    }
+
+    #[cfg(not(unix))]
+    {
+        std::fs::write(path, contents)
+            .map_err(|err| format!("write config file {}: {err}", path.display()))?;
     }
 
     Ok(())
@@ -3964,6 +3978,21 @@ mod tests {
         let cli = Cli::try_parse_from(["roux", "daemon", "disconnect"]).unwrap();
 
         assert!(matches!(cli.command, Commands::Daemon { action: Some(DaemonAction::Disconnect) }));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_config_file_is_created_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("roux-socket-token");
+
+        write_private_config_file(&path, "secret-token").unwrap();
+
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+        assert_eq!(std::fs::read_to_string(path).unwrap(), "secret-token");
     }
 
     #[test]
