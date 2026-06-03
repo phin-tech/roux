@@ -310,6 +310,14 @@ describe("startup target preference", () => {
     expect(get(sessionState).activeSessionId).toBe("new");
   });
 
+  it("opens the sessions sidebar when lastSession has no restored sessions", async () => {
+    await applyStartupTargetPreference("lastSession");
+
+    expect(get(sessionState).activeSessionId).toBeNull();
+    expect(get(pinnedSidebar)).toBe("sessions");
+    expect(get(activeSidebar)).toBeNull();
+  });
+
   it("opens a configured global external tool", async () => {
     await applyStartupTargetPreference("externalTool", "github");
 

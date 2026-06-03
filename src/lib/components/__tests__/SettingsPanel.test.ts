@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { get, writable } from "svelte/store";
+import { tick } from "svelte";
 import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import { DEFAULT_SETTINGS } from "$lib/types";
 
@@ -134,11 +135,13 @@ vi.mock("$lib/stores/updater", () => ({
 import { commands } from "$lib/bindings";
 import SettingsPanel from "../SettingsPanel.svelte";
 import { settings } from "$lib/stores/settings";
+import { settingsFocus } from "$lib/stores/settingsFocus";
 import { getRuntimeStatus, updateSettings } from "$lib/tauri";
 
 describe("SettingsPanel Kanban tab", () => {
   beforeEach(() => {
     settings.set({ ...DEFAULT_SETTINGS });
+    settingsFocus.set(null);
     vi.mocked(updateSettings).mockClear();
   });
 
@@ -440,6 +443,24 @@ describe("SettingsPanel external tools", () => {
     await fireEvent.click(screen.getByRole("button", { name: "External Tools" }));
 
     expect(screen.queryByDisplayValue("github")).toBeNull();
+  });
+
+  it("does not replay the route external tool focus after consuming a settings focus request", async () => {
+    settingsFocus.set({ category: "externalTools", externalToolId: "github" });
+    render(SettingsPanel, {
+      visible: true,
+      onclose: vi.fn(),
+      initialCategory: "externalTools",
+      externalToolId: "difit",
+    });
+
+    expect(await screen.findByDisplayValue("github")).toBeDefined();
+
+    await tick();
+    await tick();
+
+    expect(screen.queryByDisplayValue("github")).toBeDefined();
+    expect(screen.queryByDisplayValue("difit")).toBeNull();
   });
 
   it("clamps preferred ports before saving external web tools", async () => {

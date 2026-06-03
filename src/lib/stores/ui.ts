@@ -168,7 +168,11 @@ export async function applyStartupTargetPreference(
       return;
     case "lastSession": {
       const newest = [...get(sessionState).sessions].sort((a, b) => b.createdAt - a.createdAt)[0];
-      if (newest) setActiveSession(newest.id);
+      if (newest) {
+        setActiveSession(newest.id);
+        return;
+      }
+      applyStartupSidebarPreference("sessions");
       return;
     }
     case "externalTool":

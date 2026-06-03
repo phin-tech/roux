@@ -58,6 +58,7 @@
   let externalToolFocusToken = $state(0);
   let nextExternalToolFocusToken = 0;
   let wasVisible = false;
+  let consumedSettingsFocus = false;
 
   function focusExternalTool(id: string | null): void {
     focusedExternalToolId = id;
@@ -72,15 +73,24 @@
   $effect(() => {
     const justOpened = visible && !wasVisible;
     wasVisible = visible;
-    if (!visible) return;
+    if (!visible) {
+      consumedSettingsFocus = false;
+      return;
+    }
 
     const focus = $settingsFocus;
     if (focus?.category) {
+      consumedSettingsFocus = true;
       selected = normalizeSettingsCategoryId(focus.category);
       if (focus.category === "externalTools" && "externalToolId" in focus) {
         focusExternalTool(focus.externalToolId ?? null);
       }
       settingsFocus.set(null);
+      return;
+    }
+
+    if (consumedSettingsFocus) {
+      consumedSettingsFocus = false;
       return;
     }
 
