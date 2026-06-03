@@ -57,6 +57,10 @@ pub fn resolve_terminal_profile_env(
 
     apply_env_rules(&mut env, inputs.launch_env, inputs.shell, inputs.working_dir)?;
 
+    for (name, value) in inputs.roux_env {
+        env.set(name, value.clone());
+    }
+
     if let Some(defaults) = inputs.terminal_defaults {
         run_preflight(
             "global beforeShellStarts",
@@ -347,7 +351,10 @@ mod tests {
             ("ROUX_SESSION_ID".to_string(), value("profile-session")),
             ("SHARED".to_string(), value("profile")),
         ]));
-        let launch = BTreeMap::from([("SHARED".to_string(), value("launch"))]);
+        let launch = BTreeMap::from([
+            ("ROUX_SESSION_ID".to_string(), value("launch-session")),
+            ("SHARED".to_string(), value("launch")),
+        ]);
 
         let plan = resolve_terminal_profile_env(TerminalProfileEnvInputs {
             base_env: base_env(),
@@ -365,7 +372,7 @@ mod tests {
             BTreeMap::from([
                 ("GLOBAL".to_string(), "global".to_string()),
                 ("PROFILE".to_string(), "profile".to_string()),
-                ("ROUX_SESSION_ID".to_string(), "profile-session".to_string()),
+                ("ROUX_SESSION_ID".to_string(), "roux-session".to_string()),
                 ("SHARED".to_string(), "launch".to_string()),
             ])
         );

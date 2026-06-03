@@ -60,7 +60,8 @@ Rule behavior:
 
 Command-derived values are not logged by default. If a command rule fails,
 shell creation aborts and the error names the variable without printing stdout
-or stderr.
+or stderr. Command rules must return promptly; they are not intended for
+interactive authentication.
 
 ## Preflight Commands
 
@@ -75,18 +76,22 @@ aws sts get-caller-identity --profile prod >/dev/null 2>&1 || aws sso login --pr
 ```
 
 Terminal-default preflight runs before profile preflight. Both run with the
-final resolved environment.
+final resolved environment. Preflight commands may perform readiness or
+authentication work, so Roux does not impose a fixed timeout; choose commands
+whose blocking behavior is acceptable for shell creation.
 
 ## Precedence
 
 Environment is resolved in this order:
 
 ```text
-daemon base env -> global terminal env -> Roux session env -> profile env -> per-launch overrides
+daemon base env -> global terminal env -> Roux session env -> profile env -> per-launch overrides -> protected Roux session env
 ```
 
 `inherit` means inherit from the resolved environment at that point. It does
-not inspect live exports inside an already-running shell.
+not inspect live exports inside an already-running shell. Roux-owned session
+variables such as pane and session identifiers are re-applied last so profile
+or launch rules cannot break hook routing.
 
 ## Example AWS SSO Profile
 

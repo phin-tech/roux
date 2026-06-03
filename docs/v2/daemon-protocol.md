@@ -947,13 +947,17 @@ objects:
 The daemon resolves env in this order:
 
 ```text
-daemon base env -> global terminal env -> Roux session env -> profile env -> per-launch overrides
+daemon base env -> global terminal env -> Roux session env -> profile env -> per-launch overrides -> protected Roux session env
 ```
 
 If `profileData` is omitted and `profile` is supplied, the daemon resolves the
 profile id from settings and built-ins. Terminal-default `beforeShellStarts`
 runs before profile `beforeShellStarts`; command-mode env stdout is trimmed
-and not logged by default.
+and not logged by default. Command-mode env commands must return promptly and
+are not intended for interactive authentication. Roux-owned session variables
+are re-applied last so profile or launch rules cannot corrupt hook routing.
+Preflight commands may perform authentication work, so the daemon does not
+impose a fixed timeout.
 
 Returns a PTY record.
 

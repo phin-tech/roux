@@ -577,7 +577,7 @@ mod tests {
     }
 
     #[test]
-    fn initial_prompt_command_preserves_env_and_setup_before_agent() {
+    fn initial_prompt_command_preserves_setup_before_agent() {
         let mut env = std::collections::BTreeMap::new();
         env.insert("FOO".to_string(), TerminalEnvRule::value("bar baz"));
         env.insert("not valid".to_string(), TerminalEnvRule::value("skip"));
