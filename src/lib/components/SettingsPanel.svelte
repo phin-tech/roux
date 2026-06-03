@@ -15,6 +15,7 @@
   import { THEME_DEFINITIONS, getAllTerminalThemeDefinitions } from "$lib/themes";
   import { userTerminalThemes, loadUserTerminalThemes } from "$lib/stores/userTerminalThemes";
   import { profileList, type SpawnProfile } from "$lib/panes/profiles";
+  import { effectiveDefaultAgentProfileId } from "$lib/panes/defaultAgent";
   import { getLogPath, setLoggingEnabled } from "$lib/logging";
   import {
     getRuntimeStatus,
@@ -365,8 +366,7 @@
   }
 
   function defaultAgentProfile(): string {
-    const id = ($settings.defaultAgentProfile ?? $settings.kanban?.defaultAgentProfile ?? "claude").trim();
-    return id || "claude";
+    return effectiveDefaultAgentProfileId($settings);
   }
 
   function updateDefaultAgentProfile(profileId: string): void {
@@ -535,7 +535,7 @@
   });
 
   $effect(() => {
-    if (!visible || selected !== "notifications") {
+    if (!visible || selected !== "agents") {
       agentNotificationStatusRun += 1;
       return;
     }
@@ -1292,6 +1292,102 @@
                 />
               </div>
             </div>
+
+            <div class="mt-3 rounded-xl border border-border-subtle bg-bg-surface/35 p-3">
+              <div class="flex items-center justify-between gap-2">
+                <div>
+                  <div class="text-[13px] font-semibold">Agent notifications</div>
+                  <div class="mt-0.5 text-[11px] text-text-muted">
+                    Configure Claude Code hooks and Codex TUI settings so agent events reach Roux.
+                  </div>
+                </div>
+                <button
+                  class="rounded border border-border bg-bg-elevated px-2 py-1 text-[11px] text-text-secondary hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-40"
+                  disabled={agentNotificationBusy !== null}
+                  onclick={() => {
+                    agentNotificationBusy = "refresh";
+                    agentNotificationMessage = null;
+                    const run = ++agentNotificationStatusRun;
+                    void refreshAgentNotificationStatus(run).finally(() => {
+                      if (agentNotificationBusy === "refresh") agentNotificationBusy = null;
+                    });
+                  }}
+                >{agentNotificationBusy === "refresh" ? "Refreshing" : "Refresh"}</button>
+              </div>
+
+              <div class="mt-3 flex flex-col gap-2">
+                <div class="rounded border border-border-subtle bg-bg-deep/60 p-2">
+                  <div class="flex items-start justify-between gap-2">
+                    <div class="min-w-0">
+                      <div class="text-[12px] font-medium">Claude Code</div>
+                      <div class="mt-0.5 text-[11px] text-text-muted">
+                        {claudeNotificationProvider?.detail ?? "Checking Claude Code hook setup."}
+                      </div>
+                    </div>
+                    <span class={notificationProviderClass(claudeNotificationProvider)}>
+                      {notificationProviderLabel(claudeNotificationProvider)}
+                    </span>
+                  </div>
+                  <div class="mt-2 flex gap-1">
+                    <button
+                      class="rounded border border-border bg-bg-elevated px-2 py-1 text-[11px] text-text-secondary hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-40"
+                      disabled={agentNotificationBusy !== null || !claudeNotificationProvider || claudeNotificationProvider.installable === false}
+                      onclick={configureClaudeNotifications}
+                    >{agentNotificationBusy === "claude" ? "Configuring" : (claudeNotificationProvider?.status === "installed" ? "Reinstall" : "Configure")}</button>
+                  </div>
+                </div>
+
+                <div class="rounded border border-border-subtle bg-bg-deep/60 p-2">
+                  <div class="flex items-start justify-between gap-2">
+                    <div class="min-w-0">
+                      <div class="text-[12px] font-medium">Codex</div>
+                      <div class="mt-0.5 text-[11px] text-text-muted">
+                        {codexNotificationProvider?.detail ?? "Checking Codex notification configuration."}
+                      </div>
+                      {#if codexNotificationProvider?.configPath}
+                        <div class="mt-1 max-w-[25rem] truncate font-mono text-[10px] text-text-muted" title={codexNotificationProvider.configPath}>
+                          {codexNotificationProvider.configPath}
+                        </div>
+                      {/if}
+                    </div>
+                    <span class={notificationProviderClass(codexNotificationProvider)}>
+                      {notificationProviderLabel(codexNotificationProvider)}
+                    </span>
+                  </div>
+                  <div class="mt-2 flex gap-1">
+                    <button
+                      class="rounded border border-border bg-bg-elevated px-2 py-1 text-[11px] text-text-secondary hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-40"
+                      disabled={agentNotificationBusy !== null || !codexNotificationProvider || codexNotificationProvider.installable === false}
+                      onclick={previewCodexNotifications}
+                    >{agentNotificationBusy === "codex-preview" ? "Previewing" : "Preview"}</button>
+                    <button
+                      class="rounded border border-border bg-bg-elevated px-2 py-1 text-[11px] text-text-secondary hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-40"
+                      disabled={agentNotificationBusy !== null || !codexNotificationProvider || codexNotificationProvider.installable === false}
+                      onclick={configureCodexNotifications}
+                    >{agentNotificationBusy === "codex-configure" ? "Configuring" : "Configure"}</button>
+                  </div>
+
+                  {#if codexNotificationPreview}
+                    <div class="mt-2 rounded border border-border-subtle bg-bg-deep/70 p-2">
+                      <div class="mb-1 flex items-center justify-between gap-2 text-[10px] uppercase tracking-wider text-text-muted">
+                        <span>Codex config preview</span>
+                        <span class="truncate font-mono normal-case tracking-normal" title={codexNotificationPreview.configPath}>
+                          {codexNotificationPreview.configPath}
+                        </span>
+                      </div>
+                      <pre class="app-scrollbar max-h-32 overflow-auto whitespace-pre-wrap break-words font-mono text-[10px] text-text-secondary">{codexNotificationPreview.nextContent}</pre>
+                    </div>
+                  {/if}
+                </div>
+              </div>
+
+              {#if agentNotificationMessage}
+                <div class="mt-2 text-[11px] text-green">{agentNotificationMessage}</div>
+              {/if}
+              {#if agentNotificationError}
+                <div class="mt-2 text-[11px] text-red">{agentNotificationError}</div>
+              {/if}
+            </div>
           {:else if selected === "kanban"}
             {@const kanban = kanbanSettings()}
             <div class="py-2">
@@ -2043,102 +2139,6 @@
                 <div class="w-3.5 h-3.5 rounded-full absolute top-0.5 transition-all
                   {($settings.agentCompletionNotificationsEnabled ?? true) ? 'left-[18px] bg-accent' : 'left-0.5 bg-text-secondary'}"></div>
               </button>
-            </div>
-
-            <div class="mt-3 rounded-xl border border-border-subtle bg-bg-surface/35 p-3">
-              <div class="flex items-center justify-between gap-2">
-                <div>
-                  <div class="text-[13px] font-semibold">Agent notifications</div>
-                  <div class="mt-0.5 text-[11px] text-text-muted">
-                    Configure Claude Code hooks and Codex TUI settings so agent events reach Roux.
-                  </div>
-                </div>
-                <button
-                  class="rounded border border-border bg-bg-elevated px-2 py-1 text-[11px] text-text-secondary hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-40"
-                  disabled={agentNotificationBusy !== null}
-                  onclick={() => {
-                    agentNotificationBusy = "refresh";
-                    agentNotificationMessage = null;
-                    const run = ++agentNotificationStatusRun;
-                    void refreshAgentNotificationStatus(run).finally(() => {
-                      if (agentNotificationBusy === "refresh") agentNotificationBusy = null;
-                    });
-                  }}
-                >{agentNotificationBusy === "refresh" ? "Refreshing" : "Refresh"}</button>
-              </div>
-
-              <div class="mt-3 flex flex-col gap-2">
-                <div class="rounded border border-border-subtle bg-bg-deep/60 p-2">
-                  <div class="flex items-start justify-between gap-2">
-                    <div class="min-w-0">
-                      <div class="text-[12px] font-medium">Claude Code</div>
-                      <div class="mt-0.5 text-[11px] text-text-muted">
-                        {claudeNotificationProvider?.detail ?? "Checking Claude Code hook setup."}
-                      </div>
-                    </div>
-                    <span class={notificationProviderClass(claudeNotificationProvider)}>
-                      {notificationProviderLabel(claudeNotificationProvider)}
-                    </span>
-                  </div>
-                  <div class="mt-2 flex gap-1">
-                    <button
-                      class="rounded border border-border bg-bg-elevated px-2 py-1 text-[11px] text-text-secondary hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-40"
-                      disabled={agentNotificationBusy !== null || !claudeNotificationProvider || claudeNotificationProvider.installable === false}
-                      onclick={configureClaudeNotifications}
-                    >{agentNotificationBusy === "claude" ? "Configuring" : (claudeNotificationProvider?.status === "installed" ? "Reinstall" : "Configure")}</button>
-                  </div>
-                </div>
-
-                <div class="rounded border border-border-subtle bg-bg-deep/60 p-2">
-                  <div class="flex items-start justify-between gap-2">
-                    <div class="min-w-0">
-                      <div class="text-[12px] font-medium">Codex</div>
-                      <div class="mt-0.5 text-[11px] text-text-muted">
-                        {codexNotificationProvider?.detail ?? "Checking Codex notification configuration."}
-                      </div>
-                      {#if codexNotificationProvider?.configPath}
-                        <div class="mt-1 max-w-[25rem] truncate font-mono text-[10px] text-text-muted" title={codexNotificationProvider.configPath}>
-                          {codexNotificationProvider.configPath}
-                        </div>
-                      {/if}
-                    </div>
-                    <span class={notificationProviderClass(codexNotificationProvider)}>
-                      {notificationProviderLabel(codexNotificationProvider)}
-                    </span>
-                  </div>
-                  <div class="mt-2 flex gap-1">
-                    <button
-                      class="rounded border border-border bg-bg-elevated px-2 py-1 text-[11px] text-text-secondary hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-40"
-                      disabled={agentNotificationBusy !== null || !codexNotificationProvider || codexNotificationProvider.installable === false}
-                      onclick={previewCodexNotifications}
-                    >{agentNotificationBusy === "codex-preview" ? "Previewing" : "Preview"}</button>
-                    <button
-                      class="rounded border border-border bg-bg-elevated px-2 py-1 text-[11px] text-text-secondary hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-40"
-                      disabled={agentNotificationBusy !== null || !codexNotificationProvider || codexNotificationProvider.installable === false}
-                      onclick={configureCodexNotifications}
-                    >{agentNotificationBusy === "codex-configure" ? "Configuring" : "Configure"}</button>
-                  </div>
-
-                  {#if codexNotificationPreview}
-                    <div class="mt-2 rounded border border-border-subtle bg-bg-deep/70 p-2">
-                      <div class="mb-1 flex items-center justify-between gap-2 text-[10px] uppercase tracking-wider text-text-muted">
-                        <span>Codex config preview</span>
-                        <span class="truncate font-mono normal-case tracking-normal" title={codexNotificationPreview.configPath}>
-                          {codexNotificationPreview.configPath}
-                        </span>
-                      </div>
-                      <pre class="app-scrollbar max-h-32 overflow-auto whitespace-pre-wrap break-words font-mono text-[10px] text-text-secondary">{codexNotificationPreview.nextContent}</pre>
-                    </div>
-                  {/if}
-                </div>
-              </div>
-
-              {#if agentNotificationMessage}
-                <div class="mt-2 text-[11px] text-green">{agentNotificationMessage}</div>
-              {/if}
-              {#if agentNotificationError}
-                <div class="mt-2 text-[11px] text-red">{agentNotificationError}</div>
-              {/if}
             </div>
 
             <div class="mt-3 rounded-lg border border-amber/20 bg-amber/5 p-3 text-[11px] text-text-secondary">

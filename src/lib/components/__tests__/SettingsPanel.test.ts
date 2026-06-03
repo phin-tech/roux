@@ -381,7 +381,7 @@ describe("SettingsPanel agent notification setup", () => {
   it("renders agent provider status and configures Codex notifications", async () => {
     render(SettingsPanel, { visible: true, onclose: vi.fn() });
 
-    await fireEvent.click(screen.getByRole("button", { name: "Notifications" }));
+    await fireEvent.click(screen.getByRole("button", { name: "Agents" }));
 
     expect(await screen.findByText("Agent notifications")).toBeDefined();
     expect(await screen.findByText("notification_condition is not set.")).toBeDefined();
@@ -407,7 +407,7 @@ describe("SettingsPanel agent notification setup", () => {
     vi.mocked(commands.cmdAgentNotificationSetupStatus).mockReturnValue(new Promise(() => {}));
     render(SettingsPanel, { visible: true, onclose: vi.fn() });
 
-    await fireEvent.click(screen.getByRole("button", { name: "Notifications" }));
+    await fireEvent.click(screen.getByRole("button", { name: "Agents" }));
 
     expect(await screen.findByText("Agent notifications")).toBeDefined();
     expect((screen.getByRole("button", { name: "Preview" }) as HTMLButtonElement).disabled)
