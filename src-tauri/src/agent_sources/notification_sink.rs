@@ -13,7 +13,9 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
 use roux_core::agent_fsm::AttentionKey;
-use roux_core::{ActionKind, NotificationAction, NotificationLevel, NotificationRequest, NotificationSource};
+use roux_core::{
+    ActionKind, NotificationAction, NotificationLevel, NotificationRequest, NotificationSource,
+};
 
 use crate::agent_registry::{EventContext, NotificationSink};
 use crate::agent_sources::humanize::{humanize_attention, session_label};
@@ -65,9 +67,9 @@ impl NotificationSink for NotificationManagerSink {
                         .as_deref()
                         .and_then(|sid| sessions.iter().find(|s| s.id == sid).cloned());
                     by_id.or_else(|| {
-                        sessions.into_iter().find(|s| {
-                            s.worktree_path == context.cwd || s.repo_root == context.cwd
-                        })
+                        sessions
+                            .into_iter()
+                            .find(|s| s.worktree_path == context.cwd || s.repo_root == context.cwd)
                     })
                 }
                 Err(_) => None,
@@ -140,11 +142,8 @@ impl NotificationSink for NotificationManagerSink {
         // fallbacks never drove pane-level state, so there's nothing
         // to clear on the frontend side.
         if let AttentionKey::Pane(pane_id) = &key {
-            let auto_clear = state
-                .settings
-                .lock()
-                .map(|g| g.auto_clear_attention_state)
-                .unwrap_or(true);
+            let auto_clear =
+                state.settings.lock().map(|g| g.auto_clear_attention_state).unwrap_or(true);
             if auto_clear {
                 let _ = self.app.emit(
                     ATTENTION_CLEARED_EVENT,

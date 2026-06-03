@@ -36,15 +36,37 @@ vi.mock("$lib/logging", () => ({
   logError: vi.fn(),
 }));
 
-import { continueSession, reconnectSession, retryShellPane } from "../reconnect";
+import {
+  continueSession,
+  reconnectSession,
+  retryShellPane,
+} from "../reconnect";
 import { sessionState, addSession } from "$lib/stores/sessions";
 import { initSession } from "$lib/panes/actions";
 import { sessionLayouts, resetLayouts } from "$lib/panes/layout";
-import { paneInstances, resetInstances, createPane, updateInstance } from "$lib/panes/instances";
+import {
+  paneInstances,
+  resetInstances,
+  createPane,
+  updateInstance,
+} from "$lib/panes/instances";
 import { resetFocus } from "$lib/panes/focus";
-import { reconnectSessionShellPty, spawnShell, loadPaneStateRaw, writeToSession } from "$lib/tauri";
-import { initTerminal, attachPtyListeners, connectPaneTerminal } from "$lib/panes/terminals";
-import { resetProfileRegistry, setUserProfiles, type SpawnProfile } from "$lib/panes/profiles";
+import {
+  reconnectSessionShellPty,
+  spawnShell,
+  loadPaneStateRaw,
+  writeToSession,
+} from "$lib/tauri";
+import {
+  initTerminal,
+  attachPtyListeners,
+  connectPaneTerminal,
+} from "$lib/panes/terminals";
+import {
+  resetProfileRegistry,
+  setUserProfiles,
+  type SpawnProfile,
+} from "$lib/panes/profiles";
 import type { Session } from "$lib/types";
 import type { PaneStatePayload } from "$lib/panes/persistence";
 
@@ -66,7 +88,10 @@ function makeSession(overrides: Partial<Session> = {}): Session {
   };
 }
 
-function makePayloadWithShells(sessionId: string, shells: Array<{ id: string; workingDir: string }>): PaneStatePayload {
+function makePayloadWithShells(
+  sessionId: string,
+  shells: Array<{ id: string; workingDir: string }>,
+): PaneStatePayload {
   const mainId = `${sessionId}-main`;
   const children = [
     { kind: "leaf" as const, paneId: mainId },
@@ -80,7 +105,12 @@ function makePayloadWithShells(sessionId: string, shells: Array<{ id: string; wo
       // session id — that is how the session-owned PTY is keyed on the
       // Rust side. reconnectPrimaryPaneOnly finds it by that match.
       { id: mainId, type: "shell" as const, ptyId: sessionId },
-      ...shells.map((s) => ({ id: s.id, type: "shell" as const, ptyId: "old-pty", workingDir: s.workingDir })),
+      ...shells.map((s) => ({
+        id: s.id,
+        type: "shell" as const,
+        ptyId: "old-pty",
+        workingDir: s.workingDir,
+      })),
     ],
   };
 }
@@ -108,16 +138,20 @@ describe("reconnectSession — existing behavior preserved", () => {
     resetInstances();
     resetFocus();
     resetProfileRegistry();
-    vi.mocked(reconnectSessionShellPty).mockReset().mockResolvedValue(makeSession({ status: "idle" }));
+    vi.mocked(reconnectSessionShellPty)
+      .mockReset()
+      .mockResolvedValue(makeSession({ status: "idle" }));
     vi.mocked(loadPaneStateRaw).mockReset().mockResolvedValue(null);
     vi.mocked(spawnShell).mockReset().mockResolvedValue(undefined);
     vi.mocked(writeToSession).mockReset().mockResolvedValue(undefined);
     vi.mocked(initTerminal).mockReset();
     vi.mocked(attachPtyListeners).mockReset().mockResolvedValue(undefined);
-    vi.mocked(connectPaneTerminal).mockReset().mockImplementation(async (paneId, onExit) => {
-      vi.mocked(initTerminal)(paneId);
-      return vi.mocked(attachPtyListeners)(paneId, onExit);
-    });
+    vi.mocked(connectPaneTerminal)
+      .mockReset()
+      .mockImplementation(async (paneId, onExit) => {
+        vi.mocked(initTerminal)(paneId);
+        return vi.mocked(attachPtyListeners)(paneId, onExit);
+      });
   });
 
   it("reconnects the main pane when no persisted state exists", async () => {
@@ -127,7 +161,12 @@ describe("reconnectSession — existing behavior preserved", () => {
 
     await reconnectSession(session);
 
-    expect(reconnectSessionShellPty).toHaveBeenCalledWith(session.id, null, null, null);
+    expect(reconnectSessionShellPty).toHaveBeenCalledWith(
+      session.id,
+      null,
+      null,
+      null,
+    );
   });
 
   it("invokes reconnect with extra flags without error", async () => {
@@ -140,7 +179,12 @@ describe("reconnectSession — existing behavior preserved", () => {
 
     await reconnectSession(session, ["--resume", "abc123"]);
 
-    expect(reconnectSessionShellPty).toHaveBeenCalledWith(session.id, null, null, null);
+    expect(reconnectSessionShellPty).toHaveBeenCalledWith(
+      session.id,
+      null,
+      null,
+      null,
+    );
   });
 
   it("continues a Claude primary profile with claude --continue", async () => {
@@ -151,7 +195,10 @@ describe("reconnectSession — existing behavior preserved", () => {
 
     await continueSession(session);
 
-    expect(writeToSession).toHaveBeenCalledWith(session.id, "claude --continue");
+    expect(writeToSession).toHaveBeenCalledWith(
+      session.id,
+      "claude --continue",
+    );
     expect(writeToSession).toHaveBeenCalledWith(session.id, "\n");
   });
 
@@ -218,7 +265,10 @@ describe("reconnectSession — existing behavior preserved", () => {
     // Cross-shell safety: anything outside SAFE_SHELL_ARG drops to the
     // generic continue path instead of attempting to quote — POSIX
     // single-quoting is wrong on PowerShell/cmd.
-    expect(writeToSession).toHaveBeenCalledWith(session.id, "claude --continue");
+    expect(writeToSession).toHaveBeenCalledWith(
+      session.id,
+      "claude --continue",
+    );
     expect(writeToSession).not.toHaveBeenCalledWith(
       session.id,
       expect.stringContaining("--resume"),
@@ -237,7 +287,10 @@ describe("reconnectSession — existing behavior preserved", () => {
 
     await continueSession(session);
 
-    expect(writeToSession).toHaveBeenCalledWith(session.id, "claude --continue");
+    expect(writeToSession).toHaveBeenCalledWith(
+      session.id,
+      "claude --continue",
+    );
   });
 
   it("does not retry the profile replay when typing exact resume fails (avoid half-typed line)", async () => {
@@ -259,9 +312,9 @@ describe("reconnectSession — existing behavior preserved", () => {
     // `--continue` because runProfileInPane writes the command and the
     // newline as separate PTY writes — a partial failure could leave a
     // half-typed line, and a retry would compound the mess.
-    expect(vi.mocked(writeToSession).mock.calls.map(([, data]) => data)).toEqual([
-      "claude --resume claude-session-123",
-    ]);
+    expect(
+      vi.mocked(writeToSession).mock.calls.map(([, data]) => data),
+    ).toEqual(["claude --resume claude-session-123"]);
   });
 
   it("continues a Codex primary profile with codex resume --last", async () => {
@@ -282,7 +335,10 @@ describe("reconnectSession — existing behavior preserved", () => {
 
     await continueSession(session);
 
-    expect(writeToSession).toHaveBeenCalledWith(session.id, "codex resume --last");
+    expect(writeToSession).toHaveBeenCalledWith(
+      session.id,
+      "codex resume --last",
+    );
     expect(writeToSession).toHaveBeenCalledWith(session.id, "\n");
   });
 
@@ -335,7 +391,10 @@ describe("reconnectSession — existing behavior preserved", () => {
 
     // Cross-shell safety: spaces don't match SAFE_SHELL_ARG, so the
     // exact-resume path is dropped in favor of `resume --last`.
-    expect(writeToSession).toHaveBeenCalledWith(session.id, "codex resume --last");
+    expect(writeToSession).toHaveBeenCalledWith(
+      session.id,
+      "codex resume --last",
+    );
     expect(writeToSession).not.toHaveBeenCalledWith(
       session.id,
       expect.stringContaining("'thread"),
@@ -385,7 +444,9 @@ describe("reconnectSession — existing behavior preserved", () => {
     const afterTree = get(sessionLayouts).get(session.id);
     expect(afterTree).toBeDefined();
     const state = get(sessionState);
-    expect(state.sessions.find((s) => s.id === session.id)?.status).toBe("idle");
+    expect(state.sessions.find((s) => s.id === session.id)?.status).toBe(
+      "idle",
+    );
   });
 
   it("double-click reconnect — second call throws already-reconnecting error", async () => {
@@ -395,7 +456,9 @@ describe("reconnectSession — existing behavior preserved", () => {
 
     // Start first reconnect but don't await it yet
     const first = reconnectSession(session);
-    await expect(reconnectSession(session)).rejects.toThrow("already in progress");
+    await expect(reconnectSession(session)).rejects.toThrow(
+      "already in progress",
+    );
     await first;
   });
 });
@@ -407,7 +470,9 @@ describe("reconnectSession — mid-session disconnect guard", () => {
     resetInstances();
     resetFocus();
     resetProfileRegistry();
-    vi.mocked(reconnectSessionShellPty).mockReset().mockResolvedValue(makeSession({ status: "idle" }));
+    vi.mocked(reconnectSessionShellPty)
+      .mockReset()
+      .mockResolvedValue(makeSession({ status: "idle" }));
     vi.mocked(loadPaneStateRaw).mockReset().mockResolvedValue(null);
     vi.mocked(spawnShell).mockReset().mockResolvedValue(undefined);
     vi.mocked(initTerminal).mockReset();
@@ -436,7 +501,9 @@ describe("reconnectSession — mid-session disconnect guard", () => {
 
     // Even if persisted state has shells, should NOT rehydrate
     vi.mocked(loadPaneStateRaw).mockResolvedValue(
-      makePayloadWithShells(session.id, [{ id: "shell-saved", workingDir: "/repo" }])
+      makePayloadWithShells(session.id, [
+        { id: "shell-saved", workingDir: "/repo" },
+      ]),
     );
 
     await reconnectSession(session);
@@ -455,7 +522,9 @@ describe("reconnectSession — full rehydration", () => {
     resetInstances();
     resetFocus();
     resetProfileRegistry();
-    vi.mocked(reconnectSessionShellPty).mockReset().mockResolvedValue(makeSession({ status: "idle" }));
+    vi.mocked(reconnectSessionShellPty)
+      .mockReset()
+      .mockResolvedValue(makeSession({ status: "idle" }));
     vi.mocked(loadPaneStateRaw).mockReset();
     vi.mocked(spawnShell).mockReset().mockResolvedValue(undefined);
     vi.mocked(initTerminal).mockReset();
@@ -470,7 +539,9 @@ describe("reconnectSession — full rehydration", () => {
     vi.mocked(loadPaneStateRaw).mockResolvedValue({
       schemaVersion: 5,
       layout: { kind: "leaf", paneId: `${session.id}-main` },
-      descriptors: [{ id: `${session.id}-main`, type: "shell", ptyId: session.id }],
+      descriptors: [
+        { id: `${session.id}-main`, type: "shell", ptyId: session.id },
+      ],
     } satisfies PaneStatePayload);
 
     await reconnectSession(session);
@@ -485,12 +556,19 @@ describe("reconnectSession — full rehydration", () => {
 
     await reconnectSession(session);
 
-    expect(reconnectSessionShellPty).toHaveBeenCalledWith(session.id, null, null, null);
+    expect(reconnectSessionShellPty).toHaveBeenCalledWith(
+      session.id,
+      null,
+      null,
+      null,
+    );
     expect(get(sessionLayouts).get(session.id)).toEqual({
       kind: "leaf",
       paneId: `${session.id}-main`,
     });
-    expect(get(paneInstances).get(`${session.id}-main`)?.ptyId).toBe(session.id);
+    expect(get(paneInstances).get(`${session.id}-main`)?.ptyId).toBe(
+      session.id,
+    );
     expect(connectPaneTerminal).toHaveBeenCalledWith(`${session.id}-main`);
   });
 
@@ -498,12 +576,19 @@ describe("reconnectSession — full rehydration", () => {
     const session = makeSession();
     addSession(session);
     vi.mocked(loadPaneStateRaw).mockResolvedValue(
-      makePayloadWithShells(session.id, [{ id: "shell-a", workingDir: "/repo/a" }]),
+      makePayloadWithShells(session.id, [
+        { id: "shell-a", workingDir: "/repo/a" },
+      ]),
     );
 
     await reconnectSession(session);
 
-    expect(reconnectSessionShellPty).toHaveBeenCalledWith(session.id, null, null, null);
+    expect(reconnectSessionShellPty).toHaveBeenCalledWith(
+      session.id,
+      null,
+      null,
+      null,
+    );
     expect(spawnShell).toHaveBeenCalledWith(
       expect.any(String),
       "/repo/a",
@@ -515,10 +600,15 @@ describe("reconnectSession — full rehydration", () => {
     );
     const tree = get(sessionLayouts).get(session.id);
     expect(tree?.kind).toBe("split");
-    expect(get(paneInstances).get(`${session.id}-main`)?.ptyId).toBe(session.id);
+    expect(get(paneInstances).get(`${session.id}-main`)?.ptyId).toBe(
+      session.id,
+    );
     expect(get(paneInstances).get("shell-a")?.type).toBe("shell");
     expect(connectPaneTerminal).toHaveBeenCalledWith(`${session.id}-main`);
-    expect(connectPaneTerminal).toHaveBeenCalledWith("shell-a", expect.any(Function));
+    expect(connectPaneTerminal).toHaveBeenCalledWith(
+      "shell-a",
+      expect.any(Function),
+    );
   });
 
   it("spawns shells for each shell descriptor and creates pane instances", async () => {
@@ -530,14 +620,30 @@ describe("reconnectSession — full rehydration", () => {
       makePayloadWithShells(session.id, [
         { id: "shell-a", workingDir: "/repo/a" },
         { id: "shell-b", workingDir: "/repo/b" },
-      ])
+      ]),
     );
 
     await reconnectSession(session);
 
     expect(spawnShell).toHaveBeenCalledTimes(2);
-    expect(spawnShell).toHaveBeenCalledWith(expect.any(String), "/repo/a", session.id, "shell-a", null, null, null);
-    expect(spawnShell).toHaveBeenCalledWith(expect.any(String), "/repo/b", session.id, "shell-b", null, null, null);
+    expect(spawnShell).toHaveBeenCalledWith(
+      expect.any(String),
+      "/repo/a",
+      session.id,
+      "shell-a",
+      null,
+      null,
+      null,
+    );
+    expect(spawnShell).toHaveBeenCalledWith(
+      expect.any(String),
+      "/repo/b",
+      session.id,
+      "shell-b",
+      null,
+      null,
+      null,
+    );
 
     const instances = get(paneInstances);
     expect(instances.has("shell-a")).toBe(true);
@@ -596,7 +702,9 @@ describe("reconnectSession — full rehydration", () => {
     initSession(session.id);
 
     vi.mocked(loadPaneStateRaw).mockResolvedValue(
-      makePayloadWithShells(session.id, [{ id: "shell-a", workingDir: "/repo" }])
+      makePayloadWithShells(session.id, [
+        { id: "shell-a", workingDir: "/repo" },
+      ]),
     );
 
     await reconnectSession(session);
@@ -604,7 +712,9 @@ describe("reconnectSession — full rehydration", () => {
     const tree = get(sessionLayouts).get(session.id);
     expect(tree?.kind).toBe("split");
     if (tree?.kind === "split") {
-      const leafIds = tree.children.map((c) => (c.kind === "leaf" ? c.paneId : null));
+      const leafIds = tree.children.map((c) =>
+        c.kind === "leaf" ? c.paneId : null,
+      );
       expect(leafIds).toContain("shell-a");
       expect(leafIds).toContain(`${session.id}-main`);
     }
@@ -619,12 +729,16 @@ describe("reconnectSession — full rehydration", () => {
       makePayloadWithShells(session.id, [
         { id: "shell-a", workingDir: "/repo" },
         { id: "shell-b", workingDir: "/repo" },
-      ])
+      ]),
     );
 
     const callOrder: string[] = [];
-    vi.mocked(initTerminal).mockImplementation((id) => { callOrder.push(`init:${id}`); });
-    vi.mocked(attachPtyListeners).mockImplementation(async (id) => { callOrder.push(`attach:${id}`); });
+    vi.mocked(initTerminal).mockImplementation((id) => {
+      callOrder.push(`init:${id}`);
+    });
+    vi.mocked(attachPtyListeners).mockImplementation(async (id) => {
+      callOrder.push(`attach:${id}`);
+    });
 
     await reconnectSession(session);
 
@@ -643,9 +757,13 @@ describe("reconnectSession — full rehydration", () => {
     initSession(session.id);
 
     vi.mocked(loadPaneStateRaw).mockResolvedValue(
-      makePayloadWithShells(session.id, [{ id: "shell-dead", workingDir: "/gone" }])
+      makePayloadWithShells(session.id, [
+        { id: "shell-dead", workingDir: "/gone" },
+      ]),
     );
-    vi.mocked(spawnShell).mockRejectedValue(new Error("No such file or directory"));
+    vi.mocked(spawnShell).mockRejectedValue(
+      new Error("No such file or directory"),
+    );
 
     await reconnectSession(session);
 
@@ -661,7 +779,9 @@ describe("reconnectSession — full rehydration", () => {
     initSession(session.id);
 
     vi.mocked(loadPaneStateRaw).mockResolvedValue(
-      makePayloadWithShells(session.id, [{ id: "shell-dead", workingDir: "/gone" }])
+      makePayloadWithShells(session.id, [
+        { id: "shell-dead", workingDir: "/gone" },
+      ]),
     );
     vi.mocked(spawnShell).mockRejectedValue(new Error("gone"));
 
@@ -858,7 +978,12 @@ describe("reconnectSession — full rehydration", () => {
       },
       descriptors: [
         { id: mainId, type: "shell", ptyId: session.id },
-        { id: "cmd-pane", type: "command", ptyId: "pty-cmd", command: "npm test" },
+        {
+          id: "cmd-pane",
+          type: "command",
+          ptyId: "pty-cmd",
+          command: "npm test",
+        },
       ],
     } satisfies PaneStatePayload);
 
@@ -912,19 +1037,17 @@ describe("reconnectSession — full rehydration", () => {
       layout: {
         kind: "split",
         direction: "h",
-        children: [
-          { kind: "leaf", paneId: mainId },
-          undefined,
-        ],
+        children: [{ kind: "leaf", paneId: mainId }, undefined],
       },
-      descriptors: [
-        { id: mainId, type: "shell", ptyId: session.id },
-      ],
+      descriptors: [{ id: mainId, type: "shell", ptyId: session.id }],
     } as unknown as PaneStatePayload);
 
     await reconnectSession(session);
 
-    expect(get(sessionLayouts).get(session.id)).toEqual({ kind: "leaf", paneId: mainId });
+    expect(get(sessionLayouts).get(session.id)).toEqual({
+      kind: "leaf",
+      paneId: mainId,
+    });
     expect(spawnShell).not.toHaveBeenCalled();
   });
 });
@@ -953,13 +1076,25 @@ describe("retryShellPane", () => {
 
     await retryShellPane(paneId, "sess-1");
 
-    expect(spawnShell).toHaveBeenCalledWith(expect.any(String), "/repo", "sess-1", paneId, null, null, null);
+    expect(spawnShell).toHaveBeenCalledWith(
+      expect.any(String),
+      "/repo",
+      "sess-1",
+      paneId,
+      null,
+      null,
+      null,
+    );
     const inst = get(paneInstances).get(paneId);
     expect(inst?.restoreError).toBeUndefined();
   });
 
   it("sets restoreError again when retry also fails", async () => {
-    const paneId = createPane({ type: "shell", ptyId: "", workingDir: "/still-gone" });
+    const paneId = createPane({
+      type: "shell",
+      ptyId: "",
+      workingDir: "/still-gone",
+    });
     const { updateInstance } = await import("$lib/panes/instances");
     updateInstance(paneId, { restoreError: "old error" });
 
@@ -971,7 +1106,11 @@ describe("retryShellPane", () => {
   });
 
   it("is a no-op for panes without restoreError", async () => {
-    const paneId = createPane({ type: "shell", ptyId: "live-pty", workingDir: "/repo" });
+    const paneId = createPane({
+      type: "shell",
+      ptyId: "live-pty",
+      workingDir: "/repo",
+    });
 
     await retryShellPane(paneId, "sess-1");
 

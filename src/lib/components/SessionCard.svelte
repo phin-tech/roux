@@ -44,7 +44,12 @@
   );
 
   function pathBasename(path: string): string {
-    return path.split(/[\\/]+/).filter(Boolean).pop() ?? "";
+    return (
+      path
+        .split(/[\\/]+/)
+        .filter(Boolean)
+        .pop() ?? ""
+    );
   }
 
   let slotLabel = $derived(
@@ -59,7 +64,10 @@
       : displayName,
   );
   let secondaryBranch = $derived(
-    session.isWorktree && session.branch && hasCustomName && session.branch !== displayName
+    session.isWorktree &&
+      session.branch &&
+      hasCustomName &&
+      session.branch !== displayName
       ? session.branch
       : null,
   );
@@ -145,8 +153,8 @@
 <div
   class="group relative mb-1 flex w-full cursor-pointer overflow-hidden border-l-2 text-left transition-colors duration-150
     {active
-      ? 'border-accent bg-bg-active shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]'
-      : 'border-transparent bg-transparent hover:bg-bg-active/30'}
+    ? 'border-accent bg-bg-active shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]'
+    : 'border-transparent bg-transparent hover:bg-bg-active/30'}
     {isFlashing ? 'watch-flash' : ''}"
   onclick={onselect}
   oncontextmenu={(e) => {
@@ -160,9 +168,17 @@
   <div class="flex h-10 w-5 shrink-0 items-start justify-center pt-[13px]">
     <span class="relative inline-flex h-2 w-2 items-center justify-center">
       {#if effectiveStatus === "attention"}
-        <span class="absolute inline-flex h-2 w-2 rounded-full {statusDotClasses[effectiveStatus]} animate-ping opacity-60"></span>
+        <span
+          class="absolute inline-flex h-2 w-2 rounded-full {statusDotClasses[
+            effectiveStatus
+          ]} animate-ping opacity-60"
+        ></span>
       {/if}
-      <span class="relative inline-flex h-2 w-2 rounded-full {statusDotClasses[effectiveStatus]}"></span>
+      <span
+        class="relative inline-flex h-2 w-2 rounded-full {statusDotClasses[
+          effectiveStatus
+        ]}"
+      ></span>
     </span>
   </div>
 
@@ -176,21 +192,35 @@
             bind:value={editName}
             onblur={commitRename}
             onkeydown={(e) => {
-              if (e.key === "Enter") { e.stopPropagation(); commitRename(); }
-              if (e.key === "Escape") { e.stopPropagation(); editing = false; }
+              if (e.key === "Enter") {
+                e.stopPropagation();
+                commitRename();
+              }
+              if (e.key === "Escape") {
+                e.stopPropagation();
+                editing = false;
+              }
             }}
           />
         {:else}
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <span
             data-testid="session-primary-label"
-            class="flex min-w-0 items-baseline text-[13px] font-semibold leading-5 {active ? 'text-text-primary' : 'text-text-secondary'}"
+            class="flex min-w-0 items-baseline text-[13px] font-semibold leading-5 {active
+              ? 'text-text-primary'
+              : 'text-text-secondary'}"
             title={detailLabel}
             ondblclick={startEditing}
           >
             {#if session.isWorktree && branchParts.prefix}
-              <span data-testid="session-primary-prefix" class="min-w-0 truncate text-text-muted">{branchParts.prefix}</span>
-              <span data-testid="session-primary-tail" class="min-w-0 truncate">{branchParts.tail}</span>
+              <span
+                data-testid="session-primary-prefix"
+                class="min-w-0 truncate text-text-muted"
+                >{branchParts.prefix}</span
+              >
+              <span data-testid="session-primary-tail" class="min-w-0 truncate"
+                >{branchParts.tail}</span
+              >
             {:else}
               <span class="min-w-0 truncate">{primaryLabel}</span>
             {/if}
@@ -202,13 +232,18 @@
         {#if unreadCount > 0}
           <span
             class="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded bg-accent-dim/30 px-1 text-[9px] font-semibold tabular-nums text-accent"
-            title="{unreadCount} unread notification{unreadCount === 1 ? '' : 's'}"
-          >{unreadCount > 99 ? "99+" : unreadCount}</span>
+            title="{unreadCount} unread notification{unreadCount === 1
+              ? ''
+              : 's'}">{unreadCount > 99 ? "99+" : unreadCount}</span
+          >
         {/if}
         {#if session.status === "disconnected"}
           <button
             class="h-5 cursor-pointer border border-accent-dim/20 bg-accent-dim/15 px-2 py-0 text-[10px] font-semibold text-accent hover:bg-accent-dim/24"
-            onclick={(e) => { e.stopPropagation(); onreconnect(); }}
+            onclick={(e) => {
+              e.stopPropagation();
+              onreconnect();
+            }}
           >
             continue
           </button>
@@ -226,7 +261,10 @@
         {/if}
         <CloseButton
           class="pointer-events-none flex h-5 w-5 items-center justify-center p-0 opacity-0 duration-150 hover:border-transparent hover:text-red focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100"
-          onclick={(e) => { e.stopPropagation(); onclose(); }}
+          onclick={(e) => {
+            e.stopPropagation();
+            onclose();
+          }}
           label="Close session"
           title="Close session"
           size={13}
@@ -243,8 +281,8 @@
           <span
             data-testid="session-secondary-branch"
             class="min-w-0 truncate font-mono text-text-muted"
-            title={secondaryBranch}
-          >{secondaryBranch}</span>
+            title={secondaryBranch}>{secondaryBranch}</span
+          >
           {#if secondaryContext}
             <span class="shrink-0 text-text-muted">·</span>
           {/if}
@@ -253,8 +291,8 @@
           <span
             data-testid="session-secondary-context"
             class="min-w-0 truncate"
-            title={secondaryContext}
-          >{secondaryContext}</span>
+            title={secondaryContext}>{secondaryContext}</span
+          >
         {/if}
       </div>
     {/if}
@@ -267,7 +305,9 @@
       aria-hidden="true"
       style:--flash-color="transparent"
     >
-      <span class="text-[28px] font-bold leading-none text-text-primary drop-shadow-[0_1px_4px_rgba(0,0,0,0.6)]">
+      <span
+        class="text-[28px] font-bold leading-none text-text-primary drop-shadow-[0_1px_4px_rgba(0,0,0,0.6)]"
+      >
         &#8984;{slotLabel}
       </span>
     </div>
@@ -280,8 +320,12 @@
   }
 
   @keyframes watch-flash-anim {
-    0% { background-color: var(--color-amber-dim, rgba(245,158,11,0.15)); }
-    100% { background-color: transparent; }
+    0% {
+      background-color: var(--color-amber-dim, rgba(245, 158, 11, 0.15));
+    }
+    100% {
+      background-color: transparent;
+    }
   }
 
   .slot-hint-overlay {

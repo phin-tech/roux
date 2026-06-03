@@ -134,15 +134,15 @@ When the effective provider resolves to `wt`, the New Session dialog shows a sma
 
 When `wt` is detected, `wt list --format=json` powers worktree listings throughout the app. Each entry is enriched with:
 
-| Chip | Meaning |
-|---|---|
-| `●` (yellow dot) | Dirty — uncommitted staged / modified / untracked changes |
-| `↑N ↓M` | Commits ahead / behind the default branch |
-| `🔒` (red) | Locked — hover for reason |
-| `prunable` (red pill) | Prunable — hover for reason |
-| `current` (blue pill) | The worktree wt considers current (`wt -` target) |
-| `prev` (muted pill) | The previously-current worktree |
-| `url` (blue link) | Dev-server URL from the project's `[list] url` template |
+| Chip                  | Meaning                                                   |
+| --------------------- | --------------------------------------------------------- |
+| `●` (yellow dot)      | Dirty — uncommitted staged / modified / untracked changes |
+| `↑N ↓M`               | Commits ahead / behind the default branch                 |
+| `🔒` (red)            | Locked — hover for reason                                 |
+| `prunable` (red pill) | Prunable — hover for reason                               |
+| `current` (blue pill) | The worktree wt considers current (`wt -` target)         |
+| `prev` (muted pill)   | The previously-current worktree                           |
+| `url` (blue link)     | Dev-server URL from the project's `[list] url` template   |
 
 These chips render in three places:
 

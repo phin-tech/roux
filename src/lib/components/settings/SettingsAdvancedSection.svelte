@@ -3,10 +3,7 @@
   import DoctorPanel from "$lib/components/DoctorPanel.svelte";
   import { getLogPath, setLoggingEnabled } from "$lib/logging";
   import { settings, updateSetting } from "$lib/stores/settings";
-  import {
-    getRuntimeStatus,
-    type RuntimeStatus,
-  } from "$lib/tauri";
+  import { getRuntimeStatus, type RuntimeStatus } from "$lib/tauri";
 
   let runtimeStatus = $state<RuntimeStatus | null>(null);
   let runtimeStatusError = $state<string | null>(null);
@@ -90,29 +87,43 @@
   {#if runtimeStatusError}
     <div class="mt-3 text-[11px] text-red">{runtimeStatusError}</div>
   {:else if runtimeStatus}
-    <div class="mt-3 grid grid-cols-[100px_minmax(0,1fr)] gap-x-3 gap-y-1 text-[11px]">
+    <div
+      class="mt-3 grid grid-cols-[100px_minmax(0,1fr)] gap-x-3 gap-y-1 text-[11px]"
+    >
       <div class="text-text-muted">Mode</div>
       <div class="text-text-primary">{runtimeModeLabel(runtimeStatus)}</div>
 
       <div class="text-text-muted">Desktop PID</div>
-      <div class="font-mono text-text-secondary">pid {runtimeStatus.desktopPid}</div>
+      <div class="font-mono text-text-secondary">
+        pid {runtimeStatus.desktopPid}
+      </div>
 
       <div class="text-text-muted">Started</div>
-      <div class="text-text-secondary">{formatTimestamp(runtimeStatus.startedAtMs)}</div>
+      <div class="text-text-secondary">
+        {formatTimestamp(runtimeStatus.startedAtMs)}
+      </div>
 
       <div class="text-text-muted">Uptime</div>
-      <div class="text-text-secondary">{formatDuration(runtimeStatus.uptimeMs)}</div>
+      <div class="text-text-secondary">
+        {formatDuration(runtimeStatus.uptimeMs)}
+      </div>
 
       {#if runtimeStatus.daemon}
         <div class="text-text-muted">Daemon PID</div>
-        <div class="font-mono text-text-secondary">pid {runtimeStatus.daemon.pid}</div>
+        <div class="font-mono text-text-secondary">
+          pid {runtimeStatus.daemon.pid}
+        </div>
 
         <div class="text-text-muted">Socket</div>
-        <div class="break-all font-mono text-text-secondary">{runtimeStatus.daemon.socket}</div>
+        <div class="break-all font-mono text-text-secondary">
+          {runtimeStatus.daemon.socket}
+        </div>
 
         {#if runtimeStatus.daemon.logPath}
           <div class="text-text-muted">Daemon log</div>
-          <div class="break-all font-mono text-text-secondary">{runtimeStatus.daemon.logPath}</div>
+          <div class="break-all font-mono text-text-secondary">
+            {runtimeStatus.daemon.logPath}
+          </div>
         {/if}
 
         <div class="text-text-muted">State</div>
@@ -145,24 +156,34 @@
 <div class="mt-4 flex items-center justify-between py-2">
   <div>
     <div class="text-[13px]">Enable logging</div>
-    <div class="text-[11px] text-text-muted mt-0.5">Write logs to disk for debugging</div>
+    <div class="text-[11px] text-text-muted mt-0.5">
+      Write logs to disk for debugging
+    </div>
   </div>
   <button
     aria-label="Toggle logging"
     class="w-9 h-5 rounded-full relative cursor-pointer transition-all border
-      {$settings.enableLogging ? 'bg-accent-dim border-accent' : 'bg-bg-deep border-border'}"
+      {$settings.enableLogging
+      ? 'bg-accent-dim border-accent'
+      : 'bg-bg-deep border-border'}"
     onclick={() => {
       const next = !$settings.enableLogging;
       setLoggingEnabled(next);
       updateSetting("enableLogging", next);
     }}
   >
-    <div class="w-3.5 h-3.5 rounded-full absolute top-0.5 transition-all
-      {$settings.enableLogging ? 'left-[18px] bg-accent' : 'left-0.5 bg-text-secondary'}"></div>
+    <div
+      class="w-3.5 h-3.5 rounded-full absolute top-0.5 transition-all
+      {$settings.enableLogging
+        ? 'left-[18px] bg-accent'
+        : 'left-0.5 bg-text-secondary'}"
+    ></div>
   </button>
 </div>
 {#if $settings.enableLogging}
-  <div class="text-[11px] text-text-muted font-mono mt-1 break-all">{getLogPath()}</div>
+  <div class="text-[11px] text-text-muted font-mono mt-1 break-all">
+    {getLogPath()}
+  </div>
 {/if}
 
 <div class="mt-6 border-t border-hairline pt-5">

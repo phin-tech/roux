@@ -413,7 +413,9 @@ const TERMINAL_THEMES: Record<ThemePreset, TerminalTheme> = {
   },
 };
 
-export function getTerminalTheme(theme: string | null | undefined): TerminalTheme {
+export function getTerminalTheme(
+  theme: string | null | undefined,
+): TerminalTheme {
   return TERMINAL_THEMES[normalizeTheme(theme)];
 }
 
@@ -863,7 +865,8 @@ export const TERMINAL_THEME_DEFINITIONS: TerminalThemeDefinition[] = [
     id: MATCH_GUI_TERMINAL_THEME_ID,
     label: "Match GUI Theme",
     category: "auto",
-    description: "Follow the terminal palette bundled with the active GUI theme.",
+    description:
+      "Follow the terminal palette bundled with the active GUI theme.",
   },
   ...THEME_DEFINITIONS.map<TerminalThemeDefinition>((t) => ({
     id: t.id,
@@ -890,7 +893,9 @@ export const TERMINAL_THEME_DEFINITIONS: TerminalThemeDefinition[] = [
   { id: "ayu-light", label: "Ayu Light", category: "editor" },
 ];
 
-const BUILTIN_TERMINAL_THEME_IDS = new Set(TERMINAL_THEME_DEFINITIONS.map((d) => d.id));
+const BUILTIN_TERMINAL_THEME_IDS = new Set(
+  TERMINAL_THEME_DEFINITIONS.map((d) => d.id),
+);
 
 // `user:*` IDs are accepted unconditionally — the file may be missing at
 // validation time but will resolve once the user themes are reloaded.
@@ -899,7 +904,9 @@ function isAcceptableTerminalThemeId(id: string): boolean {
   return id.startsWith("user:") && id.length > "user:".length;
 }
 
-export function normalizeTerminalThemeId(id: string | null | undefined): string {
+export function normalizeTerminalThemeId(
+  id: string | null | undefined,
+): string {
   if (!id) return MATCH_GUI_TERMINAL_THEME_ID;
   return isAcceptableTerminalThemeId(id) ? id : MATCH_GUI_TERMINAL_THEME_ID;
 }

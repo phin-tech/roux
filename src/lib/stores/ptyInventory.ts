@@ -12,7 +12,9 @@ export interface SessionPtyInventory {
   detachedHasUnread: boolean;
 }
 
-export const ptyInventoryBySession = writable<Map<string, SessionPtyInventory>>(new Map());
+export const ptyInventoryBySession = writable<Map<string, SessionPtyInventory>>(
+  new Map(),
+);
 
 let inFlight = false;
 let refreshQueued = false;
@@ -60,7 +62,9 @@ export async function refreshPtyInventory(): Promise<void> {
   inFlight = true;
   try {
     const ptys = await listAllPtys();
-    const knownSessionIds = new Set(get(sessionList).map((session) => session.id));
+    const knownSessionIds = new Set(
+      get(sessionList).map((session) => session.id),
+    );
     ptyInventoryBySession.set(summarizePtyInventory(ptys, knownSessionIds));
   } catch {
     // Keep the last known snapshot. The inventory badges are informational.
@@ -73,7 +77,9 @@ export async function refreshPtyInventory(): Promise<void> {
   }
 }
 
-export function initPtyInventoryPolling(intervalMs = POLL_INTERVAL_MS): () => void {
+export function initPtyInventoryPolling(
+  intervalMs = POLL_INTERVAL_MS,
+): () => void {
   if (stopPolling) return stopPolling;
 
   const refresh = () => {

@@ -6,20 +6,20 @@ wrong moment. The same store also powers a topic-based bus for ambient
 broadcasts (build done, tests went red, deploy started).
 
 !!! info "Why not just `roux send`?"
-    `roux send` types raw bytes into a target session's PTY. Useful, but it
-    jams whatever the receiver was doing — there's no queueing, no acking,
-    no addressing by role, no audit trail. The mailbox keeps the same
-    "across-pane communication" intent but adds: durable queueing,
-    per-recipient read/ack state, alias-based addressing that survives
-    session restart, and a backend the UI and MCP can plug into.
+`roux send` types raw bytes into a target session's PTY. Useful, but it
+jams whatever the receiver was doing — there's no queueing, no acking,
+no addressing by role, no audit trail. The mailbox keeps the same
+"across-pane communication" intent but adds: durable queueing,
+per-recipient read/ack state, alias-based addressing that survives
+session restart, and a backend the UI and MCP can plug into.
 
 ## The three layers
 
-| Layer | What it is | Used for |
-|---|---|---|
-| **Aliases** | Stable, restart-durable names bound to panes (`reviewer`, `builder`, `me`) | Addressing |
-| **Mailbox** | Queue of events addressed `to=<alias>` with per-recipient read/ack state | Direct mail |
-| **Bus** | Same store, addressed by `topic` (e.g. `repo-a.build.completed`) | Broadcasts |
+| Layer       | What it is                                                                 | Used for    |
+| ----------- | -------------------------------------------------------------------------- | ----------- |
+| **Aliases** | Stable, restart-durable names bound to panes (`reviewer`, `builder`, `me`) | Addressing  |
+| **Mailbox** | Queue of events addressed `to=<alias>` with per-recipient read/ack state   | Direct mail |
+| **Bus**     | Same store, addressed by `topic` (e.g. `repo-a.build.completed`)           | Broadcasts  |
 
 All three live in one append-only event log. "Mailbox" and "bus" are usage
 patterns over the same store, not separate systems.
@@ -40,12 +40,12 @@ survive session restart; pane IDs do not.
 
 ### How aliases get bound
 
-1. **Auto-claim from pane name** *(easiest)*. Rename a pane to something that
+1. **Auto-claim from pane name** _(easiest)_. Rename a pane to something that
    matches the alias format and Roux auto-claims that name as the pane's
    alias. Look for the `@<alias>` chip in the pane's title bar.
-2. **`roux alias claim <name>`** *(manual)*. Run from inside the pane.
+2. **`roux alias claim <name>`** _(manual)_. Run from inside the pane.
    Defaults to `$ROUX_PANE_ID`.
-3. **`roux alias set <name> --session <id>` or `--pane <id>`** *(third-party)*.
+3. **`roux alias set <name> --session <id>` or `--pane <id>`** _(third-party)_.
    Bind from the outside, useful for scripts/MCP.
 
 If the pane's name doesn't match the alias format (capitals, spaces,
@@ -109,7 +109,7 @@ auto-creates the alias if it doesn't exist.
 **Consumption modes** govern how mail addressed to the group is
 distributed:
 
-- **`competing`** *(V1 default)*: first member to ack the mail claims
+- **`competing`** _(V1 default)_: first member to ack the mail claims
   it; subsequent members no longer see it as unread. Equivalent to a
   work queue — everyone polls the same inbox, the first responder wins.
 - **`broadcast`**: declared in the schema for forward-compat, but in V1
@@ -233,7 +233,7 @@ roux bus tail --topic repo-a.build.completed   # filter
 roux bus tail                                   # firehose, newest first
 ```
 
-Topics live in the same store as mailbox events. An event can have *both*
+Topics live in the same store as mailbox events. An event can have _both_
 `--to` and `--topic` — it lands in the recipient's inbox AND fires for
 anyone tailing that topic.
 
@@ -261,14 +261,14 @@ roux bus unsubscribe <subscription-id>
 
 Glob syntax (MQTT-style segment-aware):
 
-| Pattern | Matches | Doesn't match |
-|---|---|---|
-| `repo-a.build` | exact `repo-a.build` | anything else |
-| `repo-a.*` | `repo-a.build` | `repo-a.build.completed` |
-| `repo-a.**` | `repo-a`, `repo-a.build`, `repo-a.build.completed` | `repo-b.build` |
-| `*.completed` | `build.completed` | `repo-a.build.completed` |
-| `**.completed` | `completed`, `build.completed`, `repo-a.build.completed` | `build.failed` |
-| `repo-a.**.completed` | `repo-a.completed`, `repo-a.x.y.completed` | `repo-a.x.failed` |
+| Pattern               | Matches                                                  | Doesn't match            |
+| --------------------- | -------------------------------------------------------- | ------------------------ |
+| `repo-a.build`        | exact `repo-a.build`                                     | anything else            |
+| `repo-a.*`            | `repo-a.build`                                           | `repo-a.build.completed` |
+| `repo-a.**`           | `repo-a`, `repo-a.build`, `repo-a.build.completed`       | `repo-b.build`           |
+| `*.completed`         | `build.completed`                                        | `repo-a.build.completed` |
+| `**.completed`        | `completed`, `build.completed`, `repo-a.build.completed` | `build.failed`           |
+| `repo-a.**.completed` | `repo-a.completed`, `repo-a.x.y.completed`               | `repo-a.x.failed`        |
 
 Pattern segments are lowercase letters, digits, and hyphens — same
 alphabet as topics and aliases. `*` and `**` must occupy a whole
@@ -315,12 +315,12 @@ recipient agent isn't running a hook to drain mail automatically.
 
 When a pane is hosting an agent, Roux injects these:
 
-| Var | Meaning |
-|---|---|
+| Var                | Meaning                                                                                                                     |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------- |
 | `ROUX_AGENT_ALIAS` | Alias bound to this pane at PTY spawn time. Snapshot — does not update mid-session. Use `roux alias whoami` for live state. |
-| `ROUX_PANE_ID` | The pane's id; pass to `roux alias claim`. |
-| `ROUX_SESSION_ID` | The session's id. |
-| `ROUX_PROJECT_ID` | Project scope, if any. Used for current-project alias resolution. |
+| `ROUX_PANE_ID`     | The pane's id; pass to `roux alias claim`.                                                                                  |
+| `ROUX_SESSION_ID`  | The session's id.                                                                                                           |
+| `ROUX_PROJECT_ID`  | Project scope, if any. Used for current-project alias resolution.                                                           |
 
 ## How agents discover the mailbox
 
@@ -339,9 +339,11 @@ add a `UserPromptSubmit` hook in your project's `.claude/settings.json`:
 ```json
 {
   "hooks": {
-    "UserPromptSubmit": [{
-      "command": "roux mailbox read --ack"
-    }]
+    "UserPromptSubmit": [
+      {
+        "command": "roux mailbox read --ack"
+      }
+    ]
   }
 }
 ```
@@ -368,12 +370,12 @@ CLI uses; you get parity with the CLI surface, just typed.
 
 ## Persistence
 
-| File | Format | Notes |
-|---|---|---|
-| `aliases.json` | Versioned envelope (`{version: 1, data: [...]}`) | Full rewrite on mutation |
-| `subscriptions.json` | Versioned envelope | Full rewrite on subscribe / unsubscribe |
-| `events.jsonl` | Append-only NDJSON, one event per line, with `schemaVersion: 1` | Audit log; never compacted |
-| `read_state.json` | Versioned envelope | Full rewrite on mark-read / ack / clear-read |
+| File                 | Format                                                          | Notes                                        |
+| -------------------- | --------------------------------------------------------------- | -------------------------------------------- |
+| `aliases.json`       | Versioned envelope (`{version: 1, data: [...]}`)                | Full rewrite on mutation                     |
+| `subscriptions.json` | Versioned envelope                                              | Full rewrite on subscribe / unsubscribe      |
+| `events.jsonl`       | Append-only NDJSON, one event per line, with `schemaVersion: 1` | Audit log; never compacted                   |
+| `read_state.json`    | Versioned envelope                                              | Full rewrite on mark-read / ack / clear-read |
 
 All four live under `roux_config_dir()` (`~/.config/roux/` on macOS/Linux).
 When a daemon is running, those files are owned by the daemon process; GUI and

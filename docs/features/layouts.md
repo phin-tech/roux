@@ -54,14 +54,14 @@ pane name="my agent" {
 
 Inline profile fields:
 
-| Field | Required | Description |
-|---|---|---|
-| `display_name` | no | Shown in the pane title bar |
-| `kind` | no | `shell` (default), `claude`, or `codex` |
-| `setup_command` | no | Typed into the shell before the startup command |
-| `startup_command` | no | The main command to launch |
-| `startup_behavior` | no | `run` (default), `auto_run`, or `type_only` |
-| `env` | no | Child node with `KEY "value"` entries for environment variables |
+| Field              | Required | Description                                                     |
+| ------------------ | -------- | --------------------------------------------------------------- |
+| `display_name`     | no       | Shown in the pane title bar                                     |
+| `kind`             | no       | `shell` (default), `claude`, or `codex`                         |
+| `setup_command`    | no       | Typed into the shell before the startup command                 |
+| `startup_command`  | no       | The main command to launch                                      |
+| `startup_behavior` | no       | `run` (default), `auto_run`, or `type_only`                     |
+| `env`              | no       | Child node with `KEY "value"` entries for environment variables |
 
 ### Split containers
 

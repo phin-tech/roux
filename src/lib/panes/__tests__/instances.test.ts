@@ -49,7 +49,11 @@ describe("pane instances", () => {
   });
 
   it("createPane stores pane metadata without terminal runtime internals", () => {
-    const id = createPane({ type: "markdown", ptyId: "", docPath: "/tmp/a.md" });
+    const id = createPane({
+      type: "markdown",
+      ptyId: "",
+      docPath: "/tmp/a.md",
+    });
     const inst = get(paneInstances).get(id)!;
     expect(inst).toEqual({
       id,
@@ -65,7 +69,11 @@ describe("pane instances", () => {
   });
 
   it("syncs only stable pane descriptor facts to the backend record store", async () => {
-    const id = createPane({ type: "shell", ptyId: "pty-1", workingDir: "/tmp" });
+    const id = createPane({
+      type: "shell",
+      ptyId: "pty-1",
+      workingDir: "/tmp",
+    });
 
     updateInstance(id, {
       restoreError: "missing dir",
@@ -108,7 +116,11 @@ describe("pane instances", () => {
   });
 
   it("does not upsert the backend record when only UI runtime fields change", async () => {
-    const id = createPane({ type: "shell", ptyId: "pty-1", workingDir: "/tmp" });
+    const id = createPane({
+      type: "shell",
+      ptyId: "pty-1",
+      workingDir: "/tmp",
+    });
     vi.mocked(upsertPaneRecord).mockClear();
 
     updateInstance(id, {
@@ -140,7 +152,9 @@ describe("pane instances", () => {
     const id = createPane({ type: "shell", ptyId: "pty-1" });
     let cleaned = false;
     const inst = get(paneInstances).get(id)!;
-    inst.unlisteners.push(() => { cleaned = true; });
+    inst.unlisteners.push(() => {
+      cleaned = true;
+    });
     disposePane(id);
     expect(cleaned).toBe(true);
   });
@@ -154,7 +168,9 @@ describe("pane instances", () => {
 
     it("updateInstance can set restoreError", () => {
       const id = createPane({ type: "shell", ptyId: "pty-1" });
-      updateInstance(id, { restoreError: "working directory not found: /gone" });
+      updateInstance(id, {
+        restoreError: "working directory not found: /gone",
+      });
       const inst = get(paneInstances).get(id)!;
       expect(inst.restoreError).toBe("working directory not found: /gone");
     });

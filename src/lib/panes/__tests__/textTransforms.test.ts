@@ -191,9 +191,14 @@ describe("unwrapContinuations", () => {
       "a \\\n    b \\\n    c",
       "echo a\\ b",
     ];
-    it.each(cases)("unwrapContinuations x2 === unwrapContinuations x1 for %j", (s) => {
-      expect(unwrapContinuations(unwrapContinuations(s))).toBe(unwrapContinuations(s));
-    });
+    it.each(cases)(
+      "unwrapContinuations x2 === unwrapContinuations x1 for %j",
+      (s) => {
+        expect(unwrapContinuations(unwrapContinuations(s))).toBe(
+          unwrapContinuations(s),
+        );
+      },
+    );
   });
 });
 
@@ -220,9 +225,11 @@ describe("stripPromptPrefix", () => {
     });
 
     it("strips across multiple lines", () => {
-      const input = "$ git add .\n❯ git commit\n# systemctl restart\n> npm test";
-      expect(stripPromptPrefix(input))
-        .toBe("git add .\ngit commit\nsystemctl restart\nnpm test");
+      const input =
+        "$ git add .\n❯ git commit\n# systemctl restart\n> npm test";
+      expect(stripPromptPrefix(input)).toBe(
+        "git add .\ngit commit\nsystemctl restart\nnpm test",
+      );
     });
 
     it("normalizes CRLF before stripping", () => {
@@ -236,11 +243,15 @@ describe("stripPromptPrefix", () => {
     });
 
     it("interior `>` as shell redirect", () => {
-      expect(stripPromptPrefix("cat file > out.txt")).toBe("cat file > out.txt");
+      expect(stripPromptPrefix("cat file > out.txt")).toBe(
+        "cat file > out.txt",
+      );
     });
 
     it("interior `#` as comment", () => {
-      expect(stripPromptPrefix("echo # not a comment")).toBe("echo # not a comment");
+      expect(stripPromptPrefix("echo # not a comment")).toBe(
+        "echo # not a comment",
+      );
     });
 
     it("prefix character without trailing space is not stripped", () => {
@@ -261,8 +272,10 @@ describe("stripPromptPrefix", () => {
 
   describe("mixed content", () => {
     it("strips only lines that start with a prefix", () => {
-      const input = "$ export FOO=1\necho \"$FOO\"\n$ echo done";
-      expect(stripPromptPrefix(input)).toBe("export FOO=1\necho \"$FOO\"\necho done");
+      const input = '$ export FOO=1\necho "$FOO"\n$ echo done';
+      expect(stripPromptPrefix(input)).toBe(
+        'export FOO=1\necho "$FOO"\necho done',
+      );
     });
 
     it("strips exactly one prefix per line, not recursively", () => {
@@ -291,9 +304,14 @@ describe("stripPromptPrefix", () => {
 
   describe("idempotency", () => {
     const cases = ["", "$ ls", "echo hi", "$ a\n$ b", "  $ ls"];
-    it.each(cases)("stripPromptPrefix x2 === stripPromptPrefix x1 for %j", (s) => {
-      expect(stripPromptPrefix(stripPromptPrefix(s))).toBe(stripPromptPrefix(s));
-    });
+    it.each(cases)(
+      "stripPromptPrefix x2 === stripPromptPrefix x1 for %j",
+      (s) => {
+        expect(stripPromptPrefix(stripPromptPrefix(s))).toBe(
+          stripPromptPrefix(s),
+        );
+      },
+    );
   });
 });
 
@@ -312,7 +330,9 @@ describe("stripCodeFence", () => {
     });
 
     it("strips fence with uncommon language tag", () => {
-      expect(stripCodeFence("```powershell\nGet-Process\n```")).toBe("Get-Process");
+      expect(stripCodeFence("```powershell\nGet-Process\n```")).toBe(
+        "Get-Process",
+      );
     });
 
     it("strips fence with attribute string", () => {
@@ -336,8 +356,7 @@ describe("stripCodeFence", () => {
     });
 
     it("interior fence on a non-first-non-last line is preserved", () => {
-      expect(stripCodeFence("a\n```\nb"))
-        .toBe("a\n```\nb");
+      expect(stripCodeFence("a\n```\nb")).toBe("a\n```\nb");
     });
 
     it("fence-like string inside a line is preserved", () => {
@@ -345,8 +364,9 @@ describe("stripCodeFence", () => {
     });
 
     it("indented fence is not stripped (must be at column 0)", () => {
-      expect(stripCodeFence("    ```\necho hi\n    ```"))
-        .toBe("    ```\necho hi\n    ```");
+      expect(stripCodeFence("    ```\necho hi\n    ```")).toBe(
+        "    ```\necho hi\n    ```",
+      );
     });
   });
 
@@ -420,13 +440,13 @@ describe("smartQuotesToStraight", () => {
     });
 
     it("replaces across multiple lines", () => {
-      expect(smartQuotesToStraight("“a”\n‘b’")).toBe('"a"\n\'b\'');
+      expect(smartQuotesToStraight("“a”\n‘b’")).toBe("\"a\"\n'b'");
     });
   });
 
   describe("preservation", () => {
     it("straight quotes are unchanged", () => {
-      expect(smartQuotesToStraight('"hi" + \'x\'')).toBe('"hi" + \'x\'');
+      expect(smartQuotesToStraight("\"hi\" + 'x'")).toBe("\"hi\" + 'x'");
     });
 
     it("apostrophes in contractions stay as curly if they weren't ASCII already", () => {
@@ -455,16 +475,15 @@ describe("smartQuotesToStraight", () => {
   });
 
   describe("idempotency", () => {
-    const cases = [
-      "",
-      "“hi”",
-      '"straight"',
-      "‘a’",
-      "mixed \"a\" and “b”",
-    ];
-    it.each(cases)("smartQuotesToStraight x2 === smartQuotesToStraight x1 for %j", (s) => {
-      expect(smartQuotesToStraight(smartQuotesToStraight(s))).toBe(smartQuotesToStraight(s));
-    });
+    const cases = ["", "“hi”", '"straight"', "‘a’", 'mixed "a" and “b”'];
+    it.each(cases)(
+      "smartQuotesToStraight x2 === smartQuotesToStraight x1 for %j",
+      (s) => {
+        expect(smartQuotesToStraight(smartQuotesToStraight(s))).toBe(
+          smartQuotesToStraight(s),
+        );
+      },
+    );
   });
 });
 
@@ -522,9 +541,7 @@ describe("composed cleanup", () => {
     return trimDocument(
       joinLines(
         smartQuotesToStraight(
-          stripPromptPrefix(
-            unwrapContinuations(stripCodeFence(input)),
-          ),
+          stripPromptPrefix(unwrapContinuations(stripCodeFence(input))),
         ),
       ),
     );
@@ -535,7 +552,7 @@ describe("composed cleanup", () => {
       "```bash",
       "$ curl -X POST “https://api.example.com/endpoint” \\",
       "    -H ‘Content-Type: application/json’ \\",
-      "    -d ‘{\"name\": \"foo\"}’ \\",
+      '    -d ‘{"name": "foo"}’ \\',
       "    --fail",
       "```",
     ].join("\n");
@@ -543,9 +560,7 @@ describe("composed cleanup", () => {
     // Without joinLines (keep line breaks from the original doc):
     const withoutJoin = trimDocument(
       smartQuotesToStraight(
-        stripPromptPrefix(
-          unwrapContinuations(stripCodeFence(input)),
-        ),
+        stripPromptPrefix(unwrapContinuations(stripCodeFence(input))),
       ),
     );
     expect(withoutJoin).toBe(
@@ -559,9 +574,12 @@ describe("composed cleanup", () => {
   });
 
   it("docker run with trailing whitespace after each backslash (the bug the user reported)", () => {
-    const pad = "                                                                  ";
+    const pad =
+      "                                                                  ";
     const input = `docker run -d \\${pad}\n    --name web \\${pad}\n    -p 8080:80 \\${pad}\n    nginx`;
-    expect(unwrapContinuations(input)).toBe("docker run -d --name web -p 8080:80 nginx");
+    expect(unwrapContinuations(input)).toBe(
+      "docker run -d --name web -p 8080:80 nginx",
+    );
   });
 
   it("markdown blockquote-prefixed command from docs", () => {
@@ -570,12 +588,7 @@ describe("composed cleanup", () => {
   });
 
   it("is idempotent when applied twice end-to-end", () => {
-    const input = [
-      "```bash",
-      "$ echo “hi” \\",
-      "    world",
-      "```",
-    ].join("\n");
+    const input = ["```bash", "$ echo “hi” \\", "    world", "```"].join("\n");
     expect(fullClean(fullClean(input))).toBe(fullClean(input));
   });
 });
@@ -623,7 +636,7 @@ describe("pseudo-fuzz: all transforms are idempotent", () => {
 
   for (const [name, fn] of Object.entries(transforms)) {
     it(`${name} is idempotent across 500 seeded random inputs`, () => {
-      const rng = mulberry32(0xC0FFEE ^ name.length);
+      const rng = mulberry32(0xc0ffee ^ name.length);
       for (let i = 0; i < 500; i++) {
         const len = Math.floor(rng() * 60);
         const input = randomString(rng, len);
@@ -652,7 +665,7 @@ describe("pseudo-fuzz: transforms never throw", () => {
   ];
 
   it("no transform throws on 1000 random inputs", () => {
-    const rng = mulberry32(0xDEADBEEF);
+    const rng = mulberry32(0xdeadbeef);
     for (let i = 0; i < 1000; i++) {
       const len = Math.floor(rng() * 120);
       const input = randomString(rng, len);

@@ -485,7 +485,7 @@ tasks:
     requires:
       vars: [BUMP]
     cmds:
-      - task: '{{if .PRE}}prerelease:dispatch{{else}}release:stable{{end}}'
+      - task: "{{if .PRE}}prerelease:dispatch{{else}}release:stable{{end}}"
         vars:
           BUMP: "{{.BUMP}}"
           PRE: "{{.PRE}}"

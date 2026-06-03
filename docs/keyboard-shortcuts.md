@@ -6,21 +6,21 @@ The full set of shortcuts shipped in the `default` keymap. All shortcuts are als
 
 ## Panes
 
-| Action | Shortcut |
-|---|---|
-| Split horizontal | ++cmd+d++ |
-| Split vertical | ++cmd+shift+d++ |
-| Close pane | ++cmd+w++ |
-| Toggle stack | ++cmd+shift+s++ |
-| Focus left | ++alt+h++ |
-| Focus down | ++alt+j++ |
-| Focus up | ++alt+k++ |
-| Focus right | ++alt+l++ |
-| Focus pane 1–9 | ++alt+1++ … ++alt+9++ |
-| Focus pane 10 | ++alt+0++ |
-| Toggle multiline editor | ++ctrl+g++ |
-| Toggle multiline editor from anywhere | ++cmd+shift+e++ |
-| Open multiline editor with clipboard | ++cmd+shift+v++ |
+| Action                                | Shortcut              |
+| ------------------------------------- | --------------------- |
+| Split horizontal                      | ++cmd+d++             |
+| Split vertical                        | ++cmd+shift+d++       |
+| Close pane                            | ++cmd+w++             |
+| Toggle stack                          | ++cmd+shift+s++       |
+| Focus left                            | ++alt+h++             |
+| Focus down                            | ++alt+j++             |
+| Focus up                              | ++alt+k++             |
+| Focus right                           | ++alt+l++             |
+| Focus pane 1–9                        | ++alt+1++ … ++alt+9++ |
+| Focus pane 10                         | ++alt+0++             |
+| Toggle multiline editor               | ++ctrl+g++            |
+| Toggle multiline editor from anywhere | ++cmd+shift+e++       |
+| Open multiline editor with clipboard  | ++cmd+shift+v++       |
 
 The pane-focus shortcuts target the Nth visible pane in the active session (depth-first, left-to-right). Hold ++alt++ on its own to see each pane's digit drawn centered over it.
 You can disable this overlay in **Settings → Keyboard** without disabling the shortcuts themselves.
@@ -29,17 +29,17 @@ You can disable this overlay in **Settings → Keyboard** without disabling the 
 
 The editor has its own local keybindings while focus is inside it. See [Multiline Editor](features/editor.md) for behavior details.
 
-| Action | Shortcut |
-|---|---|
-| Send text to the target terminal and keep editor open | ++cmd+enter++ |
-| Insert newline | ++shift+enter++, ++ctrl+enter++, or ++alt+enter++ |
-| Clear editor when nothing is selected | ++ctrl+c++ |
-| Copy and clear current line | ++ctrl+u++ |
-| Clear selected lines/current line | ++cmd+shift+k++ |
-| Delete word left | ++alt+backspace++ or ++ctrl+w++ |
-| Delete to line end | ++ctrl+k++ or ++cmd+delete++ |
-| Delete to line start | ++cmd+backspace++ |
-| Close without sending | ++escape++ or ++ctrl+g++ |
+| Action                                                | Shortcut                                          |
+| ----------------------------------------------------- | ------------------------------------------------- |
+| Send text to the target terminal and keep editor open | ++cmd+enter++                                     |
+| Insert newline                                        | ++shift+enter++, ++ctrl+enter++, or ++alt+enter++ |
+| Clear editor when nothing is selected                 | ++ctrl+c++                                        |
+| Copy and clear current line                           | ++ctrl+u++                                        |
+| Clear selected lines/current line                     | ++cmd+shift+k++                                   |
+| Delete word left                                      | ++alt+backspace++ or ++ctrl+w++                   |
+| Delete to line end                                    | ++ctrl+k++ or ++cmd+delete++                      |
+| Delete to line start                                  | ++cmd+backspace++                                 |
+| Close without sending                                 | ++escape++ or ++ctrl+g++                          |
 
 ## Leader mode
 
@@ -88,30 +88,30 @@ Roux also has a Vimish leader-mode surface for pane and session commands. The le
 
 ## Sessions and windows
 
-| Action | Shortcut |
-|---|---|
-| New session | ++cmd+n++ |
+| Action                | Shortcut              |
+| --------------------- | --------------------- |
+| New session           | ++cmd+n++             |
 | Switch to session 1–9 | ++cmd+1++ … ++cmd+9++ |
-| Switch to session 10 | ++cmd+0++ |
-| Settings | ++cmd+","++ |
+| Switch to session 10  | ++cmd+0++             |
+| Settings              | ++cmd+","++           |
 
 The session-switch shortcuts target the Nth session in the sidebar's top-to-bottom order. Hold ++cmd++ on its own for a moment to see the digit for each session drawn as an overlay on top of the card.
 You can disable this overlay in **Settings → Keyboard** while keeping ++cmd+digit++ session switching enabled.
 
 ## Navigation
 
-| Action | Shortcut |
-|---|---|
-| Command palette | ++cmd+k++ |
-| Toggle notes | ++cmd+b++ |
-| Toggle sessions history | ++cmd+; t s++ |
-| Toggle notifications | ++cmd+i++ |
-| Toggle watches | ++cmd+shift+w++ |
-| Toggle library | ++cmd+; t l++ |
-| Search library prompts | ++cmd+alt+p++ |
-| Search library skills | ++cmd+alt+s++ |
-| Toggle sidebar | ++cmd+"\\"++ |
-| Reload keymap | *(from palette)* |
+| Action                  | Shortcut         |
+| ----------------------- | ---------------- |
+| Command palette         | ++cmd+k++        |
+| Toggle notes            | ++cmd+b++        |
+| Toggle sessions history | ++cmd+; t s++    |
+| Toggle notifications    | ++cmd+i++        |
+| Toggle watches          | ++cmd+shift+w++  |
+| Toggle library          | ++cmd+; t l++    |
+| Search library prompts  | ++cmd+alt+p++    |
+| Search library skills   | ++cmd+alt+s++    |
+| Toggle sidebar          | ++cmd+"\\"++     |
+| Reload keymap           | _(from palette)_ |
 
 The native menu bar uses the same active keymap, so menu accelerators follow your current preset and any custom overrides after you reload the keymap.
 

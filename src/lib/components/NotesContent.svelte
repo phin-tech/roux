@@ -34,7 +34,9 @@
   const repoEnabled = $derived(!!repoRoot);
 
   // Include all fields that affect note resolution to ensure refetch on any change
-  const fetchKey = $derived(`${sessionId}::${scope}::${repoRoot ?? ""}::${projectId ?? ""}`);
+  const fetchKey = $derived(
+    `${sessionId}::${scope}::${repoRoot ?? ""}::${projectId ?? ""}`,
+  );
   const blocks = $derived(parseEntries(content));
 
   function scopeHeaderLabel(): string {
@@ -131,7 +133,12 @@
     if (debounceTimer) clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => {
       notesWrite(
-        { scope: currentScope, sessionId: currentSession, topic: null, overrideSlug: null },
+        {
+          scope: currentScope,
+          sessionId: currentSession,
+          topic: null,
+          overrideSlug: null,
+        },
         value,
         [],
       ).catch((err) => {
@@ -187,26 +194,42 @@
 
 <div class="flex h-full flex-col overflow-hidden">
   <!-- Toolbar: scope header + view mode toggle -->
-  <div class="flex h-9 shrink-0 items-center justify-between border-b border-hairline bg-bg-surface/30 px-3">
+  <div
+    class="flex h-9 shrink-0 items-center justify-between border-b border-hairline bg-bg-surface/30 px-3"
+  >
     <div class="flex items-center gap-2 min-w-0">
-      <span class="text-sm font-semibold tracking-tight truncate">{scopeHeaderLabel()}</span>
+      <span class="text-sm font-semibold tracking-tight truncate"
+        >{scopeHeaderLabel()}</span
+      >
       <span
         class="shrink-0 rounded-full border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-amber-400"
         title="This feature is experimental. Vault layout, CLI flags, env var names, and frontmatter schema may change. See docs/features/notes.md."
-      >Experimental</span>
+        >Experimental</span
+      >
     </div>
     <button
       class="cursor-pointer rounded-lg border border-transparent bg-transparent px-2 py-0.5 text-[11px] font-medium text-text-muted hover:border-border-subtle hover:bg-bg-hover hover:text-text-primary"
       onclick={toggleViewMode}
-      title={viewMode === "read" ? "Switch to raw editor (Edit)" : "Switch to rendered view (Read)"}
-    >{viewMode === "read" ? "Edit" : "Read"}</button>
+      title={viewMode === "read"
+        ? "Switch to raw editor (Edit)"
+        : "Switch to rendered view (Read)"}
+      >{viewMode === "read" ? "Edit" : "Read"}</button
+    >
   </div>
 
   <!-- Scope selector pills -->
-  <div role="tablist" class="flex shrink-0 gap-1 border-b border-hairline bg-bg-surface/20 px-2 py-1.5">
+  <div
+    role="tablist"
+    class="flex shrink-0 gap-1 border-b border-hairline bg-bg-surface/20 px-2 py-1.5"
+  >
     {@render pill("session", "Session", true)}
     {@render pill("repo", "Repo", repoEnabled, "No repo root for this session")}
-    {@render pill("project", "Project", projectEnabled, "No project assigned to this session")}
+    {@render pill(
+      "project",
+      "Project",
+      projectEnabled,
+      "No project assigned to this session",
+    )}
     {@render pill("global", "Global", true)}
   </div>
 
@@ -219,33 +242,57 @@
       oninput={onInput}
     ></textarea>
   {:else if blocks.length === 0}
-    <div class="flex flex-1 items-center justify-center px-6 text-center text-sm text-text-secondary">
+    <div
+      class="flex flex-1 items-center justify-center px-6 text-center text-sm text-text-secondary"
+    >
       <div>
         No notes yet.<br />
-        <button class="mt-2 text-xs text-text-muted underline hover:text-text-primary" onclick={toggleViewMode}>Switch to editor</button>
+        <button
+          class="mt-2 text-xs text-text-muted underline hover:text-text-primary"
+          onclick={toggleViewMode}>Switch to editor</button
+        >
         or append from a session with
-        <code class="ml-1 rounded bg-bg-surface/60 px-1 py-0.5 text-[11px]">roux notes {scope} append --timestamp</code>.
+        <code class="ml-1 rounded bg-bg-surface/60 px-1 py-0.5 text-[11px]"
+          >roux notes {scope} append --timestamp</code
+        >.
       </div>
     </div>
   {:else}
     <div class="flex-1 overflow-y-auto px-3 py-2 text-sm text-text-primary">
       {#each blocks as block}
         {#if block.kind === "entry"}
-          <div class="mb-3 rounded-lg border border-hairline/60 bg-bg-surface/30 px-3 py-2">
-            <div class="mb-1 flex items-center gap-2 text-[11px] font-medium uppercase tracking-wider text-text-muted">
+          <div
+            class="mb-3 rounded-lg border border-hairline/60 bg-bg-surface/30 px-3 py-2"
+          >
+            <div
+              class="mb-1 flex items-center gap-2 text-[11px] font-medium uppercase tracking-wider text-text-muted"
+            >
               <span>{block.timestamp}</span>
             </div>
-            <div class="whitespace-pre-wrap font-mono text-[13px] text-text-primary">{block.body}</div>
+            <div
+              class="whitespace-pre-wrap font-mono text-[13px] text-text-primary"
+            >
+              {block.body}
+            </div>
           </div>
         {:else}
-          <div class="mb-3 whitespace-pre-wrap font-mono text-[13px] text-text-primary">{block.text}</div>
+          <div
+            class="mb-3 whitespace-pre-wrap font-mono text-[13px] text-text-primary"
+          >
+            {block.text}
+          </div>
         {/if}
       {/each}
     </div>
   {/if}
 </div>
 
-{#snippet pill(target: NotesScope, label: string, enabled: boolean, disabledReason: string = "")}
+{#snippet pill(
+  target: NotesScope,
+  label: string,
+  enabled: boolean,
+  disabledReason: string = "",
+)}
   <button
     role="tab"
     aria-selected={scope === target}
@@ -253,10 +300,10 @@
     title={enabled ? undefined : disabledReason}
     class="cursor-pointer rounded-full px-2.5 py-1 text-xs font-medium transition-colors
       {scope === target
-        ? 'bg-bg-hover text-text-primary border border-border-subtle'
-        : 'border border-transparent text-text-muted hover:border-border-subtle hover:text-text-primary'}
+      ? 'bg-bg-hover text-text-primary border border-border-subtle'
+      : 'border border-transparent text-text-muted hover:border-border-subtle hover:text-text-primary'}
       disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-transparent
       disabled:hover:text-text-muted"
-    onclick={() => selectScope(target)}
-  >{label}</button>
+    onclick={() => selectScope(target)}>{label}</button
+  >
 {/snippet}

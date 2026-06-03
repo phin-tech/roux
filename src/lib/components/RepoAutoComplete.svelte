@@ -10,7 +10,10 @@
     pickerSideButtonClass,
     focusLeavingElement,
   } from "./pickerStyles";
-  import { findQuickPickMatch, type RepoQuickPickOption } from "$lib/repos/quickPick";
+  import {
+    findQuickPickMatch,
+    type RepoQuickPickOption,
+  } from "$lib/repos/quickPick";
 
   interface Props {
     /** Two-way bound input text. Caller decides whether this is the chosen
@@ -162,10 +165,7 @@
         </button>
       {/if}
       {#if showBrowse}
-        <button
-          class={pickerSideButtonClass}
-          onclick={defaultBrowse}
-        >
+        <button class={pickerSideButtonClass} onclick={defaultBrowse}>
           {browseLabel}
         </button>
       {/if}
@@ -184,8 +184,13 @@
                 onSelect={() => handleSelect(opt.path, opt.label)}
                 class={`${pickerItemClass} justify-between py-1.5 data-[selected]:bg-bg-active`}
               >
-                <span class="truncate text-[12px] text-text-primary">{opt.label}</span>
-                <span class="ml-2 max-w-40 truncate font-mono text-[10px] text-text-muted">{opt.path}</span>
+                <span class="truncate text-[12px] text-text-primary"
+                  >{opt.label}</span
+                >
+                <span
+                  class="ml-2 max-w-40 truncate font-mono text-[10px] text-text-muted"
+                  >{opt.path}</span
+                >
               </Command.Item>
             {/each}
           </Command.GroupItems>

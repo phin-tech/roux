@@ -67,10 +67,20 @@ describe("watches store", () => {
 
   it("counts failures", () => {
     const w1 = makeWatch({
-      lastResult: { type: "httpCheck", statusCode: 500, responseTimeMs: 100, outcome: "failure" },
+      lastResult: {
+        type: "httpCheck",
+        statusCode: 500,
+        responseTimeMs: 100,
+        outcome: "failure",
+      },
     });
     const w2 = makeWatch({
-      lastResult: { type: "httpCheck", statusCode: 200, responseTimeMs: 50, outcome: "success" },
+      lastResult: {
+        type: "httpCheck",
+        statusCode: 200,
+        responseTimeMs: 50,
+        outcome: "success",
+      },
     });
     addOrUpdateWatch(w1);
     addOrUpdateWatch(w2);

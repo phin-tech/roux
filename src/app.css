@@ -309,7 +309,7 @@
     --color-blue: #38bdf8;
     --color-blue-dim: #0369a1;
     --color-gray: #b7b7c0;
-    --color-hairline: rgba(255, 255, 255, 0.20);
+    --color-hairline: rgba(255, 255, 255, 0.2);
   }
 
   /* Mocha Soft — warm Catppuccin-inspired palette */
@@ -340,7 +340,7 @@
     --color-blue: #89b4fa;
     --color-blue-dim: #3e6cb8;
     --color-gray: #b4bcda;
-    --color-hairline: rgba(255, 255, 255, 0.20);
+    --color-hairline: rgba(255, 255, 255, 0.2);
   }
 
   /* Paper & Ink — clean light theme */
@@ -390,7 +390,7 @@
     --color-bg-elevated: #2a2620;
     --color-bg-hover: #332e26;
     --color-bg-active: rgba(42, 38, 32, 0.72);
-    --color-border: rgba(255, 255, 255, 0.10);
+    --color-border: rgba(255, 255, 255, 0.1);
     --color-border-subtle: rgba(255, 255, 255, 0.05);
     --color-text-primary: #bfbdb6;
     --color-text-secondary: #ada69c;
@@ -423,7 +423,7 @@
     --color-bg-hover: #ddd6ca;
     --color-bg-active: rgba(221, 214, 202, 0.55);
     --color-border: #ddd6ca;
-    --color-border-subtle: rgba(58, 54, 48, 0.10);
+    --color-border-subtle: rgba(58, 54, 48, 0.1);
     --color-text-primary: #3a3630;
     --color-text-secondary: #5c5750;
     --color-text-muted: #8a8070;
@@ -509,18 +509,28 @@
 
   .ui-panel {
     background:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.012) 0%, rgba(255, 255, 255, 0) 22%),
+      linear-gradient(
+        180deg,
+        rgba(255, 255, 255, 0.012) 0%,
+        rgba(255, 255, 255, 0) 22%
+      ),
       var(--color-bg-deep);
-    border: 1px solid rgba(255, 255, 255, 0.10);
+    border: 1px solid rgba(255, 255, 255, 0.1);
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
   }
 
   .ui-dialog {
     background:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.015) 0%, rgba(255, 255, 255, 0) 18%),
+      linear-gradient(
+        180deg,
+        rgba(255, 255, 255, 0.015) 0%,
+        rgba(255, 255, 255, 0) 18%
+      ),
       var(--color-bg-base);
     border: 1px solid rgba(255, 255, 255, 0.12);
-    box-shadow: 0 24px 72px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    box-shadow:
+      0 24px 72px rgba(0, 0, 0, 0.6),
+      inset 0 1px 0 rgba(255, 255, 255, 0.05);
   }
 
   .ui-terminal-frame {
@@ -546,7 +556,9 @@
   :root[data-theme="warm-burnout-light"] .ui-dialog {
     background: var(--color-bg-deep);
     border: 1px solid var(--color-border);
-    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.12), 0 0 0 1px var(--color-border-subtle);
+    box-shadow:
+      0 16px 48px rgba(0, 0, 0, 0.12),
+      0 0 0 1px var(--color-border-subtle);
   }
 
   /* Light GUI themes still want visual separation around the terminal pane —
@@ -594,13 +606,15 @@
 
   :root[data-theme="paper-ink"] .app-scrollbar:hover::-webkit-scrollbar-thumb,
   :root[data-theme="github-day"] .app-scrollbar:hover::-webkit-scrollbar-thumb,
-  :root[data-theme="warm-burnout-light"] .app-scrollbar:hover::-webkit-scrollbar-thumb {
+  :root[data-theme="warm-burnout-light"]
+    .app-scrollbar:hover::-webkit-scrollbar-thumb {
     background: rgba(0, 0, 0, 0.15);
   }
 
   :root[data-theme="paper-ink"] .app-scrollbar::-webkit-scrollbar-thumb:hover,
   :root[data-theme="github-day"] .app-scrollbar::-webkit-scrollbar-thumb:hover,
-  :root[data-theme="warm-burnout-light"] .app-scrollbar::-webkit-scrollbar-thumb:hover {
+  :root[data-theme="warm-burnout-light"]
+    .app-scrollbar::-webkit-scrollbar-thumb:hover {
     background: rgba(0, 0, 0, 0.25);
   }
 }

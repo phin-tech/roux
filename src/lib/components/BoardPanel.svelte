@@ -64,7 +64,10 @@
     await moveWorkItem(id, status, Date.now());
   }
 
-  function withoutKey<T>(record: Record<string, T>, key: string): Record<string, T> {
+  function withoutKey<T>(
+    record: Record<string, T>,
+    key: string,
+  ): Record<string, T> {
     const { [key]: _removed, ...rest } = record;
     return rest;
   }
@@ -112,7 +115,11 @@
     return message ? `Plan failed: ${message}` : "Plan failed.";
   }
 
-  async function handlePlan(id: string, _item: WorkItem, replaceActive = false) {
+  async function handlePlan(
+    id: string,
+    _item: WorkItem,
+    replaceActive = false,
+  ) {
     if (planningItemIds[id]) return;
     planningItemIds = { ...planningItemIds, [id]: true };
     planErrors = withoutKey(planErrors, id);
@@ -175,7 +182,10 @@
   }
 </script>
 
-<div class="flex h-full w-full min-h-0 flex-col bg-bg-deep" class:hidden={!visible}>
+<div
+  class="flex h-full w-full min-h-0 flex-col bg-bg-deep"
+  class:hidden={!visible}
+>
   <SidebarPanelHeader title="Board">
     {#snippet actions()}
       <button
@@ -203,11 +213,15 @@
       {@const items = $itemsByColumn.get(col) ?? []}
       <section>
         <div class="mb-1.5 flex items-center gap-1.5 px-1">
-          <span class="text-[11px] font-semibold uppercase tracking-wide text-text-muted">
+          <span
+            class="text-[11px] font-semibold uppercase tracking-wide text-text-muted"
+          >
             {COLUMN_LABELS[col]}
           </span>
           {#if items.length > 0}
-            <span class="rounded-full bg-surface-2 px-1.5 py-0.5 text-[9px] font-medium text-text-muted">
+            <span
+              class="rounded-full bg-surface-2 px-1.5 py-0.5 text-[9px] font-medium text-text-muted"
+            >
               {items.length}
             </span>
           {/if}
@@ -215,9 +229,13 @@
         {#if items.length > 0}
           <div class="flex flex-col gap-1.5">
             {#each items as item (item.id)}
-              {@const sessionStatus = item.sessionId ? ($sessionStatusMap.get(item.sessionId) ?? null) : null}
-              {@const pendingDecision = $pendingDecisionByItem.get(item.id) ?? null}
-              {@const planningRun = $activePlanningRunByItem.get(item.id) ?? null}
+              {@const sessionStatus = item.sessionId
+                ? ($sessionStatusMap.get(item.sessionId) ?? null)
+                : null}
+              {@const pendingDecision =
+                $pendingDecisionByItem.get(item.id) ?? null}
+              {@const planningRun =
+                $activePlanningRunByItem.get(item.id) ?? null}
               {@const itemRuns = $runsByItem.get(item.id) ?? []}
               {@const attachedSessionIds = attachedSessionIdsForItem(
                 item,
@@ -240,7 +258,10 @@
                 startPending={!!startingItemIds[item.id]}
                 planPending={!!planningItemIds[item.id]}
                 acceptPending={!!acceptingItemIds[item.id]}
-                startError={startErrors[item.id] ?? planErrors[item.id] ?? item.startError ?? null}
+                startError={startErrors[item.id] ??
+                  planErrors[item.id] ??
+                  item.startError ??
+                  null}
               />
             {/each}
           </div>

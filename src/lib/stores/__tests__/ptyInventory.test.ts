@@ -70,9 +70,22 @@ describe("ptyInventory", () => {
   it("summarizes attached and detached PTYs by known session", () => {
     const summary = summarizePtyInventory(
       [
-        makePty({ id: "pty-1", session_id: "s1", status: { type: "RunningAttached", pane_id: "p1" } }),
-        makePty({ id: "pty-2", session_id: "s1", status: { type: "RunningDetached", since_ms: 1 }, unread_output: true }),
-        makePty({ id: "pty-3", session_id: "s2", status: { type: "RunningDetached", since_ms: 2 } }),
+        makePty({
+          id: "pty-1",
+          session_id: "s1",
+          status: { type: "RunningAttached", pane_id: "p1" },
+        }),
+        makePty({
+          id: "pty-2",
+          session_id: "s1",
+          status: { type: "RunningDetached", since_ms: 1 },
+          unread_output: true,
+        }),
+        makePty({
+          id: "pty-3",
+          session_id: "s2",
+          status: { type: "RunningDetached", since_ms: 2 },
+        }),
         makePty({ id: "orphan", session_id: "missing" }),
       ],
       new Set(["s1", "s2"]),
@@ -92,10 +105,21 @@ describe("ptyInventory", () => {
   });
 
   it("refreshes all session inventory with one backend call", async () => {
-    sessionState.set({ sessions: [makeSession("s1"), makeSession("s2")], activeSessionId: "s1" });
+    sessionState.set({
+      sessions: [makeSession("s1"), makeSession("s2")],
+      activeSessionId: "s1",
+    });
     mockListAllPtys.mockResolvedValue([
-      makePty({ id: "pty-1", session_id: "s1", status: { type: "RunningAttached", pane_id: "p1" } }),
-      makePty({ id: "pty-2", session_id: "s2", status: { type: "RunningDetached", since_ms: 1 } }),
+      makePty({
+        id: "pty-1",
+        session_id: "s1",
+        status: { type: "RunningAttached", pane_id: "p1" },
+      }),
+      makePty({
+        id: "pty-2",
+        session_id: "s2",
+        status: { type: "RunningDetached", since_ms: 1 },
+      }),
     ]);
 
     await refreshPtyInventory();
@@ -112,7 +136,10 @@ describe("ptyInventory", () => {
   });
 
   it("polls once per interval rather than once per session", async () => {
-    sessionState.set({ sessions: [makeSession("s1"), makeSession("s2")], activeSessionId: "s1" });
+    sessionState.set({
+      sessions: [makeSession("s1"), makeSession("s2")],
+      activeSessionId: "s1",
+    });
     mockListAllPtys.mockResolvedValue([]);
 
     const stop = initPtyInventoryPolling();
@@ -150,11 +177,13 @@ describe("ptyInventory", () => {
     const firstPoll = new Promise<PtyInfo[]>((resolve) => {
       resolveFirst = resolve;
     });
-    mockListAllPtys
-      .mockReturnValueOnce(firstPoll)
-      .mockResolvedValueOnce([
-        makePty({ id: "pty-2", session_id: "s2", status: { type: "RunningAttached", pane_id: "p2" } }),
-      ]);
+    mockListAllPtys.mockReturnValueOnce(firstPoll).mockResolvedValueOnce([
+      makePty({
+        id: "pty-2",
+        session_id: "s2",
+        status: { type: "RunningAttached", pane_id: "p2" },
+      }),
+    ]);
 
     const s1 = makeSession("s1");
     const s2 = makeSession("s2");

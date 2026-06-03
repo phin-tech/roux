@@ -1,6 +1,4 @@
-pub use roux_runtime::pane_service::{
-    PaneDescriptor, PaneHandle, PaneRecord,
-};
+pub use roux_runtime::pane_service::{PaneDescriptor, PaneHandle, PaneRecord};
 
 #[cfg(test)]
 #[allow(dead_code)]

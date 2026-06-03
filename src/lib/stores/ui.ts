@@ -1,6 +1,10 @@
 import { derived, get, writable, type Readable } from "svelte/store";
 import { sessionLayouts, collectVisibleLeafIds } from "$lib/panes/layout";
-import { activeSessionId, sessionState, setActiveSession } from "$lib/stores/sessions";
+import {
+  activeSessionId,
+  sessionState,
+  setActiveSession,
+} from "$lib/stores/sessions";
 import { showSidebar } from "$lib/stores/sidebarLayout";
 import { closeMainView, openMainView } from "$lib/stores/mainView";
 import { openExternalTool } from "$lib/stores/externalTools";
@@ -131,9 +135,15 @@ export function toggleSidebar(id: SidebarId): void {
   clearNotesOverrideIfLeaving(id);
 }
 
-export type StartupSidebarPreference = "restore" | "sessions" | "kanban" | "none";
+export type StartupSidebarPreference =
+  | "restore"
+  | "sessions"
+  | "kanban"
+  | "none";
 
-export function applyStartupSidebarPreference(preference: StartupSidebarPreference): void {
+export function applyStartupSidebarPreference(
+  preference: StartupSidebarPreference,
+): void {
   if (preference === "restore") return;
   if (preference === "none") {
     sidebarState.set({ pinned: null, active: null });
@@ -167,7 +177,9 @@ export async function applyStartupTargetPreference(
       openMainView({ kind: "board" });
       return;
     case "lastSession": {
-      const newest = [...get(sessionState).sessions].sort((a, b) => b.createdAt - a.createdAt)[0];
+      const newest = [...get(sessionState).sessions].sort(
+        (a, b) => b.createdAt - a.createdAt,
+      )[0];
       if (newest) {
         setActiveSession(newest.id);
         return;
@@ -242,7 +254,9 @@ export interface NewWorkItemEditorRequest {
   title?: string;
 }
 
-export const newWorkItemEditor = writable<NewWorkItemEditorRequest | null>(null);
+export const newWorkItemEditor = writable<NewWorkItemEditorRequest | null>(
+  null,
+);
 
 export function openWorkItemEditor(id: string): void {
   newWorkItemEditor.set(null);
@@ -264,9 +278,12 @@ export interface WorkItemSessionStartRequest {
   title: string;
 }
 
-export const workItemSessionStart = writable<WorkItemSessionStartRequest | null>(null);
+export const workItemSessionStart =
+  writable<WorkItemSessionStartRequest | null>(null);
 
-export function openWorkItemSessionStart(request: WorkItemSessionStartRequest): void {
+export function openWorkItemSessionStart(
+  request: WorkItemSessionStartRequest,
+): void {
   workItemSessionStart.set(request);
 }
 

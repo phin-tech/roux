@@ -1,5 +1,9 @@
 import { get } from "svelte/store";
-import { sessionState, addSession, setActiveSession } from "$lib/stores/sessions";
+import {
+  sessionState,
+  addSession,
+  setActiveSession,
+} from "$lib/stores/sessions";
 import { listSessions, listAllPtys } from "$lib/tauri";
 import { loadPaneState } from "./persistence";
 import { restoreSessionPanes } from "./restore";
@@ -48,7 +52,9 @@ export async function openSessionById(
     livePtyIds = new Set((await listAllPtys()).map((pty) => pty.id));
   } catch (e) {
     livePtyIds = null;
-    log(`openSessionById(${sessionId}): unable to read live PTY inventory: ${e}`);
+    log(
+      `openSessionById(${sessionId}): unable to read live PTY inventory: ${e}`,
+    );
   }
 
   const persisted = await loadPaneState(session.id);

@@ -13,7 +13,10 @@
   import { ciChipFor } from "$lib/ciIcon";
   import { checksChipFor, reviewChipFor } from "$lib/prChips";
   import { safeHref } from "$lib/safeUrl";
-  import { closePrStatusDetails, prStatusDetailsOpen } from "$lib/stores/prStatusDetails";
+  import {
+    closePrStatusDetails,
+    prStatusDetailsOpen,
+  } from "$lib/stores/prStatusDetails";
   import PrStatusPopover from "./PrStatusPopover.svelte";
   import type { StatusBarPosition } from "$lib/types";
 
@@ -78,7 +81,9 @@
           }
         : reviewChip),
   );
-  let prLinkColor = $derived(prStatusChip?.color ?? "text-text-muted hover:text-text-primary");
+  let prLinkColor = $derived(
+    prStatusChip?.color ?? "text-text-muted hover:text-text-primary",
+  );
   let hasPrPopover = $derived(checkRows.length > 0 || reviewRows.length > 0);
 
   $effect(() => {
@@ -108,13 +113,17 @@
   }
 </script>
 
-{#snippet prStatusLink(href: string, stale: boolean = false, title: string = "Open PR for this branch")}
+{#snippet prStatusLink(
+  href: string,
+  stale: boolean = false,
+  title: string = "Open PR for this branch",
+)}
   <span class="group relative inline-flex items-center">
     {#if prStatusChip}
       {@const StatusIcon = prStatusChip.icon}
       <a
         data-testid="status-bar-pr-link"
-        href={href}
+        {href}
         target="_blank"
         rel="noopener noreferrer"
         aria-describedby={hasPrPopover ? "status-bar-pr-popover" : undefined}
@@ -127,7 +136,7 @@
     {:else}
       <a
         data-testid="status-bar-pr-link"
-        href={href}
+        {href}
         target="_blank"
         rel="noopener noreferrer"
         aria-describedby={hasPrPopover ? "status-bar-pr-popover" : undefined}
@@ -156,8 +165,14 @@
 >
   {#if $activeSession}
     <div class="flex items-center gap-2">
-      <div class="w-2.5 h-2.5 rounded-full {statusDotClass[$activeSession.status] ?? 'bg-gray'}"></div>
-      <span class="text-[14px] font-semibold tracking-tight text-text-primary">{$activeSession.name}</span>
+      <div
+        class="w-2.5 h-2.5 rounded-full {statusDotClass[
+          $activeSession.status
+        ] ?? 'bg-gray'}"
+      ></div>
+      <span class="text-[14px] font-semibold tracking-tight text-text-primary"
+        >{$activeSession.name}</span
+      >
     </div>
     {#if $activeSession.isGitRepo}
       <span class="text-text-secondary">&bull;</span>
@@ -204,7 +219,9 @@
     <span class="text-text-muted">{$activeSession.model ?? "--"}</span>
     <span class="text-text-secondary">&bull;</span>
     <span class="text-text-muted">
-      {$activeSession.cost != null ? `$${$activeSession.cost.toFixed(2)}` : "--"}
+      {$activeSession.cost != null
+        ? `$${$activeSession.cost.toFixed(2)}`
+        : "--"}
     </span>
   {:else}
     <span>No active session</span>

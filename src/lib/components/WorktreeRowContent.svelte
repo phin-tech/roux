@@ -110,15 +110,13 @@
   <span
     data-testid="wt-current-badge"
     class="rounded bg-blue/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-blue"
-    title="Current worktree"
-    >current</span
+    title="Current worktree">current</span
   >
 {:else if metadata?.isPrevious}
   <span
     data-testid="wt-previous-badge"
     class="rounded bg-bg-active px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-text-muted"
-    title="Previous worktree"
-    >prev</span
+    title="Previous worktree">prev</span
   >
 {/if}
 
@@ -129,8 +127,7 @@
     data-testid="wt-dirty-dot"
     class="text-[10px] text-yellow"
     title="Uncommitted changes in worktree"
-    aria-label="Dirty"
-    >●</span
+    aria-label="Dirty">●</span
   >
 {/if}
 
@@ -159,8 +156,9 @@
   <span
     data-testid="wt-prunable"
     class="rounded bg-red/10 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-red"
-    title={metadata.prunableReason ? `Prunable: ${metadata.prunableReason}` : "Prunable"}
-    >prunable</span
+    title={metadata.prunableReason
+      ? `Prunable: ${metadata.prunableReason}`
+      : "Prunable"}>prunable</span
   >
 {/if}
 

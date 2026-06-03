@@ -36,22 +36,35 @@
     }),
   );
 
-  let agentNotificationStatus = $state<AgentNotificationSetupStatus | null>(null);
+  let agentNotificationStatus = $state<AgentNotificationSetupStatus | null>(
+    null,
+  );
   let agentNotificationMessage = $state<string | null>(null);
   let agentNotificationError = $state<string | null>(null);
-  let codexNotificationPreview = $state<CodexNotificationConfigPreview | null>(null);
-  let agentNotificationBusy = $state<"refresh" | "claude" | "codex-preview" | "codex-configure" | null>(null);
+  let codexNotificationPreview = $state<CodexNotificationConfigPreview | null>(
+    null,
+  );
+  let agentNotificationBusy = $state<
+    "refresh" | "claude" | "codex-preview" | "codex-configure" | null
+  >(null);
   const claudeNotificationProvider = $derived(
-    agentNotificationStatus?.providers.find((provider) => provider.provider === "claude") ?? null,
+    agentNotificationStatus?.providers.find(
+      (provider) => provider.provider === "claude",
+    ) ?? null,
   );
   const codexNotificationProvider = $derived(
-    agentNotificationStatus?.providers.find((provider) => provider.provider === "codex") ?? null,
+    agentNotificationStatus?.providers.find(
+      (provider) => provider.provider === "codex",
+    ) ?? null,
   );
   let agentNotificationStatusRun = 0;
 
   onMount(() => {
     const run = ++agentNotificationStatusRun;
-    const timer = setTimeout(() => void refreshAgentNotificationStatus(run), 250);
+    const timer = setTimeout(
+      () => void refreshAgentNotificationStatus(run),
+      250,
+    );
     return () => {
       agentNotificationStatusRun += 1;
       clearTimeout(timer);
@@ -140,7 +153,9 @@
     }
   }
 
-  function notificationProviderLabel(provider: AgentNotificationProviderStatus | null): string {
+  function notificationProviderLabel(
+    provider: AgentNotificationProviderStatus | null,
+  ): string {
     if (!provider) return "checking";
     switch (provider.status) {
       case "installed":
@@ -158,7 +173,9 @@
     }
   }
 
-  function notificationProviderClass(provider: AgentNotificationProviderStatus | null): string {
+  function notificationProviderClass(
+    provider: AgentNotificationProviderStatus | null,
+  ): string {
     const status = provider?.status ?? "checking";
     switch (status) {
       case "installed":
@@ -176,8 +193,13 @@
 <div class="rounded-xl border border-border-subtle bg-bg-surface/35 p-3">
   <div class="flex items-start justify-between gap-3">
     <div>
-      <label for="settings-default-agent" class="text-[13px] font-semibold">Default agent</label>
-      <div class="mt-0.5 text-[11px] text-text-muted">Used by new sessions, worktree starts, and Kanban cards unless a more specific profile is selected.</div>
+      <label for="settings-default-agent" class="text-[13px] font-semibold"
+        >Default agent</label
+      >
+      <div class="mt-0.5 text-[11px] text-text-muted">
+        Used by new sessions, worktree starts, and Kanban cards unless a more
+        specific profile is selected.
+      </div>
     </div>
     <select
       id="settings-default-agent"
@@ -202,19 +224,22 @@
   <div class="mt-3 flex items-center justify-between py-2">
     <div>
       <div class="text-[13px]">Binary path</div>
-      <div class="text-[11px] text-text-muted mt-0.5">Leave blank to auto-detect from PATH</div>
+      <div class="text-[11px] text-text-muted mt-0.5">
+        Leave blank to auto-detect from PATH
+      </div>
     </div>
     <div class="flex gap-1">
       <input
         class="bg-bg-deep border border-border rounded px-2 py-1 font-mono text-xs text-text-primary outline-none w-48 text-right focus:border-accent-dim"
         value={$settings.claudeBinaryPath ?? ""}
-        oninput={(e) => updateSetting("claudeBinaryPath", e.currentTarget.value || null)}
+        oninput={(e) =>
+          updateSetting("claudeBinaryPath", e.currentTarget.value || null)}
         placeholder="/usr/local/bin/claude"
       />
       <button
         class="px-2 py-1 bg-bg-elevated border border-border rounded text-text-secondary text-[10px] cursor-pointer hover:bg-bg-hover"
-        onclick={browseClaudeBinary}
-      >...</button>
+        onclick={browseClaudeBinary}>...</button
+      >
     </div>
   </div>
   <div class="flex items-center justify-between py-2">
@@ -222,7 +247,8 @@
     <input
       class="bg-bg-deep border border-border rounded px-2 py-1 font-mono text-xs text-text-primary outline-none w-40 text-right focus:border-accent-dim"
       value={$settings.defaultModel ?? ""}
-      oninput={(e) => updateSetting("defaultModel", e.currentTarget.value || null)}
+      oninput={(e) =>
+        updateSetting("defaultModel", e.currentTarget.value || null)}
       placeholder="opus"
     />
   </div>
@@ -231,7 +257,11 @@
     <input
       class="bg-bg-deep border border-border rounded px-2 py-1 font-mono text-xs text-text-primary outline-none w-56 text-right focus:border-accent-dim"
       value={$settings.additionalFlags.join(" ")}
-      oninput={(e) => updateSetting("additionalFlags", e.currentTarget.value.split(" ").filter(Boolean))}
+      oninput={(e) =>
+        updateSetting(
+          "additionalFlags",
+          e.currentTarget.value.split(" ").filter(Boolean),
+        )}
       placeholder="--verbose"
     />
   </div>
@@ -242,7 +272,8 @@
     <div>
       <div class="text-[13px] font-semibold">Agent notifications</div>
       <div class="mt-0.5 text-[11px] text-text-muted">
-        Configure Claude Code hooks and Codex TUI settings so agent events reach Roux.
+        Configure Claude Code hooks and Codex TUI settings so agent events reach
+        Roux.
       </div>
     </div>
     <button
@@ -256,7 +287,8 @@
           if (agentNotificationBusy === "refresh") agentNotificationBusy = null;
         });
       }}
-    >{agentNotificationBusy === "refresh" ? "Refreshing" : "Refresh"}</button>
+      >{agentNotificationBusy === "refresh" ? "Refreshing" : "Refresh"}</button
+    >
   </div>
 
   <div class="mt-3 flex flex-col gap-2">
@@ -265,7 +297,8 @@
         <div class="min-w-0">
           <div class="text-[12px] font-medium">Claude Code</div>
           <div class="mt-0.5 text-[11px] text-text-muted">
-            {claudeNotificationProvider?.detail ?? "Checking Claude Code hook setup."}
+            {claudeNotificationProvider?.detail ??
+              "Checking Claude Code hook setup."}
           </div>
         </div>
         <span class={notificationProviderClass(claudeNotificationProvider)}>
@@ -275,9 +308,16 @@
       <div class="mt-2 flex gap-1">
         <button
           class="rounded border border-border bg-bg-elevated px-2 py-1 text-[11px] text-text-secondary hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-40"
-          disabled={agentNotificationBusy !== null || !claudeNotificationProvider || claudeNotificationProvider.installable === false}
+          disabled={agentNotificationBusy !== null ||
+            !claudeNotificationProvider ||
+            claudeNotificationProvider.installable === false}
           onclick={configureClaudeNotifications}
-        >{agentNotificationBusy === "claude" ? "Configuring" : (claudeNotificationProvider?.status === "installed" ? "Reinstall" : "Configure")}</button>
+          >{agentNotificationBusy === "claude"
+            ? "Configuring"
+            : claudeNotificationProvider?.status === "installed"
+              ? "Reinstall"
+              : "Configure"}</button
+        >
       </div>
     </div>
 
@@ -286,10 +326,14 @@
         <div class="min-w-0">
           <div class="text-[12px] font-medium">Codex</div>
           <div class="mt-0.5 text-[11px] text-text-muted">
-            {codexNotificationProvider?.detail ?? "Checking Codex notification configuration."}
+            {codexNotificationProvider?.detail ??
+              "Checking Codex notification configuration."}
           </div>
           {#if codexNotificationProvider?.configPath}
-            <div class="mt-1 max-w-[25rem] truncate font-mono text-[10px] text-text-muted" title={codexNotificationProvider.configPath}>
+            <div
+              class="mt-1 max-w-[25rem] truncate font-mono text-[10px] text-text-muted"
+              title={codexNotificationProvider.configPath}
+            >
               {codexNotificationProvider.configPath}
             </div>
           {/if}
@@ -301,25 +345,41 @@
       <div class="mt-2 flex gap-1">
         <button
           class="rounded border border-border bg-bg-elevated px-2 py-1 text-[11px] text-text-secondary hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-40"
-          disabled={agentNotificationBusy !== null || !codexNotificationProvider || codexNotificationProvider.installable === false}
+          disabled={agentNotificationBusy !== null ||
+            !codexNotificationProvider ||
+            codexNotificationProvider.installable === false}
           onclick={previewCodexNotifications}
-        >{agentNotificationBusy === "codex-preview" ? "Previewing" : "Preview"}</button>
+          >{agentNotificationBusy === "codex-preview"
+            ? "Previewing"
+            : "Preview"}</button
+        >
         <button
           class="rounded border border-border bg-bg-elevated px-2 py-1 text-[11px] text-text-secondary hover:bg-bg-hover disabled:cursor-not-allowed disabled:opacity-40"
-          disabled={agentNotificationBusy !== null || !codexNotificationProvider || codexNotificationProvider.installable === false}
+          disabled={agentNotificationBusy !== null ||
+            !codexNotificationProvider ||
+            codexNotificationProvider.installable === false}
           onclick={configureCodexNotifications}
-        >{agentNotificationBusy === "codex-configure" ? "Configuring" : "Configure"}</button>
+          >{agentNotificationBusy === "codex-configure"
+            ? "Configuring"
+            : "Configure"}</button
+        >
       </div>
 
       {#if codexNotificationPreview}
         <div class="mt-2 rounded border border-border-subtle bg-bg-deep/70 p-2">
-          <div class="mb-1 flex items-center justify-between gap-2 text-[10px] uppercase tracking-wider text-text-muted">
+          <div
+            class="mb-1 flex items-center justify-between gap-2 text-[10px] uppercase tracking-wider text-text-muted"
+          >
             <span>Codex config preview</span>
-            <span class="truncate font-mono normal-case tracking-normal" title={codexNotificationPreview.configPath}>
+            <span
+              class="truncate font-mono normal-case tracking-normal"
+              title={codexNotificationPreview.configPath}
+            >
               {codexNotificationPreview.configPath}
             </span>
           </div>
-          <pre class="app-scrollbar max-h-32 overflow-auto whitespace-pre-wrap break-words font-mono text-[10px] text-text-secondary">{codexNotificationPreview.nextContent}</pre>
+          <pre
+            class="app-scrollbar max-h-32 overflow-auto whitespace-pre-wrap break-words font-mono text-[10px] text-text-secondary">{codexNotificationPreview.nextContent}</pre>
         </div>
       {/if}
     </div>

@@ -76,7 +76,10 @@ describe("Work item drag data", () => {
       fromStatus: "todo",
     });
     expect(hasWorkItemDragData(transfer)).toBe(true);
-    expect(get(draggedWorkItem)).toEqual({ itemId: "wi-1", fromStatus: "todo" });
+    expect(get(draggedWorkItem)).toEqual({
+      itemId: "wi-1",
+      fromStatus: "todo",
+    });
 
     clearDraggedWorkItem();
     expect(get(draggedWorkItem)).toBeNull();
@@ -85,7 +88,9 @@ describe("Work item drag data", () => {
   it("accepts Ready as a valid drag source column", () => {
     const transfer = dataTransfer();
 
-    expect(writeWorkItemDragData(transfer, item({ status: "ready" }))).toBe(true);
+    expect(writeWorkItemDragData(transfer, item({ status: "ready" }))).toBe(
+      true,
+    );
     expect(readWorkItemDragData(transfer)).toEqual({
       itemId: "wi-1",
       fromStatus: "ready",

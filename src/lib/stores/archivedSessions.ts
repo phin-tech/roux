@@ -142,7 +142,11 @@ async function runBulk<T>(
 export async function bulkRestoreArchivedSessions(
   ids: readonly string[],
 ): Promise<BulkActionResult> {
-  const result = await runBulk(ids, (id) => id, (id) => restoreSessionCmd(id));
+  const result = await runBulk(
+    ids,
+    (id) => id,
+    (id) => restoreSessionCmd(id),
+  );
   if (result.succeeded.length > 0) {
     const succeededSet = new Set(result.succeeded);
     archivedSessionsState.update((s) => {
@@ -235,7 +239,9 @@ export function clearArchivedSessionsProject(projectId: string): void {
   archivedSessionsState.update((state) => ({
     ...state,
     sessions: state.sessions.map((s) =>
-      s.projectId === projectId ? { ...s, projectId: null, blueprintId: null } : s
+      s.projectId === projectId
+        ? { ...s, projectId: null, blueprintId: null }
+        : s,
     ),
   }));
 }

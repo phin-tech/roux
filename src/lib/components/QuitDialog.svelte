@@ -24,7 +24,10 @@
   // session level but whose secondary pane is actively generating should
   // still warn "still working" on quit.
   function effective(id: string, raw: SessionStatus): SessionStatus {
-    return computeEffectiveSessionStatus(raw, $sessionAgentStatus.get(id) ?? null);
+    return computeEffectiveSessionStatus(
+      raw,
+      $sessionAgentStatus.get(id) ?? null,
+    );
   }
 
   let activeSessions = $derived(
@@ -46,7 +49,9 @@
     // Do NOT remove sessions — the Rust quit_app command kills PTYs and persists
     // session state so sessions reload as "disconnected" on next launch. Removing
     // them here empties sessions.json and breaks restore.
-    try { await flushPaneState(); } catch {}
+    try {
+      await flushPaneState();
+    } catch {}
     quitApp();
   }
 
@@ -67,7 +72,9 @@
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     class="fixed inset-0 z-[60] flex items-center justify-center bg-black/65 backdrop-blur-md"
-    onclick={(e) => { if (e.target === e.currentTarget) oncancel(); }}
+    onclick={(e) => {
+      if (e.target === e.currentTarget) oncancel();
+    }}
     onkeydown={handleKeydown}
     transition:fade={{ duration: 150 }}
   >
@@ -76,12 +83,20 @@
       transition:scale={{ duration: 150, start: 0.96 }}
     >
       <div class="border-b border-hairline bg-bg-surface/30 px-6 pt-5 pb-4">
-        <h2 class="mb-1 text-base font-semibold tracking-tight text-text-primary">Quit Roux?</h2>
+        <h2
+          class="mb-1 text-base font-semibold tracking-tight text-text-primary"
+        >
+          Quit Roux?
+        </h2>
         <p class="text-xs text-text-muted">
           {#if busySessions.length > 0}
-            {busySessions.length} session{busySessions.length === 1 ? " is" : "s are"} still working.
+            {busySessions.length} session{busySessions.length === 1
+              ? " is"
+              : "s are"} still working.
           {:else}
-            {activeSessions.length} active session{activeSessions.length === 1 ? "" : "s"} will be closed.
+            {activeSessions.length} active session{activeSessions.length === 1
+              ? ""
+              : "s"} will be closed.
           {/if}
         </p>
       </div>
@@ -91,8 +106,15 @@
           {#each activeSessions as session}
             {@const eff = effective(session.id, session.status)}
             <div class="flex items-center gap-2 text-xs">
-              <span class="inline-block h-1.5 w-1.5 rounded-full {eff === 'thinking' || eff === 'generating' ? 'bg-amber animate-pulse' : 'bg-green'}"></span>
-              <span class="font-medium text-text-secondary truncate">{session.name}</span>
+              <span
+                class="inline-block h-1.5 w-1.5 rounded-full {eff ===
+                  'thinking' || eff === 'generating'
+                  ? 'bg-amber animate-pulse'
+                  : 'bg-green'}"
+              ></span>
+              <span class="font-medium text-text-secondary truncate"
+                >{session.name}</span
+              >
               <span class="text-text-muted ml-auto">{eff}</span>
             </div>
           {/each}
@@ -106,7 +128,9 @@
             bind:checked={skipNextTime}
             class="w-3.5 h-3.5 rounded border border-border bg-bg-deep accent-accent cursor-pointer"
           />
-          <span class="text-[11px] text-text-muted group-hover:text-text-secondary transition-colors">
+          <span
+            class="text-[11px] text-text-muted group-hover:text-text-secondary transition-colors"
+          >
             Don't ask next time
           </span>
         </label>

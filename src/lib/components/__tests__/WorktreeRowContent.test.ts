@@ -38,7 +38,9 @@ function makeSession(overrides: Partial<Session> = {}): Session {
   };
 }
 
-function makeMetadata(overrides: Partial<WorktrunkMetadata> = {}): WorktrunkMetadata {
+function makeMetadata(
+  overrides: Partial<WorktrunkMetadata> = {},
+): WorktrunkMetadata {
   return {
     dirty: false,
     ahead: 0,
@@ -146,7 +148,10 @@ describe("WorktreeRowContent", () => {
     const { getByTestId } = render(WorktreeRowContent, {
       props: {
         wt: makeWorktree({
-          worktrunk: makeMetadata({ prunable: true, prunableReason: "gitdir missing" }),
+          worktrunk: makeMetadata({
+            prunable: true,
+            prunableReason: "gitdir missing",
+          }),
         }),
       },
     });
@@ -180,7 +185,9 @@ describe("WorktreeRowContent", () => {
   it("renders a merged badge when mainState == 'integrated'", () => {
     const { getByTestId } = render(WorktreeRowContent, {
       props: {
-        wt: makeWorktree({ worktrunk: makeMetadata({ mainState: "integrated" }) }),
+        wt: makeWorktree({
+          worktrunk: makeMetadata({ mainState: "integrated" }),
+        }),
       },
     });
     expect(getByTestId("wt-merged-badge").textContent).toBe("merged");
@@ -189,7 +196,9 @@ describe("WorktreeRowContent", () => {
   it("hides the merged badge for other mainState values", () => {
     const { queryByTestId } = render(WorktreeRowContent, {
       props: {
-        wt: makeWorktree({ worktrunk: makeMetadata({ mainState: "diverged" }) }),
+        wt: makeWorktree({
+          worktrunk: makeMetadata({ mainState: "diverged" }),
+        }),
       },
     });
     expect(queryByTestId("wt-merged-badge")).toBeNull();
@@ -310,9 +319,7 @@ describe("WorktreeRowContent", () => {
       checks: null,
       checkRuns: [{ name: "build", status: "passing", url: null }],
       reviewDecision: null,
-      reviewDetails: [
-        { reviewer: "alice", state: "APPROVED", url: null },
-      ],
+      reviewDetails: [{ reviewer: "alice", state: "APPROVED", url: null }],
     });
     const { getByTestId, findByTestId } = render(WorktreeRowContent, {
       props: {

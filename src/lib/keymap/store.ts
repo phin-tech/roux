@@ -1,6 +1,11 @@
 import { writable, derived, get } from "svelte/store";
 import { commands } from "$lib/bindings";
-import type { KeymapAction, KeymapTree, KeymapWarning, ParsedKeymap } from "$lib/bindings";
+import type {
+  KeymapAction,
+  KeymapTree,
+  KeymapWarning,
+  ParsedKeymap,
+} from "$lib/bindings";
 import { currentTree, keyMatches } from "./resolve";
 import { registry } from "$lib/commands";
 import { logError } from "$lib/logging";
@@ -57,7 +62,9 @@ function cancelHudTimer(): void {
   }
 }
 
-function resolvedHudMode(runtime: KeymapRuntime): { kind: "always" } | { kind: "delayed"; ms: number } | { kind: "never" } {
+function resolvedHudMode(
+  runtime: KeymapRuntime,
+): { kind: "always" } | { kind: "delayed"; ms: number } | { kind: "never" } {
   const tree = currentTree(runtime.keymap, runtime.treePath);
   if (tree?.hud) return tree.hud;
   if (runtime.keymap.hudDefault) return runtime.keymap.hudDefault;
@@ -187,7 +194,9 @@ function validateAgainstRegistry(km: ParsedKeymap): KeymapWarning[] {
         : `references unknown tree \`${action.tree}\``;
     }
     if (pseudoCommands.has(action.id)) return null;
-    return registry.get(action.id) ? null : `references unknown command \`${action.id}\``;
+    return registry.get(action.id)
+      ? null
+      : `references unknown command \`${action.id}\``;
   }
 
   for (const bind of km.directBinds) {
@@ -197,7 +206,12 @@ function validateAgainstRegistry(km: ParsedKeymap): KeymapWarning[] {
   for (const tree of km.trees) {
     for (const bind of tree.binds) {
       const err = check(bind.action);
-      if (err) out.push({ message: `tree "${tree.name}" bind ${err}`, line: 0, column: 0 });
+      if (err)
+        out.push({
+          message: `tree "${tree.name}" bind ${err}`,
+          line: 0,
+          column: 0,
+        });
     }
   }
   for (const prefix of km.prefixes) {
@@ -248,7 +262,10 @@ export function shortcutFor(commandId: string): string | null {
   return null;
 }
 
-function actionTargetsCommand(action: KeymapAction, commandId: string): boolean {
+function actionTargetsCommand(
+  action: KeymapAction,
+  commandId: string,
+): boolean {
   return action.kind === "command" && action.id === commandId;
 }
 

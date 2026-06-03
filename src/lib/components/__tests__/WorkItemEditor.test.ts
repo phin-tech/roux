@@ -185,9 +185,18 @@ describe("WorkItemEditor", () => {
       workItem(),
     ]);
     (projects as ReturnType<typeof import("svelte/store").writable>).set([
-      { id: "proj-1", name: "Roux", repoRoots: ["/repo"], contextPaths: [], sessionBlueprints: [], projectPrompt: "" },
+      {
+        id: "proj-1",
+        name: "Roux",
+        repoRoots: ["/repo"],
+        contextPaths: [],
+        sessionBlueprints: [],
+        projectPrompt: "",
+      },
     ]);
-    (runsByItem as ReturnType<typeof import("svelte/store").writable>).set(new Map());
+    (runsByItem as ReturnType<typeof import("svelte/store").writable>).set(
+      new Map(),
+    );
     editingWorkItemId.set(null);
     newWorkItemEditor.set(null);
   });
@@ -202,7 +211,9 @@ describe("WorkItemEditor", () => {
     editingWorkItemId.set("wi-1");
 
     // Modal shows with the card's title prefilled.
-    const titleInput = (await screen.findByLabelText("Title")) as HTMLInputElement;
+    const titleInput = (await screen.findByLabelText(
+      "Title",
+    )) as HTMLInputElement;
     expect(titleInput.value).toBe("Ship the board");
 
     // Assign a project, then save.
@@ -246,7 +257,9 @@ describe("WorkItemEditor", () => {
     render(WorkItemEditor);
     newWorkItemEditor.set({ status: "review" });
 
-    const titleInput = (await screen.findByLabelText("Title")) as HTMLInputElement;
+    const titleInput = (await screen.findByLabelText(
+      "Title",
+    )) as HTMLInputElement;
     await fireEvent.input(titleInput, { target: { value: "Review the PR" } });
     await fireEvent.click(screen.getByText("Create"));
 
@@ -284,11 +297,16 @@ describe("WorkItemEditor", () => {
     render(WorkItemEditor);
     newWorkItemEditor.set({ status: "todo" });
 
-    const titleInput = (await screen.findByLabelText("Title")) as HTMLInputElement;
+    const titleInput = (await screen.findByLabelText(
+      "Title",
+    )) as HTMLInputElement;
     await fireEvent.input(titleInput, { target: { value: "Use origin main" } });
-    await fireEvent.input(screen.getByPlaceholderText("main, feat/my-branch, or existing path"), {
-      target: { value: "feat/origin-card" },
-    });
+    await fireEvent.input(
+      screen.getByPlaceholderText("main, feat/my-branch, or existing path"),
+      {
+        target: { value: "feat/origin-card" },
+      },
+    );
     await fireEvent.change(screen.getByLabelText("Branch from"), {
       target: { value: "originMain" },
     });
@@ -310,7 +328,9 @@ describe("WorkItemEditor", () => {
 
     await fireEvent.click(screen.getByRole("button", { name: "Delete" }));
     expect(screen.getByRole("dialog", { name: "Delete card" })).toBeTruthy();
-    await fireEvent.click(screen.getByRole("button", { name: "Delete card only" }));
+    await fireEvent.click(
+      screen.getByRole("button", { name: "Delete card only" }),
+    );
 
     expect(deleteWorkItemWithMode).toHaveBeenCalledWith(
       expect.objectContaining({ id: "wi-1" }),
@@ -339,7 +359,9 @@ describe("WorkItemEditor", () => {
     render(WorkItemEditor);
     editingWorkItemId.set("wi-1");
 
-    await fireEvent.click(await screen.findByRole("button", { name: "Stop run run-1" }));
+    await fireEvent.click(
+      await screen.findByRole("button", { name: "Stop run run-1" }),
+    );
 
     expect(stopWorkItemRun).toHaveBeenCalledWith("run-1");
   });

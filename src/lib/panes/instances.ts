@@ -152,7 +152,9 @@ function paneRecordChanged(before: PaneInstance, after: PaneInstance): boolean {
  */
 export function getAttachedPtyId(pane: PaneInstance): string | null {
   if (pane.terminalState) {
-    return pane.terminalState.kind === "attached" ? pane.terminalState.ptyId : null;
+    return pane.terminalState.kind === "attached"
+      ? pane.terminalState.ptyId
+      : null;
   }
   return pane.ptyId || null;
 }
@@ -221,7 +223,10 @@ export function resetDisposeHooks(): void {
  * for shell/command types, removes from the store, and runs any registered
  * post-dispose hooks (e.g. agent-state cleanup).
  */
-export function disposePane(id: string, killPty?: (ptyId: string) => Promise<void>): void {
+export function disposePane(
+  id: string,
+  killPty?: (ptyId: string) => Promise<void>,
+): void {
   const map = get(paneInstances);
   const inst = map.get(id);
   if (!inst) return;
@@ -230,15 +235,23 @@ export function disposePane(id: string, killPty?: (ptyId: string) => Promise<voi
   // carry an empty ptyId so the killer is skipped implicitly.
   // Note: agents now live inside the shell PTY, so killing the pane kills
   // the agent — there is no separate session-level PTY to preserve.
-  if (killPty && inst.ptyId && (inst.type === "shell" || inst.type === "command")) {
-    killPty(inst.ptyId).catch(() => { /* best-effort */ });
+  if (
+    killPty &&
+    inst.ptyId &&
+    (inst.type === "shell" || inst.type === "command")
+  ) {
+    killPty(inst.ptyId).catch(() => {
+      /* best-effort */
+    });
   }
 
   // Run all cleanup listeners
   for (const unlisten of inst.unlisteners.splice(0)) {
     try {
       unlisten();
-    } catch { /* best-effort */ }
+    } catch {
+      /* best-effort */
+    }
   }
 
   // Clear command elapsed timer
@@ -259,7 +272,9 @@ export function disposePane(id: string, killPty?: (ptyId: string) => Promise<voi
   for (const hook of postDisposeHooks) {
     try {
       hook(id);
-    } catch { /* best-effort */ }
+    } catch {
+      /* best-effort */
+    }
   }
 }
 
@@ -276,7 +291,9 @@ export function replacePty(paneId: string, newPtyId: string): void {
     for (const unlisten of inst.unlisteners.splice(0)) {
       try {
         unlisten();
-      } catch { /* best-effort */ }
+      } catch {
+        /* best-effort */
+      }
     }
     clearPaneOutputChannel(paneId);
 
@@ -299,7 +316,7 @@ export function replacePty(paneId: string, newPtyId: string): void {
  */
 export function updateInstance(
   paneId: string,
-  fields: Partial<Omit<PaneInstance, "id">>
+  fields: Partial<Omit<PaneInstance, "id">>,
 ): void {
   paneInstances.update((map) => {
     const inst = map.get(paneId);

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_SETTINGS, type Project, type Session, type SessionBlueprint } from "$lib/types";
+import {
+  DEFAULT_SETTINGS,
+  type Project,
+  type Session,
+  type SessionBlueprint,
+} from "$lib/types";
 import type { SpawnProfile } from "$lib/panes/profiles";
 import {
   buildProjectPromptContext,
@@ -42,7 +47,9 @@ function session(overrides: Partial<Session> = {}): Session {
   };
 }
 
-function blueprint(overrides: Partial<SessionBlueprint> = {}): SessionBlueprint {
+function blueprint(
+  overrides: Partial<SessionBlueprint> = {},
+): SessionBlueprint {
   return {
     id: "bp-api",
     name: "api",

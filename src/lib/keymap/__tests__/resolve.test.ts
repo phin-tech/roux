@@ -1,6 +1,13 @@
 import { describe, it, expect, vi } from "vitest";
 import { resolveKey, type ResolverState } from "../resolve";
-import type { Bind, KeyRef, KeymapAction, KeymapTree, ParsedKeymap, Prefix } from "$lib/bindings";
+import type {
+  Bind,
+  KeyRef,
+  KeymapAction,
+  KeymapTree,
+  ParsedKeymap,
+  Prefix,
+} from "$lib/bindings";
 
 // Force mac platform for the bulk of tests; modsMatch is platform-specific
 // and mac is the common case. The `non_mac_primary_modifier` test overrides.
@@ -21,11 +28,17 @@ function emptyKeymap(): ParsedKeymap {
   };
 }
 
-function physical(mods: ("cmd" | "ctrl" | "alt" | "shift")[], code: string): KeyRef {
+function physical(
+  mods: ("cmd" | "ctrl" | "alt" | "shift")[],
+  code: string,
+): KeyRef {
   return { kind: "physical", mods, code };
 }
 
-function character(mods: ("cmd" | "ctrl" | "alt" | "shift")[], key: string): KeyRef {
+function character(
+  mods: ("cmd" | "ctrl" | "alt" | "shift")[],
+  key: string,
+): KeyRef {
   return { kind: "character", mods, key };
 }
 
@@ -81,9 +94,16 @@ describe("resolveKey — direct binds", () => {
   it("matches a physical direct bind", () => {
     const km = emptyKeymap();
     km.directBinds.push(
-      bind(physical(["cmd"], "KeyK"), { kind: "command", id: "app.command-palette" }),
+      bind(physical(["cmd"], "KeyK"), {
+        kind: "command",
+        id: "app.command-palette",
+      }),
     );
-    const r = resolveKey(keydown({ key: "k", code: "KeyK", metaKey: true }), state(km), always);
+    const r = resolveKey(
+      keydown({ key: "k", code: "KeyK", metaKey: true }),
+      state(km),
+      always,
+    );
     expect(r).toEqual({
       kind: "chord",
       action: { kind: "command", id: "app.command-palette" },
@@ -94,7 +114,10 @@ describe("resolveKey — direct binds", () => {
   it("matches Alt+KeyH regardless of e.key (macOS Option produces ˙)", () => {
     const km = emptyKeymap();
     km.directBinds.push(
-      bind(physical(["alt"], "KeyH"), { kind: "command", id: "pane.focus-left" }),
+      bind(physical(["alt"], "KeyH"), {
+        kind: "command",
+        id: "pane.focus-left",
+      }),
     );
     const r = resolveKey(
       keydown({ key: "˙", code: "KeyH", altKey: true }),
@@ -107,16 +130,26 @@ describe("resolveKey — direct binds", () => {
   it("no match returns none", () => {
     const km = emptyKeymap();
     km.directBinds.push(
-      bind(physical(["cmd"], "KeyK"), { kind: "command", id: "app.command-palette" }),
+      bind(physical(["cmd"], "KeyK"), {
+        kind: "command",
+        id: "app.command-palette",
+      }),
     );
-    const r = resolveKey(keydown({ key: "j", code: "KeyJ", metaKey: true }), state(km), always);
+    const r = resolveKey(
+      keydown({ key: "j", code: "KeyJ", metaKey: true }),
+      state(km),
+      always,
+    );
     expect(r).toEqual({ kind: "none" });
   });
 
   it("requires exact modifier match — extra shift fails", () => {
     const km = emptyKeymap();
     km.directBinds.push(
-      bind(physical(["cmd"], "KeyK"), { kind: "command", id: "app.command-palette" }),
+      bind(physical(["cmd"], "KeyK"), {
+        kind: "command",
+        id: "app.command-palette",
+      }),
     );
     const r = resolveKey(
       keydown({ key: "K", code: "KeyK", metaKey: true, shiftKey: true }),
@@ -129,9 +162,16 @@ describe("resolveKey — direct binds", () => {
   it("unavailable command falls through to none", () => {
     const km = emptyKeymap();
     km.directBinds.push(
-      bind(physical(["cmd"], "KeyK"), { kind: "command", id: "app.command-palette" }),
+      bind(physical(["cmd"], "KeyK"), {
+        kind: "command",
+        id: "app.command-palette",
+      }),
     );
-    const r = resolveKey(keydown({ key: "k", code: "KeyK", metaKey: true }), state(km), never);
+    const r = resolveKey(
+      keydown({ key: "k", code: "KeyK", metaKey: true }),
+      state(km),
+      never,
+    );
     expect(r).toEqual({ kind: "none" });
   });
 });
@@ -197,7 +237,10 @@ describe("resolveKey — prefix → tree", () => {
     const km = emptyKeymap();
     km.trees.push(
       tree("tmux", [
-        bind(physical(["ctrl"], "KeyB"), { kind: "command", id: "session.new" }),
+        bind(physical(["ctrl"], "KeyB"), {
+          kind: "command",
+          id: "session.new",
+        }),
       ]),
     );
     km.prefixes.push(prefix(physical(["ctrl"], "KeyB"), "tmux"));
@@ -215,7 +258,11 @@ describe("resolveKey — prefix → tree", () => {
 
   it("enter-tree action drills into the nested tree (append path)", () => {
     const km = emptyKeymap();
-    km.trees.push(tree("leader", [bind(character([], "w"), { kind: "enterTree", tree: "panes" })]));
+    km.trees.push(
+      tree("leader", [
+        bind(character([], "w"), { kind: "enterTree", tree: "panes" }),
+      ]),
+    );
     km.trees.push(tree("panes", []));
     const r = resolveKey(keydown({ key: "w" }), state(km, ["leader"]), always);
     expect(r).toEqual({ kind: "drillInto", tree: "panes" });
@@ -226,14 +273,22 @@ describe("resolveKey — Escape and passthrough", () => {
   it("Escape exits a non-sticky tree", () => {
     const km = emptyKeymap();
     km.trees.push(tree("leader", []));
-    const r = resolveKey(keydown({ key: "Escape" }), state(km, ["leader"]), always);
+    const r = resolveKey(
+      keydown({ key: "Escape" }),
+      state(km, ["leader"]),
+      always,
+    );
     expect(r).toEqual({ kind: "exit" });
   });
 
   it("Escape exits a sticky tree with no Escape binding", () => {
     const km = emptyKeymap();
     km.trees.push(tree("resize", [], { sticky: true }));
-    const r = resolveKey(keydown({ key: "Escape" }), state(km, ["resize"]), always);
+    const r = resolveKey(
+      keydown({ key: "Escape" }),
+      state(km, ["resize"]),
+      always,
+    );
     expect(r).toEqual({ kind: "exit" });
   });
 
@@ -266,14 +321,22 @@ describe("resolveKey — Escape and passthrough", () => {
   it("passthrough tree passes unbound keys through", () => {
     const km = emptyKeymap();
     km.trees.push(tree("locked", [], { sticky: true, passthrough: true }));
-    const r = resolveKey(keydown({ key: "a", code: "KeyA" }), state(km, ["locked"]), always);
+    const r = resolveKey(
+      keydown({ key: "a", code: "KeyA" }),
+      state(km, ["locked"]),
+      always,
+    );
     expect(r).toEqual({ kind: "passthrough" });
   });
 
   it("non-passthrough tree drops unbound keys (none)", () => {
     const km = emptyKeymap();
     km.trees.push(tree("leader", []));
-    const r = resolveKey(keydown({ key: "a", code: "KeyA" }), state(km, ["leader"]), always);
+    const r = resolveKey(
+      keydown({ key: "a", code: "KeyA" }),
+      state(km, ["leader"]),
+      always,
+    );
     expect(r).toEqual({ kind: "none" });
   });
 
@@ -282,7 +345,12 @@ describe("resolveKey — Escape and passthrough", () => {
     km.trees.push(
       tree(
         "locked",
-        [bind(physical(["ctrl"], "KeyC"), { kind: "command", id: "session.close" })],
+        [
+          bind(physical(["ctrl"], "KeyC"), {
+            kind: "command",
+            id: "session.close",
+          }),
+        ],
         { sticky: true, passthrough: true },
       ),
     );
@@ -299,9 +367,16 @@ describe("resolveKey — edge cases", () => {
   it("modifier-only keydown returns none", () => {
     const km = emptyKeymap();
     km.directBinds.push(
-      bind(physical(["cmd"], "KeyK"), { kind: "command", id: "app.command-palette" }),
+      bind(physical(["cmd"], "KeyK"), {
+        kind: "command",
+        id: "app.command-palette",
+      }),
     );
-    const r = resolveKey(keydown({ key: "Meta", metaKey: true }), state(km), always);
+    const r = resolveKey(
+      keydown({ key: "Meta", metaKey: true }),
+      state(km),
+      always,
+    );
     expect(r).toEqual({ kind: "none" });
   });
 
@@ -309,7 +384,10 @@ describe("resolveKey — edge cases", () => {
     const km = emptyKeymap();
     km.trees.push(
       tree("tmux", [
-        bind(character([], "%"), { kind: "command", id: "pane.split-vertical" }),
+        bind(character([], "%"), {
+          kind: "command",
+          id: "pane.split-vertical",
+        }),
       ]),
     );
     // Shift+5 on US layouts produces %; e.key === "%"
@@ -326,7 +404,11 @@ describe("resolveKey — edge cases", () => {
     km.directBinds.push(
       bind(physical([], "Escape"), { kind: "command", id: "keymap.exit-tree" }),
     );
-    const r = resolveKey(keydown({ key: "Escape", code: "Escape" }), state(km), always);
+    const r = resolveKey(
+      keydown({ key: "Escape", code: "Escape" }),
+      state(km),
+      always,
+    );
     expect(r.kind).toBe("chord");
   });
 });

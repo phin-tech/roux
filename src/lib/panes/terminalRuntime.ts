@@ -30,7 +30,9 @@ export interface TerminalController {
   clearSelection(): void;
   scrollToBottom(): void;
   setTheme(theme: TerminalTheme): void;
-  setCustomKeyHandler(handler: ((event: KeyboardEvent) => boolean) | null): void;
+  setCustomKeyHandler(
+    handler: ((event: KeyboardEvent) => boolean) | null,
+  ): void;
   /** Read the current logical prompt line from the xterm buffer. */
   getPromptSnapshot(): PromptSnapshot | null;
   /** Check if the terminal has minimal output (new/empty shell). */
@@ -63,7 +65,9 @@ function bumpVersion(): void {
   terminalRuntimeVersion.update((v) => v + 1);
 }
 
-function getPaneTerminalRuntime(paneId: string): PaneTerminalRuntime | undefined {
+function getPaneTerminalRuntime(
+  paneId: string,
+): PaneTerminalRuntime | undefined {
   return paneTerminalRuntimes.get(paneId);
 }
 
@@ -83,11 +87,15 @@ export function ensureTerminalController(
   return controller;
 }
 
-export function getTerminalController(paneId: string): TerminalController | null {
+export function getTerminalController(
+  paneId: string,
+): TerminalController | null {
   return getPaneTerminalRuntime(paneId)?.controller ?? null;
 }
 
-export function getPaneOutputChannel(paneId: string): Channel<PtyOutputPayload> | null {
+export function getPaneOutputChannel(
+  paneId: string,
+): Channel<PtyOutputPayload> | null {
   return getPaneTerminalRuntime(paneId)?.outputChannel ?? null;
 }
 

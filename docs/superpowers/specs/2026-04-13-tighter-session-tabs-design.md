@@ -53,6 +53,7 @@ Alternative considered: frontend-only heuristic (compare `name` to the would-be 
 The gutter dot is **solid** for every status except `attention`, which **pulses**. `attention` is the one case the user needs to notice from across the screen (agent awaiting prompt); `thinking` and `generating` are expected background states and no longer animate.
 
 Color map stays as today:
+
 - idle: green · thinking: amber (solid) · generating: blue (solid) · error: red · disconnected: gray · attention: amber (pulsing)
 
 The current `railClasses` vertical bar is removed. The active-tab indicator becomes the row background only (existing `bg-bg-active`).
@@ -109,5 +110,5 @@ Frontend:
 
 ## Open Questions
 
-- Should the worktree marker show the branch's relationship to the base (e.g., "worktree · ahead 3")? Out of scope for this pass — current scope is *reduce*, not add.
+- Should the worktree marker show the branch's relationship to the base (e.g., "worktree · ahead 3")? Out of scope for this pass — current scope is _reduce_, not add.
 - Cache-age indicator per agent: explored during brainstorming, deferred — Claude Code doesn't expose cache-age over the hooks interface today. Estimate via last-activity timestamp would be a proxy, not ground truth.

@@ -31,6 +31,8 @@ describe("DoctorPanel", () => {
     render(DoctorPanel, { mode: "onboarding", visible: true });
 
     expect(await screen.findByText(/Homebrew roux detected/)).toBeTruthy();
-    expect(screen.getByText(/brew upgrade phin-tech\/tap\/roux-pre/)).toBeTruthy();
+    expect(
+      screen.getByText(/brew upgrade phin-tech\/tap\/roux-pre/),
+    ).toBeTruthy();
   });
 });

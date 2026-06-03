@@ -18,6 +18,7 @@ This feature ships as **experimental**. All of the following are explicitly subj
 The experimental marker is removed once the surface has been used long enough to shake out rough edges (expected horizon: at least one full release cycle of real use). Users are expected to keep their own backups of the vault and to accept that breaking changes may require manual vault edits.
 
 Experimental status is communicated in three places:
+
 - The user-facing docs page (`docs/features/notes.md`) carries an "Experimental — subject to change" banner.
 - The Roux notes panel header shows a subtle "Experimental" pill (implementation in Step 3).
 - `roux notes --help` output leads with an "Experimental" line (implementation in Step 5).
@@ -53,7 +54,7 @@ Today Roux has a single per-project plain-text scratchpad (`roux_config_dir()/no
 
 ### Scopes & Vault Layout
 
-Four scopes, one `notes.md` anchor file per scope. Session scope is a *folder* from day one so future siblings (transcript backups, logs) drop in without a filesystem move.
+Four scopes, one `notes.md` anchor file per scope. Session scope is a _folder_ from day one so future siblings (transcript backups, logs) drop in without a filesystem move.
 
 ```
 $ROUX_NOTES_ROOT/                       # default: ~/Documents/Roux (configurable)
@@ -89,6 +90,7 @@ $ROUX_NOTES_ROOT/                       # default: ~/Documents/Roux (configurabl
 **Project slug** is slugified from the project's user-chosen name at project creation, stored in `.roux/projects.json`, frozen on creation. Renaming the project inside Roux does **not** rename the vault folder. `roux notes project rename <old> <new>` is the escape hatch.
 
 **Session slug** is `<branch-slug>--<short-id>`:
+
 - `<branch-slug>` = current branch at session creation, slugified. Falls back to `detached` for detached-HEAD sessions and `no-git` for non-git workdirs.
 - `<short-id>` = first 6 hex chars of the session id.
 - Frozen at session creation; does not follow branch renames.
@@ -129,7 +131,7 @@ updated: 2026-04-18T10:30:00-05:00
 type: repo
 repo: <repo-slug>
 repo_path: /Users/sam/src/github.com/phin-tech/roux
-remote: git@github.com:phin-tech/roux.git        # omitted if none
+remote: git@github.com:phin-tech/roux.git # omitted if none
 tags: [roux/repo]
 created: 2026-04-18T10:30:00-05:00
 updated: 2026-04-18T10:30:00-05:00
@@ -143,7 +145,7 @@ updated: 2026-04-18T10:30:00-05:00
 type: session
 session_id: a1b2c3d4-e5f6-7890-abcd-ef1234567890
 repo: phin-tech-roux
-project: null                                     # or <project-slug>
+project: null # or <project-slug>
 branch: feature/session-notes
 worktree: /Users/sam/src/worktrees/session-notes
 tags: [roux/session]
@@ -216,19 +218,19 @@ External editing is first-class. The backend runs a filesystem watcher over `$RO
 
 Every PTY gets these in addition to the existing `ROUX_SESSION_ID` / `ROUX_PANE_ID` / `ROUX_PROJECT_ID` / `ROUX_WORKTREE_PATH` / `ROUX_CLI` / `ROUX_SOCKET`:
 
-| Variable | Value | Example |
-|---|---|---|
-| `ROUX_NOTES_ROOT` | Vault root | `/Users/sam/Documents/Roux` |
-| `ROUX_GLOBAL_NOTES_DIR` | Global scope dir | `<root>/global` |
-| `ROUX_GLOBAL_NOTES_FILE` | Global anchor | `<root>/global/notes.md` |
-| `ROUX_REPO_SLUG` | Current session's repo slug | `phin-tech-roux` |
-| `ROUX_REPO_NOTES_DIR` | Repo scope dir | `<root>/repos/<slug>` |
-| `ROUX_REPO_NOTES_FILE` | Repo anchor | `<root>/repos/<slug>/notes.md` |
-| `ROUX_SESSION_PROJECT` | Project slug (unset if no project) | `marketing-revamp` |
-| `ROUX_SESSION_PROJECT_NOTES_DIR` | Project scope dir (unset if no project) | `<root>/projects/<slug>` |
-| `ROUX_SESSION_PROJECT_NOTES_FILE` | Project anchor (unset if no project) | `<root>/projects/<slug>/notes.md` |
-| `ROUX_SESSION_DIR` | Session scope dir | `<root>/sessions/<branch-slug>--<short-id>` |
-| `ROUX_SESSION_NOTES_FILE` | Session anchor | `<root>/sessions/<branch-slug>--<short-id>/notes.md` |
+| Variable                          | Value                                   | Example                                              |
+| --------------------------------- | --------------------------------------- | ---------------------------------------------------- |
+| `ROUX_NOTES_ROOT`                 | Vault root                              | `/Users/sam/Documents/Roux`                          |
+| `ROUX_GLOBAL_NOTES_DIR`           | Global scope dir                        | `<root>/global`                                      |
+| `ROUX_GLOBAL_NOTES_FILE`          | Global anchor                           | `<root>/global/notes.md`                             |
+| `ROUX_REPO_SLUG`                  | Current session's repo slug             | `phin-tech-roux`                                     |
+| `ROUX_REPO_NOTES_DIR`             | Repo scope dir                          | `<root>/repos/<slug>`                                |
+| `ROUX_REPO_NOTES_FILE`            | Repo anchor                             | `<root>/repos/<slug>/notes.md`                       |
+| `ROUX_SESSION_PROJECT`            | Project slug (unset if no project)      | `marketing-revamp`                                   |
+| `ROUX_SESSION_PROJECT_NOTES_DIR`  | Project scope dir (unset if no project) | `<root>/projects/<slug>`                             |
+| `ROUX_SESSION_PROJECT_NOTES_FILE` | Project anchor (unset if no project)    | `<root>/projects/<slug>/notes.md`                    |
+| `ROUX_SESSION_DIR`                | Session scope dir                       | `<root>/sessions/<branch-slug>--<short-id>`          |
+| `ROUX_SESSION_NOTES_FILE`         | Session anchor                          | `<root>/sessions/<branch-slug>--<short-id>/notes.md` |
 
 - Directory vars are set even when the directory is empty — agents can drop arbitrary files without Roux materializing them first. Roux creates directories lazily on first write, so agents should `mkdir -p "$ROUX_REPO_NOTES_DIR"` before writing siblings.
 - Project-related vars are **unset** (not empty) when the session has no project. Shell idioms like `${ROUX_SESSION_PROJECT:-no-project}` work naturally.
@@ -284,13 +286,14 @@ roux notes project path --topic hiring-pipeline --dir   # errors: --dir ignores 
 
 **Tag storage vs search asymmetry** (matches Obsidian's tag pane):
 
-- **Storage** — `--tag` flags write *only* to frontmatter `tags:`. We do not rewrite prose to insert `#tag` text.
+- **Storage** — `--tag` flags write _only_ to frontmatter `tags:`. We do not rewrite prose to insert `#tag` text.
 - **Search** — `--tag` filters match the **union** of (a) frontmatter `tags:` list and (b) inline `#tag` occurrences parsed out of the body (skipping code fences, inline code, and URL-fragment positions).
 - **Hierarchical prefix match (default).** `--tag api` matches tags `api`, `api/tls`, `api/foo`. Pass `--tag-exact` for literal match on `api` only. Passing `--tag api/tls` matches `api/tls` exactly (never a parent or sibling); hierarchical prefix is one-sided.
 
 **Overrides:** every scoped command accepts `--session <id>`, `--repo <slug>`, `--project <slug>` to operate on a scope other than the current session's. Precedence: flag > current session env > error if neither resolves. `search --scope` uses the same resolution for repo/project scoping.
 
 **Errors surface as non-zero exit codes + human message on stderr:**
+
 - Project command with no project assigned → exit 2, "No project assigned to session".
 - Unknown repo/project slug → exit 3, "Unknown slug '<x>'. Run `roux notes repo list` to see known slugs".
 - Vault not writable → exit 4, "Cannot write to $ROUX_NOTES_ROOT".
@@ -315,7 +318,7 @@ Two new keys in the existing settings store:
 - `read_file(scope, topic?)`, `write_file(scope, topic?, content, tags)`, `append_file(scope, topic?, content, AppendOpts)` — the three primitives the commands layer and CLI use. `topic: None` targets the scope's `notes.md`; `topic: Some(name)` targets `<scope-dir>/<slugified-name>.md`.
 - `search_by_tags(scope: Option<Scope>, tags: &[String], exact: bool) -> Vec<SearchHit>` — walks the vault (or a single scope subtree), reads frontmatter + parses inline `#tag` occurrences from body, returns files where all supplied tags match. Prefix match by default, exact with `exact = true`.
 - `frontmatter::ensure(path, scope, extra_tags)` — reads a file, guarantees frontmatter exists and is current for the scope, preserves body, union-merges `extra_tags` into the `tags:` list.
-- `inline_tags::parse(body) -> Vec<String>` — extracts `#tag` tokens from markdown body, skipping code fences (``` and indented), inline code (`` ` ``), and URL fragments.
+- `inline_tags::parse(body) -> Vec<String>` — extracts `#tag` tokens from markdown body, skipping code fences (`` and indented), inline code (` ` ``), and URL fragments.
 - `timestamped_entry::format(content, id, include_web_anchor)` — produces the entry block.
 - `topic::slugify(name) -> Result<String>` — lowercase, non-alphanumerics → `-`, collapse runs, trim; reject empty or path-separator-bearing names with `Error::InvalidTopic`.
 - Unit tests for slug resolution, frontmatter preservation, collision handling, tag merging, inline-tag parsing, prefix search, and entry formatting.
@@ -440,7 +443,7 @@ The vault is Obsidian-compatible by construction, which also makes it compatible
 - Type in each scope; switch pills; switch sessions; confirm sticky behavior.
 - Edit `$ROUX_NOTES_ROOT/repos/<slug>/notes.md` in Obsidian — confirm Roux panel updates within ~300ms of save.
 - In a Roux shell: `echo "foo" | roux notes session append --timestamp` — confirm entry block appears in panel immediately.
-- Create topic files from the CLI — `roux notes repo append --topic api-gotchas --tag api "TLS fix"` — confirm file exists with correct frontmatter (hierarchical `roux/repo` + `api`) and content, panel *does not* surface it (v1 anchor-only UI).
+- Create topic files from the CLI — `roux notes repo append --topic api-gotchas --tag api "TLS fix"` — confirm file exists with correct frontmatter (hierarchical `roux/repo` + `api`) and content, panel _does not_ surface it (v1 anchor-only UI).
 - `roux notes search --tag api` from a repo session returns the new topic file; `--scope global` returns nothing for the same tag.
 - Open `$ROUX_NOTES_ROOT` in Obsidian — no plugins needed, block refs work (`[[notes#^entry-xxx]]`), Dataview query `FROM #roux/session` lists session notes, `#api` in the tag pane includes every topic with `api/*`.
 - Reinstall from a build with the migration flag cleared and a populated legacy notes dir — verify migration populates `projects/<slug>/notes.md` and leaves the `.txt` files in place.

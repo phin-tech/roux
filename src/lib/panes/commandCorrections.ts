@@ -25,7 +25,10 @@ const NPM_SCRIPT_SHORTHANDS = new Set([
   "typecheck",
 ]);
 
-function withFirstLineReplacement(text: string, replacementLine: string): string {
+function withFirstLineReplacement(
+  text: string,
+  replacementLine: string,
+): string {
   const newlineIndex = text.indexOf("\n");
   if (newlineIndex === -1) return replacementLine;
   return replacementLine + text.slice(newlineIndex);
@@ -36,7 +39,9 @@ function firstLine(text: string): string {
   return newlineIndex === -1 ? text : text.slice(0, newlineIndex);
 }
 
-export function suggestCommandCorrection(text: string): CommandCorrection | null {
+export function suggestCommandCorrection(
+  text: string,
+): CommandCorrection | null {
   const line = firstLine(text);
 
   const gtiMatch = line.match(/^([ \t]*)gti([ \t].*|)$/);

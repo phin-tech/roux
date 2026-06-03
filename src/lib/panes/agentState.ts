@@ -79,7 +79,8 @@ export function updateAgentState(paneId: string, event: AgentStateEvent): void {
       provider: event.provider,
       status: event.status,
       permissionInfo: event.permissionInfo ?? prev?.permissionInfo,
-      completionSummary: event.status === "idle" ? event.completionSummary : undefined,
+      completionSummary:
+        event.status === "idle" ? event.completionSummary : undefined,
       providerSessionId: event.providerSessionId ?? prev?.providerSessionId,
       source: event.source,
       updatedAt: Date.now(),
@@ -107,7 +108,11 @@ export function clearPermissionInfo(paneId: string): void {
     const prev = map.get(paneId);
     if (!prev || prev.permissionInfo === undefined) return map;
     const next = new Map(map);
-    next.set(paneId, { ...prev, permissionInfo: undefined, updatedAt: Date.now() });
+    next.set(paneId, {
+      ...prev,
+      permissionInfo: undefined,
+      updatedAt: Date.now(),
+    });
     return next;
   });
 }
@@ -164,16 +169,13 @@ function aggregateFor(
  * out; see spec phase 4/5).
  */
 export const sessionAgentStatus: Readable<Map<string, AggregateStatus | null>> =
-  derived(
-    [sessionLayouts, agentStates],
-    ([$layouts, $states]) => {
-      const out = new Map<string, AggregateStatus | null>();
-      for (const [sessionId, layout] of $layouts) {
-        out.set(sessionId, aggregateFor(layout, $states));
-      }
-      return out;
-    },
-  );
+  derived([sessionLayouts, agentStates], ([$layouts, $states]) => {
+    const out = new Map<string, AggregateStatus | null>();
+    for (const [sessionId, layout] of $layouts) {
+      out.set(sessionId, aggregateFor(layout, $states));
+    }
+    return out;
+  });
 
 /** Synchronous snapshot of the aggregate — handy for tests and one-shot queries. */
 export function getSessionAgentStatus(

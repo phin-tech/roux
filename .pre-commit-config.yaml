@@ -1,0 +1,20 @@
+# Pre-commit hooks. Compatible with prek (https://github.com/j178/prek)
+# and pre-commit (https://pre-commit.com). Install once with `prek install`
+# (or `pre-commit install`). Hooks reuse the project's own toolchain so the
+# exact same Prettier/rustfmt versions and config run locally and in CI.
+repos:
+  - repo: local
+    hooks:
+      - id: prettier
+        name: prettier
+        entry: npx prettier --write --ignore-unknown
+        language: system
+        files: \.(ts|js|mjs|cjs|svelte|css|json|jsonc|yaml|yml|md|html)$
+        exclude: ^(package-lock\.json|Cargo\.lock|src/lib/bindings\.ts)$
+
+      - id: cargo-fmt
+        name: cargo fmt
+        entry: cargo fmt --all --manifest-path src-tauri/Cargo.toml --
+        language: system
+        files: \.rs$
+        pass_filenames: false

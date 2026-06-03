@@ -72,6 +72,7 @@ npm run check        # Svelte type check
 ## High-Risk Failure Modes
 
 Guard against these specifically:
+
 - Breaking pane-tree invariants.
 - Corrupting persisted session/project/settings state.
 - Leaking PTYs, watchers, or background tasks.
@@ -97,9 +98,11 @@ TDD is the primary method. Prefer red-green-refactor: write/identify a failing t
 Test surface here may be frontend unit/component tests, store tests, Rust unit tests, integration-level Tauri/backend checks, or manual runtime verification.
 
 Before marking any testing task complete, state:
+
 ```text
 VERIFY: Ran [exact command] — Result: [PASS/FAIL/DID NOT RUN]
 ```
+
 If it did not run, it is not complete. Common commands: `npm run test`, `npm run check`, targeted Vitest runs, targeted Rust builds/checks in `src-tauri`.
 
 ## Working Principles

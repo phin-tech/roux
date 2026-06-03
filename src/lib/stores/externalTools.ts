@@ -1,5 +1,9 @@
 import { get, writable } from "svelte/store";
-import type { ExternalTool, ExternalToolSurface, ExternalToolWebEmbedder } from "$lib/bindings";
+import type {
+  ExternalTool,
+  ExternalToolSurface,
+  ExternalToolWebEmbedder,
+} from "$lib/bindings";
 import {
   daemonProcessKill,
   daemonProcessOutput,
@@ -11,7 +15,11 @@ import {
 } from "$lib/tauri";
 import { activeSession, sessionList } from "$lib/stores/sessions";
 import { settings } from "$lib/stores/settings";
-import { closeMainView, mainViewRoute, openMainView } from "$lib/stores/mainView";
+import {
+  closeMainView,
+  mainViewRoute,
+  openMainView,
+} from "$lib/stores/mainView";
 import { closeRetainedExternalToolWebview } from "$lib/externalTools/nativeWebviews";
 
 export type ExternalToolRunStatus =
@@ -38,20 +46,26 @@ export interface ExternalToolRun {
   launchedAtMs: number;
 }
 
-export const externalToolRuns = writable<Map<string, ExternalToolRun>>(new Map());
+export const externalToolRuns = writable<Map<string, ExternalToolRun>>(
+  new Map(),
+);
 const externalToolViewClosers = new Map<string, () => void>();
 const externalToolLaunchTokens = new Map<string, number>();
 const externalToolRelaunchCleanupTokens = new Map<string, number>();
 let nextExternalToolLaunchToken = 0;
 let nextExternalToolRelaunchCleanupToken = 0;
 
-export function externalToolRunId(toolId: string, sessionId: string | null): string {
+export function externalToolRunId(
+  toolId: string,
+  sessionId: string | null,
+): string {
   return `${toolId}:${sessionId ?? "global"}`;
 }
 
 export function externalToolDisabledReason(tool: ExternalTool): string | null {
   if (tool.enabled === false) return "Disabled in Preferences";
-  if (tool.requiresSession && !get(activeSession)) return "Requires an active session";
+  if (tool.requiresSession && !get(activeSession))
+    return "Requires an active session";
   if ((tool.surface ?? "terminal") === "web" && !tool.urlTemplate?.trim()) {
     return "Web tools require a URL template";
   }
@@ -59,7 +73,9 @@ export function externalToolDisabledReason(tool: ExternalTool): string | null {
 }
 
 export function listEnabledExternalTools(): ExternalTool[] {
-  return (get(settings).externalTools ?? []).filter((tool) => tool.enabled !== false);
+  return (get(settings).externalTools ?? []).filter(
+    (tool) => tool.enabled !== false,
+  );
 }
 
 export async function openExternalTool(toolId: string): Promise<void> {
@@ -115,7 +131,10 @@ function markExternalToolRelaunching(runId: string): number {
   return relaunchToken;
 }
 
-function externalToolRelaunchCleanupIsCurrent(runId: string, token: number): boolean {
+function externalToolRelaunchCleanupIsCurrent(
+  runId: string,
+  token: number,
+): boolean {
   return externalToolRelaunchCleanupTokens.get(runId) === token;
 }
 
@@ -131,7 +150,10 @@ export async function closeExternalToolRun(runId: string): Promise<void> {
   if (run) await killRunRuntime(run);
 }
 
-export function registerExternalToolViewCloser(runId: string, closeView: () => void): () => void {
+export function registerExternalToolViewCloser(
+  runId: string,
+  closeView: () => void,
+): () => void {
   externalToolViewClosers.set(runId, closeView);
   return () => {
     if (externalToolViewClosers.get(runId) === closeView) {
@@ -180,7 +202,12 @@ export function markExternalToolExited(
   if (run.status === "error") return;
   if (generation != null && run.runtimeGeneration !== generation) return;
   if (run.surface === "web") {
-    setExternalToolRunError(runId, processExitMessage(exitCode), runtimeId, generation);
+    setExternalToolRunError(
+      runId,
+      processExitMessage(exitCode),
+      runtimeId,
+      generation,
+    );
     return;
   }
 
@@ -199,7 +226,12 @@ export function setExternalToolRunError(
     if (!run || run.runtimeId !== (runtimeId ?? null)) return;
     if (generation != null && run.runtimeGeneration !== generation) return;
   }
-  updateRun(runId, (run) => ({ ...run, status: "error", error, logsOpen: true }));
+  updateRun(runId, (run) => ({
+    ...run,
+    status: "error",
+    error,
+    logsOpen: true,
+  }));
 }
 
 export async function failExternalToolRun(
@@ -216,11 +248,16 @@ export async function failExternalToolRun(
   await killRunRuntime(run);
 }
 
-export function setExternalToolLogsOpen(runId: string, logsOpen: boolean): void {
+export function setExternalToolLogsOpen(
+  runId: string,
+  logsOpen: boolean,
+): void {
   updateRun(runId, (run) => ({ ...run, logsOpen }));
 }
 
-export async function readExternalToolProcess(run: ExternalToolRun): Promise<ProcessSnapshot | null> {
+export async function readExternalToolProcess(
+  run: ExternalToolRun,
+): Promise<ProcessSnapshot | null> {
   if (run.surface !== "web" || !run.runtimeId) return null;
   return daemonProcessOutput(run.runtimeId, 64 * 1024);
 }
@@ -316,19 +353,28 @@ function externalToolKeepsWebviewAlive(tool: ExternalTool): boolean {
 }
 
 function findTool(toolId: string): ExternalTool {
-  const tool = (get(settings).externalTools ?? []).find((candidate) => candidate.id === toolId);
+  const tool = (get(settings).externalTools ?? []).find(
+    (candidate) => candidate.id === toolId,
+  );
   if (!tool) throw new Error(`External tool "${toolId}" not found`);
-  if (tool.enabled === false) throw new Error(`External tool "${tool.name}" is disabled`);
+  if (tool.enabled === false)
+    throw new Error(`External tool "${tool.name}" is disabled`);
   if (tool.requiresSession) {
     const sessionId = get(activeSession)?.id ?? null;
-    if (!sessionId || !get(sessionList).some((session) => session.id === sessionId)) {
+    if (
+      !sessionId ||
+      !get(sessionList).some((session) => session.id === sessionId)
+    ) {
       throw new Error("External tool requires an active session");
     }
   }
   return tool;
 }
 
-function updateRun(runId: string, updater: (run: ExternalToolRun) => ExternalToolRun): void {
+function updateRun(
+  runId: string,
+  updater: (run: ExternalToolRun) => ExternalToolRun,
+): void {
   externalToolRuns.update((runs) => {
     const current = runs.get(runId);
     if (!current) return runs;
@@ -351,7 +397,9 @@ async function killRunRuntime(run: ExternalToolRun): Promise<void> {
   }
 }
 
-async function killLaunchResultRuntime(result: ExternalToolLaunchResult): Promise<void> {
+async function killLaunchResultRuntime(
+  result: ExternalToolLaunchResult,
+): Promise<void> {
   if (!result.runtimeId) return;
   try {
     if (result.surface === "terminal") {
@@ -369,5 +417,7 @@ function formatError(err: unknown): string {
 }
 
 function processExitMessage(exitCode: number | null): string {
-  return exitCode == null ? "Process exited" : `Process exited with code ${exitCode}`;
+  return exitCode == null
+    ? "Process exited"
+    : `Process exited with code ${exitCode}`;
 }

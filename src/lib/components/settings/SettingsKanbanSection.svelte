@@ -26,7 +26,9 @@
 
 <div class="py-2">
   <div class="text-[13px]">Planning instructions</div>
-  <div class="mt-0.5 text-[11px] text-text-muted">Appended after Roux's required planning prompt.</div>
+  <div class="mt-0.5 text-[11px] text-text-muted">
+    Appended after Roux's required planning prompt.
+  </div>
   <textarea
     class="mt-2 min-h-24 w-full resize-y rounded border border-border bg-bg-deep px-2 py-1.5 text-xs text-text-primary outline-none focus:border-accent-dim"
     value={kanban.planningPromptAppend}
@@ -36,17 +38,22 @@
 
 <div class="py-2">
   <div class="text-[13px]">Implementation instructions</div>
-  <div class="mt-0.5 text-[11px] text-text-muted">Appended after Roux's required Start prompt.</div>
+  <div class="mt-0.5 text-[11px] text-text-muted">
+    Appended after Roux's required Start prompt.
+  </div>
   <textarea
     class="mt-2 min-h-24 w-full resize-y rounded border border-border bg-bg-deep px-2 py-1.5 text-xs text-text-primary outline-none focus:border-accent-dim"
     value={kanban.implementationPromptAppend}
-    oninput={(e) => updateKanban("implementationPromptAppend", e.currentTarget.value)}
+    oninput={(e) =>
+      updateKanban("implementationPromptAppend", e.currentTarget.value)}
   ></textarea>
 </div>
 
 <div class="py-2">
   <div class="text-[13px]">Review handoff instructions</div>
-  <div class="mt-0.5 text-[11px] text-text-muted">Included in the implementation prompt until automated review runs exist.</div>
+  <div class="mt-0.5 text-[11px] text-text-muted">
+    Included in the implementation prompt until automated review runs exist.
+  </div>
   <textarea
     class="mt-2 min-h-24 w-full resize-y rounded border border-border bg-bg-deep px-2 py-1.5 text-xs text-text-primary outline-none focus:border-accent-dim"
     value={kanban.reviewPromptAppend}

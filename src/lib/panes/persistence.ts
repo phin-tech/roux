@@ -49,7 +49,12 @@ const VALID_NOTES_SCOPES = new Set(["session", "repo", "project", "global"]);
 const VALID_VIEW_MODES = new Set(["edit", "read"]);
 // Note: ptyId may be empty for non-shell panes (notes/markdown), so we
 // don't enforce a min-length on it. Type narrowing is what matters.
-const VALID_PANE_TYPES = new Set<PaneType>(["shell", "markdown", "command", "notes"]);
+const VALID_PANE_TYPES = new Set<PaneType>([
+  "shell",
+  "markdown",
+  "command",
+  "notes",
+]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -62,28 +67,29 @@ function isLayoutNode(value: unknown): value is LayoutNode {
   }
   if (value.kind !== "split") return false;
   if (value.direction !== "h" && value.direction !== "v") return false;
-  if (!Array.isArray(value.children) || value.children.length === 0) return false;
+  if (!Array.isArray(value.children) || value.children.length === 0)
+    return false;
   if (!value.children.every(isLayoutNode)) return false;
   if (
     value.sizes !== undefined &&
     value.sizes !== null &&
-    (
-      !Array.isArray(value.sizes) ||
+    (!Array.isArray(value.sizes) ||
       value.sizes.length !== value.children.length ||
-      value.sizes.some((size) => typeof size !== "number" || !Number.isFinite(size) || size < 0)
-    )
+      value.sizes.some(
+        (size) =>
+          typeof size !== "number" || !Number.isFinite(size) || size < 0,
+      ))
   ) {
     return false;
   }
-  if (value.stacked !== undefined && typeof value.stacked !== "boolean") return false;
+  if (value.stacked !== undefined && typeof value.stacked !== "boolean")
+    return false;
   if (
     value.activeIndex !== undefined &&
-    (
-      typeof value.activeIndex !== "number" ||
+    (typeof value.activeIndex !== "number" ||
       !Number.isInteger(value.activeIndex) ||
       value.activeIndex < 0 ||
-      value.activeIndex >= value.children.length
-    )
+      value.activeIndex >= value.children.length)
   ) {
     return false;
   }
@@ -104,13 +110,23 @@ function isDescriptor(value: unknown): value is PaneDescriptor {
 function validateDescriptor(d: PaneDescriptor): PaneDescriptor {
   const result = { ...d };
   // Validate notesScope - default to "session" if invalid
-  if (result.notesScope !== undefined && !VALID_NOTES_SCOPES.has(result.notesScope)) {
-    log(`validateDescriptor: invalid notesScope "${result.notesScope}", defaulting to "session"`);
+  if (
+    result.notesScope !== undefined &&
+    !VALID_NOTES_SCOPES.has(result.notesScope)
+  ) {
+    log(
+      `validateDescriptor: invalid notesScope "${result.notesScope}", defaulting to "session"`,
+    );
     result.notesScope = "session";
   }
   // Validate notesViewMode - default to "edit" if invalid
-  if (result.notesViewMode !== undefined && !VALID_VIEW_MODES.has(result.notesViewMode)) {
-    log(`validateDescriptor: invalid notesViewMode "${result.notesViewMode}", defaulting to "edit"`);
+  if (
+    result.notesViewMode !== undefined &&
+    !VALID_VIEW_MODES.has(result.notesViewMode)
+  ) {
+    log(
+      `validateDescriptor: invalid notesViewMode "${result.notesViewMode}", defaulting to "edit"`,
+    );
     result.notesViewMode = "edit";
   }
   return result;
@@ -123,10 +139,14 @@ export async function loadPaneState(
     const raw = await loadPaneStateRaw(sessionId);
     if (raw == null) return null;
     if (!isRecord(raw)) {
-      log(`loadPaneState(${sessionId}): invalid payload shape — dropping persisted state`);
+      log(
+        `loadPaneState(${sessionId}): invalid payload shape — dropping persisted state`,
+      );
       return null;
     }
-    const payload = raw as { schemaVersion?: number } & Partial<PaneStatePayload>;
+    const payload = raw as {
+      schemaVersion?: number;
+    } & Partial<PaneStatePayload>;
     if (payload.schemaVersion !== PANE_STATE_SCHEMA_VERSION) {
       log(
         `loadPaneState(${sessionId}): schema mismatch (got ${
@@ -136,11 +156,18 @@ export async function loadPaneState(
       return null;
     }
     if (!isLayoutNode(payload.layout)) {
-      log(`loadPaneState(${sessionId}): invalid layout tree — dropping persisted state`);
+      log(
+        `loadPaneState(${sessionId}): invalid layout tree — dropping persisted state`,
+      );
       return null;
     }
-    if (!Array.isArray(payload.descriptors) || !payload.descriptors.every(isDescriptor)) {
-      log(`loadPaneState(${sessionId}): invalid pane descriptors — dropping persisted state`);
+    if (
+      !Array.isArray(payload.descriptors) ||
+      !payload.descriptors.every(isDescriptor)
+    ) {
+      log(
+        `loadPaneState(${sessionId}): invalid pane descriptors — dropping persisted state`,
+      );
       return null;
     }
     // Validate descriptors to ensure notes fields have valid values
@@ -174,7 +201,7 @@ export async function deletePaneState(sessionId: string): Promise<void> {
  */
 export function stripCommandPanes(
   tree: LayoutNode,
-  descriptors: PaneDescriptor[]
+  descriptors: PaneDescriptor[],
 ): { tree: LayoutNode | null; descriptors: PaneDescriptor[] } {
   const commandIds = new Set(
     descriptors.filter((d) => d.type === "command").map((d) => d.id),
@@ -186,7 +213,7 @@ export function stripCommandPanes(
 
 function stripCommandsFromNode(
   node: LayoutNode,
-  commandIds: Set<string>
+  commandIds: Set<string>,
 ): LayoutNode | null {
   if (node.kind === "leaf") {
     return commandIds.has(node.paneId) ? null : node;

@@ -17,9 +17,10 @@ pub(crate) async fn load_pane_state(session_id: String) -> Option<serde_json::Va
     // The loader walks the status directory for provider-session enrichment;
     // off-main-thread because hundreds of files at startup add up.
     let id_for_log = session_id.clone();
-    let result =
-        tauri::async_runtime::spawn_blocking(move || crate::pane_state::load_pane_state(&session_id))
-            .await;
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        crate::pane_state::load_pane_state(&session_id)
+    })
+    .await;
     match result {
         Ok(value) => value,
         Err(e) => {
@@ -51,11 +52,8 @@ pub(crate) async fn save_live_pane_state(
     pane_ids: Vec<String>,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
-    let records = state
-        .runtime.pane_handle
-        .list_by_ids(pane_ids)
-        .await
-        .map_err(|e| e.to_string())?;
+    let records =
+        state.runtime.pane_handle.list_by_ids(pane_ids).await.map_err(|e| e.to_string())?;
 
     let descriptors = records
         .into_iter()

@@ -24,7 +24,11 @@ pub enum AliasNameError {
 /// names; lookups are case-insensitive because they go through this function.
 pub fn canonical_alias_name(input: &str) -> String {
     let lower = input.trim().to_ascii_lowercase();
-    if lower == "human" { "me".to_string() } else { lower }
+    if lower == "human" {
+        "me".to_string()
+    } else {
+        lower
+    }
 }
 
 /// Validate format only. Does not check reservation. Returns the canonical form.
@@ -266,10 +270,7 @@ mod tests {
     #[test]
     fn is_reserved_covers_expected_names() {
         for name in ["me", "human", "system", "audit", "roux"] {
-            assert!(
-                is_reserved_alias(&canonical_alias_name(name)),
-                "{name} should be reserved"
-            );
+            assert!(is_reserved_alias(&canonical_alias_name(name)), "{name} should be reserved");
         }
         assert!(!is_reserved_alias("reviewer"));
     }

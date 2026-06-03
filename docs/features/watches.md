@@ -3,7 +3,7 @@
 Watches are long-running commands whose output Roux surfaces in dedicated panes. Typical uses are test runners, build watchers, and log tails.
 
 !!! note "Stub page"
-    Detailed documentation for watches is still being written.
+Detailed documentation for watches is still being written.
 
 ## What a watch is
 

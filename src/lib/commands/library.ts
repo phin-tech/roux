@@ -39,7 +39,8 @@ function targetPtyId(): string | null {
 
 function layerLabel(item: LibraryItem): string {
   if (item.sourceLayer === "activeRepo") return "active";
-  if (item.sourceLayer === "localRepo" || item.sourceLayer === "gitRepo") return item.sourceLabel;
+  if (item.sourceLayer === "localRepo" || item.sourceLayer === "gitRepo")
+    return item.sourceLabel;
   return "global";
 }
 
@@ -52,14 +53,19 @@ async function renderLibraryItem(item: LibraryItem): Promise<string | null> {
     variables: item.variables,
   });
   if (!variables) return null;
-  return (await renderLibraryPrompt({
-    itemId: item.id,
-    sessionId: sessionId(),
-    variables,
-  })).content;
+  return (
+    await renderLibraryPrompt({
+      itemId: item.id,
+      sessionId: sessionId(),
+      variables,
+    })
+  ).content;
 }
 
-async function sendLibraryItem(item: LibraryItem, destination: LibraryDestination): Promise<void> {
+async function sendLibraryItem(
+  item: LibraryItem,
+  destination: LibraryDestination,
+): Promise<void> {
   const content = await renderLibraryItem(item);
   if (content === null) return;
 
@@ -71,14 +77,22 @@ async function sendLibraryItem(item: LibraryItem, destination: LibraryDestinatio
 
   const ptyId = targetPtyId();
   if (!ptyId) {
-    await notify("No active terminal", "Focus a terminal pane before sending a Library item.", "warning");
+    await notify(
+      "No active terminal",
+      "Focus a terminal pane before sending a Library item.",
+      "warning",
+    );
     return;
   }
   await writeToSession(ptyId, `${content}\r`);
   await notify("Sent Library item", item.title, "success");
 }
 
-async function notify(title: string, body: string, level: "success" | "warning" | "error" = "success"): Promise<void> {
+async function notify(
+  title: string,
+  body: string,
+  level: "success" | "warning" | "error" = "success",
+): Promise<void> {
   try {
     await notificationsPush({
       level,
@@ -100,23 +114,27 @@ async function libraryItems(
   itemType: LibrarySearchKind,
 ): Promise<CommandItem[]> {
   const items = await listLibraryItems(sessionId());
-  return items.filter((item) => item.itemType === itemType).map((item) => ({
-    id: `library.${destination}.${itemType}.${item.id}`,
-    label: item.title,
-    description: `${item.id} · ${layerLabel(item)}`,
-    action: async () => {
-      try {
-        await sendLibraryItem(item, destination);
-      } catch (error) {
-        logError(`library.${destination} failed`, error);
-        await notify(
-          destination === "clipboard" ? "Copy Library item failed" : "Send Library item failed",
-          error instanceof Error ? error.message : String(error),
-          "error",
-        );
-      }
-    },
-  }));
+  return items
+    .filter((item) => item.itemType === itemType)
+    .map((item) => ({
+      id: `library.${destination}.${itemType}.${item.id}`,
+      label: item.title,
+      description: `${item.id} · ${layerLabel(item)}`,
+      action: async () => {
+        try {
+          await sendLibraryItem(item, destination);
+        } catch (error) {
+          logError(`library.${destination} failed`, error);
+          await notify(
+            destination === "clipboard"
+              ? "Copy Library item failed"
+              : "Send Library item failed",
+            error instanceof Error ? error.message : String(error),
+            "error",
+          );
+        }
+      },
+    }));
 }
 
 function summarizeSyncReport(report: SkillSyncRunReport): {
@@ -136,11 +154,15 @@ function summarizeSyncReport(report: SkillSyncRunReport): {
   if (failed) parts.push(`${failed} failed`);
   if (report.stale.length) parts.push(`${report.stale.length} stale`);
   if (report.symlinkFallbackCount) {
-    parts.push(`${report.symlinkFallbackCount} fell back to copy (OS denied symlink)`);
+    parts.push(
+      `${report.symlinkFallbackCount} fell back to copy (OS denied symlink)`,
+    );
   }
 
   const level: "success" | "warning" =
-    failed > 0 || skipped > 0 || report.symlinkFallbackCount > 0 ? "warning" : "success";
+    failed > 0 || skipped > 0 || report.symlinkFallbackCount > 0
+      ? "warning"
+      : "success";
   const body = parts.length > 0 ? parts.join(" · ") : "Nothing to sync.";
   return {
     title: synced > 0 ? "Skills synced" : "Skill sync complete",
@@ -155,13 +177,16 @@ function summarizeUnsyncReport(report: UnsyncReport): {
   level: "success" | "warning";
 } {
   const deleted = report.results.filter((r) => r.outcome === "deleted").length;
-  const kept = report.results.filter((r) => r.outcome === "keptDueToDrift").length;
+  const kept = report.results.filter(
+    (r) => r.outcome === "keptDueToDrift",
+  ).length;
   const failed = report.results.filter((r) => r.outcome === "failed").length;
   const parts: string[] = [];
   if (deleted) parts.push(`Removed ${deleted}`);
   if (kept) parts.push(`kept ${kept} (locally edited)`);
   if (failed) parts.push(`${failed} failed`);
-  const level: "success" | "warning" = kept > 0 || failed > 0 ? "warning" : "success";
+  const level: "success" | "warning" =
+    kept > 0 || failed > 0 ? "warning" : "success";
   return {
     title: deleted > 0 ? "Skills unsynced" : "Nothing to unsync",
     body: parts.length > 0 ? parts.join(" · ") : "No matching entries.",

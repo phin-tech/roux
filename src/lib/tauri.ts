@@ -260,23 +260,20 @@ export async function reconnectSessionShellPty(
   });
 }
 
-export async function writeToSession(
-  id: string,
-  data: string
-): Promise<void> {
+export async function writeToSession(id: string, data: string): Promise<void> {
   return invoke("write_to_session", { id, data });
 }
 
 export async function resizeSession(
   id: string,
   cols: number,
-  rows: number
+  rows: number,
 ): Promise<void> {
   return invoke("resize_session", { id, cols, rows });
 }
 
 export function createPtyOutputChannel(
-  callback: (data: Uint8Array) => void
+  callback: (data: Uint8Array) => void,
 ): Channel<PtyOutputPayload> {
   const channel = new Channel<PtyOutputPayload>();
   channel.onmessage = (payload) => {
@@ -287,7 +284,7 @@ export function createPtyOutputChannel(
 
 export async function attachPtyOutput(
   id: string,
-  onEvent: Channel<PtyOutputPayload>
+  onEvent: Channel<PtyOutputPayload>,
 ): Promise<void> {
   return invoke("attach_pty_output", { id, onEvent });
 }
@@ -366,9 +363,7 @@ export async function getSettings(): Promise<RouxSettings> {
   return invoke("get_settings");
 }
 
-export async function updateSettings(
-  settings: RouxSettings
-): Promise<void> {
+export async function updateSettings(settings: RouxSettings): Promise<void> {
   return invoke("update_settings", { settings });
 }
 
@@ -389,7 +384,7 @@ export async function removeWorktree(
   repoPath: string,
   worktreePath: string,
   alsoBranch: boolean = false,
-  force: boolean = false
+  force: boolean = false,
 ): Promise<void> {
   return invoke("cmd_remove_worktree", {
     repoPath,
@@ -403,16 +398,23 @@ export async function openPathInFinder(path: string): Promise<void> {
   return invoke("cmd_open_path_in_finder", { path });
 }
 
-export async function listWorktrees(
-  repoPath: string
-): Promise<Worktree[]> {
+export async function listWorktrees(repoPath: string): Promise<Worktree[]> {
   return invoke("cmd_list_worktrees", { repoPath });
 }
 
 export type LibraryItemType = "prompt" | "skill";
-export type LibraryLayerKind = "global" | "localRepo" | "gitRepo" | "activeRepo";
+export type LibraryLayerKind =
+  | "global"
+  | "localRepo"
+  | "gitRepo"
+  | "activeRepo";
 export type LibrarySourceKind = "localRepo" | "gitRepo";
-export type LibraryRemoteState = "upToDate" | "ahead" | "behind" | "diverged" | "unknown";
+export type LibraryRemoteState =
+  | "upToDate"
+  | "ahead"
+  | "behind"
+  | "diverged"
+  | "unknown";
 export type LibraryVariableType = "string" | "int" | "float" | "select";
 
 export type SkillSyncMode = "off" | "copy" | "symlink";
@@ -509,7 +511,9 @@ export interface LibraryGitStatus {
   error?: string | null;
 }
 
-export async function listLibraryItems(sessionId?: string | null): Promise<LibraryItem[]> {
+export async function listLibraryItems(
+  sessionId?: string | null,
+): Promise<LibraryItem[]> {
   return invoke("list_library_items", { sessionId: sessionId ?? null });
 }
 
@@ -537,7 +541,9 @@ export async function getLibraryPinnedRepos(): Promise<string[]> {
   return invoke("get_library_pinned_repos");
 }
 
-export async function setLibraryPinnedRepos(pinnedRepos: string[]): Promise<string[]> {
+export async function setLibraryPinnedRepos(
+  pinnedRepos: string[],
+): Promise<string[]> {
   return invoke("set_library_pinned_repos", { pinnedRepos });
 }
 
@@ -545,7 +551,9 @@ export async function listLibrarySources(): Promise<LibrarySource[]> {
   return invoke("list_library_sources");
 }
 
-export async function setLibrarySources(sources: LibrarySource[]): Promise<LibrarySource[]> {
+export async function setLibrarySources(
+  sources: LibrarySource[],
+): Promise<LibrarySource[]> {
   return invoke("set_library_sources", { sources });
 }
 
@@ -553,11 +561,15 @@ export async function cloneLibrarySource(sourceId: string): Promise<string> {
   return invoke("clone_library_source", { sourceId });
 }
 
-export async function syncLibrarySource(sourceId: string): Promise<LibraryGitStatus> {
+export async function syncLibrarySource(
+  sourceId: string,
+): Promise<LibraryGitStatus> {
   return invoke("sync_library_source", { sourceId });
 }
 
-export async function getLibrarySourceStatus(sourceId: string): Promise<LibraryGitStatus> {
+export async function getLibrarySourceStatus(
+  sourceId: string,
+): Promise<LibraryGitStatus> {
   return invoke("get_library_source_status", { sourceId });
 }
 
@@ -573,7 +585,10 @@ export type SkillSyncOutcomeKind =
   | "skipped"
   | "failed";
 
-export type SkillSyncSkipReason = "alreadyUpToDate" | "untrackedFile" | "userEdited";
+export type SkillSyncSkipReason =
+  | "alreadyUpToDate"
+  | "untrackedFile"
+  | "userEdited";
 
 export interface SkillSyncResult {
   skillId: string;
@@ -606,7 +621,11 @@ export type UnsyncScope =
   | { type: "stale"; value: string[] }
   | { type: "source"; value: string };
 
-export type UnsyncOutcomeKind = "deleted" | "keptDueToDrift" | "alreadyGone" | "failed";
+export type UnsyncOutcomeKind =
+  | "deleted"
+  | "keptDueToDrift"
+  | "alreadyGone"
+  | "failed";
 
 export interface UnsyncResult {
   skillId: string;
@@ -626,12 +645,16 @@ export async function librarySkillSyncRun(
   return invoke("library_skill_sync_run", { sessionId: sessionId ?? null });
 }
 
-export async function librarySkillSyncUnsync(scope: UnsyncScope): Promise<UnsyncReport> {
+export async function librarySkillSyncUnsync(
+  scope: UnsyncScope,
+): Promise<UnsyncReport> {
   return invoke("library_skill_sync_unsync", { scope });
 }
 
 // Claude sessions
-export async function listClaudeSessions(cwd: string): Promise<ClaudeSession[]> {
+export async function listClaudeSessions(
+  cwd: string,
+): Promise<ClaudeSession[]> {
   return invoke("list_claude_sessions", { cwd });
 }
 
@@ -767,7 +790,10 @@ export async function checkGhInstalled(): Promise<boolean> {
   return invoke("check_gh_installed");
 }
 
-export async function lookupPr(repoPath: string | null, url: string): Promise<PrInfo> {
+export async function lookupPr(
+  repoPath: string | null,
+  url: string,
+): Promise<PrInfo> {
   return invoke("lookup_pr", { repoPath, url });
 }
 
@@ -792,7 +818,12 @@ export async function fetchPrBranch(
   headRef: string,
   isCrossRepository: boolean,
 ): Promise<string> {
-  return invoke("fetch_pr_branch", { repoPath, number, headRef, isCrossRepository });
+  return invoke("fetch_pr_branch", {
+    repoPath,
+    number,
+    headRef,
+    isCrossRepository,
+  });
 }
 
 // Projects
@@ -834,11 +865,7 @@ export async function setSessionProject(
 }
 
 // Work Items
-export type {
-  WorkItem,
-  WorkItemInput,
-  WorkItemStatus,
-} from "$lib/bindings";
+export type { WorkItem, WorkItemInput, WorkItemStatus } from "$lib/bindings";
 // WorkItemEvent is hand-typed — specta can't reach the "work-item-event"
 // channel payload, so it lives outside the generated bindings.
 export type { WorkItemEvent } from "./types/workItems";
@@ -853,7 +880,9 @@ export type {
   WorkItemRunEvent,
 } from "./types/workItems";
 
-export async function workItemList(projectId: string | null): Promise<import("$lib/bindings").WorkItem[]> {
+export async function workItemList(
+  projectId: string | null,
+): Promise<import("$lib/bindings").WorkItem[]> {
   const { commands } = await import("$lib/bindings");
   const r = await commands.workItemList(projectId);
   if (r.status === "error") throw new Error(r.error);
@@ -1092,7 +1121,10 @@ export async function notesAppend(
   return invoke("notes_append", { target, content, timestamped, tags });
 }
 
-export async function notesPath(target: NotesTarget, dir: boolean): Promise<string> {
+export async function notesPath(
+  target: NotesTarget,
+  dir: boolean,
+): Promise<string> {
   return invoke("notes_path", { target, dir });
 }
 
@@ -1130,12 +1162,14 @@ export async function discoverTasks(dir: string): Promise<TaskGroup[]> {
   return invoke("cmd_discover_tasks", { dir });
 }
 
-export async function loadTaskOverrides(): Promise<Record<string, Record<string, string>>> {
+export async function loadTaskOverrides(): Promise<
+  Record<string, Record<string, string>>
+> {
   return invoke("cmd_load_task_overrides");
 }
 
 export async function saveTaskOverrides(
-  overrides: Record<string, Record<string, string>>
+  overrides: Record<string, Record<string, string>>,
 ): Promise<void> {
   return invoke("cmd_save_task_overrides", { overrides });
 }
@@ -1143,13 +1177,13 @@ export async function saveTaskOverrides(
 // Events (backend → frontend)
 export function onSessionStatus(
   sessionId: string,
-  callback: (payload: SessionStatusPayload) => void
+  callback: (payload: SessionStatusPayload) => void,
 ): Promise<UnlistenFn> {
   return listen<SessionStatusPayload>(
     `session-status:${sessionId}`,
     (event) => {
       callback(event.payload);
-    }
+    },
   );
 }
 
@@ -1161,18 +1195,15 @@ export interface SessionExitPayload {
 
 export function onSessionExit(
   sessionId: string,
-  callback: (payload: SessionExitPayload) => void
+  callback: (payload: SessionExitPayload) => void,
 ): Promise<UnlistenFn> {
-  return listen<SessionExitPayload>(
-    `session-exit:${sessionId}`,
-    (event) => {
-      callback(event.payload);
-    }
-  );
+  return listen<SessionExitPayload>(`session-exit:${sessionId}`, (event) => {
+    callback(event.payload);
+  });
 }
 
 export function onSettingsChanged(
-  callback: (settings: RouxSettings) => void
+  callback: (settings: RouxSettings) => void,
 ): Promise<UnlistenFn> {
   return listen<RouxSettings>("settings-changed", (event) => {
     callback(event.payload);
@@ -1204,7 +1235,7 @@ export interface StatusUpdate {
 }
 
 export function onRouxStatusUpdate(
-  callback: (payload: StatusUpdate) => void
+  callback: (payload: StatusUpdate) => void,
 ): Promise<UnlistenFn> {
   return listen<StatusUpdate>("roux-status-update", (event) => {
     callback(event.payload);
@@ -1225,7 +1256,7 @@ export interface AttentionClearedEvent {
 }
 
 export function onAgentAttentionCleared(
-  callback: (payload: AttentionClearedEvent) => void
+  callback: (payload: AttentionClearedEvent) => void,
 ): Promise<UnlistenFn> {
   return listen<AttentionClearedEvent>("agent-attention-cleared", (event) => {
     callback(event.payload);
@@ -1257,7 +1288,7 @@ export async function submitRouxReply(
 }
 
 export function onRouxCommand(
-  callback: (payload: RouxCommand) => void
+  callback: (payload: RouxCommand) => void,
 ): Promise<UnlistenFn> {
   return listen<RouxCommand>("roux-command", (event) => {
     callback(event.payload);
@@ -1269,7 +1300,9 @@ export async function createWatch(config: CreateWatchConfig): Promise<Watch> {
   return invoke("cmd_create_watch", { config });
 }
 
-export async function findOrCreateWatch(config: CreateWatchConfig): Promise<Watch> {
+export async function findOrCreateWatch(
+  config: CreateWatchConfig,
+): Promise<Watch> {
   return invoke("cmd_find_or_create_watch", { config });
 }
 
@@ -1291,7 +1324,7 @@ export async function resumeWatch(id: string): Promise<void> {
 
 // Watch events
 export function onWatchUpdate(
-  callback: (payload: WatchUpdateEvent) => void
+  callback: (payload: WatchUpdateEvent) => void,
 ): Promise<UnlistenFn> {
   return listen<WatchUpdateEvent>("watch-update", (event) => {
     callback(event.payload);
@@ -1300,10 +1333,14 @@ export function onWatchUpdate(
 
 // Notification events
 import type { NotificationEvent } from "./types/notifications";
-import type { Notification, NotificationRequest, NotificationSource } from "./bindings";
+import type {
+  Notification,
+  NotificationRequest,
+  NotificationSource,
+} from "./bindings";
 
 export function onNotificationEvent(
-  callback: (payload: NotificationEvent) => void
+  callback: (payload: NotificationEvent) => void,
 ): Promise<UnlistenFn> {
   return listen<NotificationEvent>("notification-event", (event) => {
     callback(event.payload);
@@ -1378,11 +1415,16 @@ export async function getPtyCwd(id: string): Promise<string | null> {
 
 // ── Pane state persistence ────────────────────────────────────────────────────
 
-export async function loadPaneStateRaw(sessionId: string): Promise<unknown | null> {
+export async function loadPaneStateRaw(
+  sessionId: string,
+): Promise<unknown | null> {
   return invoke("load_pane_state", { sessionId });
 }
 
-export async function savePaneStateRaw(sessionId: string, data: unknown): Promise<void> {
+export async function savePaneStateRaw(
+  sessionId: string,
+  data: unknown,
+): Promise<void> {
   return invoke("save_pane_state", { sessionId, data });
 }
 
@@ -1421,7 +1463,9 @@ export async function detachPty(ptyId: string): Promise<void> {
   return invoke("detach_pty", { ptyId });
 }
 
-export async function listSessionPtys(sessionId: string): Promise<import("./bindings").PtyInfo[]> {
+export async function listSessionPtys(
+  sessionId: string,
+): Promise<import("./bindings").PtyInfo[]> {
   return invoke("list_session_ptys", { sessionId });
 }
 
@@ -1433,7 +1477,10 @@ export async function markPtyRead(ptyId: string): Promise<void> {
   return invoke("mark_pty_read", { ptyId });
 }
 
-export async function setPtyName(ptyId: string, name: string | null): Promise<void> {
+export async function setPtyName(
+  ptyId: string,
+  name: string | null,
+): Promise<void> {
   return invoke("set_pty_name", { ptyId, name });
 }
 
@@ -1455,7 +1502,9 @@ export interface PaneDescriptorPayload {
 
 export type PaneRecordPayload = PaneDescriptorPayload;
 
-export async function upsertPaneRecord(record: PaneRecordPayload): Promise<void> {
+export async function upsertPaneRecord(
+  record: PaneRecordPayload,
+): Promise<void> {
   return invoke("upsert_pane_record", { record });
 }
 
@@ -1507,8 +1556,9 @@ export function onAliasEvent(
 export function onWorkItemEvent(
   callback: (payload: import("./types/workItems").WorkItemEvent) => void,
 ): Promise<UnlistenFn> {
-  return listen<import("./types/workItems").WorkItemEvent>("work-item-event", (e) =>
-    callback(e.payload),
+  return listen<import("./types/workItems").WorkItemEvent>(
+    "work-item-event",
+    (e) => callback(e.payload),
   );
 }
 

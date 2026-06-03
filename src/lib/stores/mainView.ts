@@ -5,10 +5,17 @@ export type MainViewRoute =
   | { kind: "board" }
   | { kind: "sessionDetail"; sessionId: string }
   | { kind: "externalTool"; runId: string }
-  | { kind: "preferences"; category?: SettingsCategoryId; externalToolId?: string | null };
+  | {
+      kind: "preferences";
+      category?: SettingsCategoryId;
+      externalToolId?: string | null;
+    };
 
 export const mainViewRoute = writable<MainViewRoute | null>(null);
-export const mainViewActive = derived(mainViewRoute, ($route) => $route !== null);
+export const mainViewActive = derived(
+  mainViewRoute,
+  ($route) => $route !== null,
+);
 
 export function openMainView(route: MainViewRoute): void {
   mainViewRoute.set(route);

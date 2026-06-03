@@ -1,6 +1,10 @@
 <script lang="ts">
   import { tick } from "svelte";
-  import type { PrCheckDetails, PrCheckStatus, PrReviewDetails } from "$lib/tauri";
+  import type {
+    PrCheckDetails,
+    PrCheckStatus,
+    PrReviewDetails,
+  } from "$lib/tauri";
   import { portal } from "$lib/portal";
 
   interface Props {
@@ -166,38 +170,52 @@
 
 {#snippet body()}
   {#if checkRuns.length > 0}
-      <div class="mb-1 text-[10px] font-semibold uppercase text-text-muted">Checks</div>
+    <div class="mb-1 text-[10px] font-semibold uppercase text-text-muted">
+      Checks
+    </div>
+    <div class="space-y-1">
+      {#each checkRuns as check}
+        <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
+          <span class="truncate" title={check.name}>{check.name}</span>
+          <span
+            class={`inline-flex items-center gap-1 ${checkStatusTextClass(check.status)}`}
+          >
+            <span
+              class={`h-1.5 w-1.5 rounded-full ${checkStatusDotClass(check.status)}`}
+            ></span>
+            <span>{checkStatusLabel(check.status)}</span>
+          </span>
+        </div>
+      {/each}
+    </div>
+  {/if}
+  {#if reviewDetails.length > 0}
+    <div class={checkRuns.length > 0 ? "mt-3" : ""}>
+      <div
+        class="mb-1 flex items-center justify-between gap-3 text-[10px] font-semibold uppercase text-text-muted"
+      >
+        <span>Reviews</span>
+        <span>Approvals {approvalCount}/{reviewDetails.length}</span>
+      </div>
       <div class="space-y-1">
-        {#each checkRuns as check}
+        {#each reviewDetails as review}
           <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
-            <span class="truncate" title={check.name}>{check.name}</span>
-            <span class={`inline-flex items-center gap-1 ${checkStatusTextClass(check.status)}`}>
-              <span class={`h-1.5 w-1.5 rounded-full ${checkStatusDotClass(check.status)}`}></span>
-              <span>{checkStatusLabel(check.status)}</span>
+            <span class="truncate" title={review.reviewer}
+              >{review.reviewer}</span
+            >
+            <span
+              class={`inline-flex items-center gap-1 ${reviewStatusTextClass(review)}`}
+            >
+              <span
+                class={`h-1.5 w-1.5 rounded-full ${reviewStatusDotClass(review)}`}
+              ></span>
+              <span>{reviewStatusLabel(review)}</span>
             </span>
           </div>
         {/each}
       </div>
-    {/if}
-    {#if reviewDetails.length > 0}
-      <div class={checkRuns.length > 0 ? "mt-3" : ""}>
-        <div class="mb-1 flex items-center justify-between gap-3 text-[10px] font-semibold uppercase text-text-muted">
-          <span>Reviews</span>
-          <span>Approvals {approvalCount}/{reviewDetails.length}</span>
-        </div>
-        <div class="space-y-1">
-          {#each reviewDetails as review}
-            <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
-              <span class="truncate" title={review.reviewer}>{review.reviewer}</span>
-              <span class={`inline-flex items-center gap-1 ${reviewStatusTextClass(review)}`}>
-                <span class={`h-1.5 w-1.5 rounded-full ${reviewStatusDotClass(review)}`}></span>
-                <span>{reviewStatusLabel(review)}</span>
-              </span>
-            </div>
-          {/each}
-        </div>
-      </div>
-    {/if}
+    </div>
+  {/if}
 {/snippet}
 
 {#if hasContent}

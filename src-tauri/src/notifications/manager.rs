@@ -201,10 +201,8 @@ impl NotificationManager {
         };
         if let Some(app) = app {
             for id in &removed_ids {
-                let _ = app.emit(
-                    NOTIFICATION_EVENT,
-                    &NotificationEvent::Removed { id: id.clone() },
-                );
+                let _ =
+                    app.emit(NOTIFICATION_EVENT, &NotificationEvent::Removed { id: id.clone() });
             }
         }
         removed_ids.len()

@@ -39,9 +39,7 @@ impl UpdaterError {
         if err.is_connect() || err.is_timeout() || err.is_request() {
             UpdaterError::Network
         } else {
-            UpdaterError::Internal {
-                message: err.to_string(),
-            }
+            UpdaterError::Internal { message: err.to_string() }
         }
     }
 }
@@ -128,9 +126,7 @@ pub(crate) async fn check_for_update(
     let endpoint = resolve_endpoint(channel).await?;
     let endpoint_url = endpoint
         .parse::<url::Url>()
-        .map_err(|e| UpdaterError::Internal {
-            message: format!("invalid endpoint url: {e}"),
-        })?;
+        .map_err(|e| UpdaterError::Internal { message: format!("invalid endpoint url: {e}") })?;
 
     let update = app
         .updater_builder()
@@ -155,9 +151,7 @@ pub(crate) async fn install_update(
     let endpoint = resolve_endpoint(channel).await?;
     let endpoint_url = endpoint
         .parse::<url::Url>()
-        .map_err(|e| UpdaterError::Internal {
-            message: format!("invalid endpoint url: {e}"),
-        })?;
+        .map_err(|e| UpdaterError::Internal { message: format!("invalid endpoint url: {e}") })?;
 
     let update = app
         .updater_builder()
@@ -187,9 +181,7 @@ pub(crate) async fn install_update(
                 }
                 let _ = app_for_progress.emit(
                     "updater://progress",
-                    UpdateProgress::Progress {
-                        chunk_length: chunk_length as u64,
-                    },
+                    UpdateProgress::Progress { chunk_length: chunk_length as u64 },
                 );
             },
             move || {
@@ -214,10 +206,8 @@ mod tests {
 
     #[test]
     fn update_progress_serializes_in_camel_case() {
-        let started = serde_json::to_value(UpdateProgress::Started {
-            content_length: Some(1024),
-        })
-        .unwrap();
+        let started =
+            serde_json::to_value(UpdateProgress::Started { content_length: Some(1024) }).unwrap();
         assert_eq!(started["phase"], "started");
         assert_eq!(started["contentLength"], 1024);
         assert!(
@@ -225,7 +215,8 @@ mod tests {
             "snake_case field would break the frontend progress listener"
         );
 
-        let progress = serde_json::to_value(UpdateProgress::Progress { chunk_length: 256 }).unwrap();
+        let progress =
+            serde_json::to_value(UpdateProgress::Progress { chunk_length: 256 }).unwrap();
         assert_eq!(progress["phase"], "progress");
         assert_eq!(progress["chunkLength"], 256);
 
@@ -240,5 +231,4 @@ mod tests {
         assert!(is_network_message("HTTP 500"));
         assert!(!is_network_message("unexpected end of file"));
     }
-
 }

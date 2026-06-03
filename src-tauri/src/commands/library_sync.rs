@@ -24,9 +24,7 @@ fn join_err(e: tauri::Error) -> String {
 /// across an `.await`.
 fn manifest_guard() -> MutexGuard<'static, ()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(()))
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
+    LOCK.get_or_init(|| Mutex::new(())).lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 /// Tag identifying the variant of `SkillSyncOutcome` for the frontend.
@@ -127,14 +125,17 @@ async fn active_repo_for_session(
         return Ok(None);
     };
     let session = state
-        .runtime.session_handle
+        .runtime
+        .session_handle
         .get(id)
         .await
         .map_err(|e| format!("load session {id}: {e}"))?;
     Ok(session.map(|session| session.repo_root))
 }
 
-fn outcome_to_dto(outcome: &sync::SkillSyncOutcome) -> (SkillSyncOutcomeKind, Option<SkillSyncSkipReasonDto>, Option<String>) {
+fn outcome_to_dto(
+    outcome: &sync::SkillSyncOutcome,
+) -> (SkillSyncOutcomeKind, Option<SkillSyncSkipReasonDto>, Option<String>) {
     match outcome {
         sync::SkillSyncOutcome::Synced => (SkillSyncOutcomeKind::Synced, None, None),
         sync::SkillSyncOutcome::SyncedAsCopyFallback => {
@@ -142,7 +143,9 @@ fn outcome_to_dto(outcome: &sync::SkillSyncOutcome) -> (SkillSyncOutcomeKind, Op
         }
         sync::SkillSyncOutcome::Skipped(reason) => {
             let r = match reason {
-                sync::SkillSyncSkipReason::AlreadyUpToDate => SkillSyncSkipReasonDto::AlreadyUpToDate,
+                sync::SkillSyncSkipReason::AlreadyUpToDate => {
+                    SkillSyncSkipReasonDto::AlreadyUpToDate
+                }
                 sync::SkillSyncSkipReason::UntrackedFile => SkillSyncSkipReasonDto::UntrackedFile,
                 sync::SkillSyncSkipReason::UserEdited => SkillSyncSkipReasonDto::UserEdited,
             };
@@ -161,8 +164,7 @@ pub(crate) async fn library_skill_sync_run(
     state: tauri::State<'_, AppState>,
 ) -> Result<SkillSyncRunReportDto, String> {
     let active_repo = active_repo_for_session(&state, session_id.as_deref()).await?;
-    let settings =
-        state.settings.lock().map_err(|_| "settings lock poisoned".to_string())?.clone();
+    let settings = state.settings.lock().map_err(|_| "settings lock poisoned".to_string())?.clone();
     let global_root = settings
         .notes_vault_root
         .as_ref()
@@ -176,12 +178,7 @@ pub(crate) async fn library_skill_sync_run(
     let timestamp = now_unix_secs();
 
     tauri::async_runtime::spawn_blocking(move || {
-        let layers = svc::layers(
-            global_root.clone(),
-            &library_sources,
-            &managed_root,
-            active_repo,
-        );
+        let layers = svc::layers(global_root.clone(), &library_sources, &managed_root, active_repo);
         let source_modes: HashMap<String, SkillSyncMode> = library_sources
             .iter()
             .filter(|s| s.enabled)
@@ -248,8 +245,7 @@ pub(crate) async fn library_skill_sync_unsync(
     scope: UnsyncScopeDto,
     state: tauri::State<'_, AppState>,
 ) -> Result<UnsyncReportDto, String> {
-    let settings =
-        state.settings.lock().map_err(|_| "settings lock poisoned".to_string())?.clone();
+    let settings = state.settings.lock().map_err(|_| "settings lock poisoned".to_string())?.clone();
     let global_root = settings
         .notes_vault_root
         .as_ref()
@@ -282,7 +278,9 @@ pub(crate) async fn library_skill_sync_unsync(
                 .map(|r| {
                     let (kind, error) = match &r.outcome {
                         sync::UnsyncOutcome::Deleted => (UnsyncOutcomeKind::Deleted, None),
-                        sync::UnsyncOutcome::KeptDueToDrift => (UnsyncOutcomeKind::KeptDueToDrift, None),
+                        sync::UnsyncOutcome::KeptDueToDrift => {
+                            (UnsyncOutcomeKind::KeptDueToDrift, None)
+                        }
                         sync::UnsyncOutcome::AlreadyGone => (UnsyncOutcomeKind::AlreadyGone, None),
                         sync::UnsyncOutcome::Failed(msg) => {
                             (UnsyncOutcomeKind::Failed, Some(msg.clone()))

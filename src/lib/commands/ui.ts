@@ -99,7 +99,8 @@ export function registerUiCommands() {
     label: "Switch Terminal Theme",
     category: "Appearance",
     getItems: () => {
-      const current = get(settings).terminalTheme ?? MATCH_GUI_TERMINAL_THEME_ID;
+      const current =
+        get(settings).terminalTheme ?? MATCH_GUI_TERMINAL_THEME_ID;
       const defs = getAllTerminalThemeDefinitions(get(userTerminalThemes));
       return defs.map((t) => {
         const tag =
@@ -418,7 +419,9 @@ export function registerUiCommands() {
       try {
         const presetResult = await commands.getBuiltinKeymapPreset("default");
         if (presetResult.status === "error") {
-          logError(`keymap.reset-to-default: get preset failed: ${presetResult.error}`);
+          logError(
+            `keymap.reset-to-default: get preset failed: ${presetResult.error}`,
+          );
           void notificationsPush({
             level: "error",
             source: { type: "internal" },
@@ -433,7 +436,9 @@ export function registerUiCommands() {
         }
         const writeResult = await commands.setKeymap(presetResult.data);
         if (writeResult.status === "error") {
-          logError(`keymap.reset-to-default: write failed: ${writeResult.error}`);
+          logError(
+            `keymap.reset-to-default: write failed: ${writeResult.error}`,
+          );
           void notificationsPush({
             level: "error",
             source: { type: "internal" },

@@ -23,7 +23,10 @@ export function runStartupCheck(): void {
   if (!(get(settings).updateCheckOnLaunch ?? true)) return;
 
   setTimeout(async () => {
-    const status = await checkForUpdate({ silent: true, channel: currentChannel() });
+    const status = await checkForUpdate({
+      silent: true,
+      channel: currentChannel(),
+    });
     if (status.kind === "available" || status.kind === "error") {
       updateStatus.set(status);
     }
@@ -32,7 +35,10 @@ export function runStartupCheck(): void {
 
 export async function runManualCheck(): Promise<void> {
   updateStatus.set({ kind: "checking" });
-  const status = await checkForUpdate({ silent: false, channel: currentChannel() });
+  const status = await checkForUpdate({
+    silent: false,
+    channel: currentChannel(),
+  });
   updateStatus.set(status);
 }
 
@@ -64,7 +70,10 @@ export async function performInstall(): Promise<void> {
   try {
     await relaunchApp();
   } catch (e) {
-    console.warn("[updater] relaunch failed after install; user must quit manually", e);
+    console.warn(
+      "[updater] relaunch failed after install; user must quit manually",
+      e,
+    );
   }
 }
 

@@ -76,12 +76,18 @@ describe("notification auto-read", () => {
   });
 
   it("marks session-scoped and pane-targeted notifications read when focusing a pane", async () => {
-    const sessionScoped = makeNotification({ id: "session-scoped", sessionId: "s1" });
+    const sessionScoped = makeNotification({
+      id: "session-scoped",
+      sessionId: "s1",
+    });
     const paneTargeted = makeNotification({
       id: "pane-targeted",
       actions: [focusPaneAction("pane-a")],
     });
-    const otherSession = makeNotification({ id: "other-session", sessionId: "s2" });
+    const otherSession = makeNotification({
+      id: "other-session",
+      sessionId: "s2",
+    });
     const global = makeNotification({ id: "global", sessionId: null });
 
     sessionLayouts.set(new Map([["s1", { kind: "leaf", paneId: "pane-a" }]]));
@@ -91,15 +97,23 @@ describe("notification auto-read", () => {
     focusedPaneId.set("pane-a");
     await waitTick();
 
-    expect(vi.mocked(notificationsMarkRead).mock.calls.map(([id]) => id).sort()).toEqual([
-      "pane-targeted",
-      "session-scoped",
-    ]);
+    expect(
+      vi
+        .mocked(notificationsMarkRead)
+        .mock.calls.map(([id]) => id)
+        .sort(),
+    ).toEqual(["pane-targeted", "session-scoped"]);
   });
 
   it("marks session-scoped notifications read when selecting a session", async () => {
-    const activeSession = makeNotification({ id: "active-session", sessionId: "s1" });
-    const otherSession = makeNotification({ id: "other-session", sessionId: "s2" });
+    const activeSession = makeNotification({
+      id: "active-session",
+      sessionId: "s1",
+    });
+    const otherSession = makeNotification({
+      id: "other-session",
+      sessionId: "s2",
+    });
     const global = makeNotification({ id: "global", sessionId: null });
     notifications.set([activeSession, otherSession, global]);
 
@@ -107,14 +121,20 @@ describe("notification auto-read", () => {
     sessionState.set({ sessions: [], activeSessionId: "s1" });
     await waitTick();
 
-    expect(vi.mocked(notificationsMarkRead).mock.calls.map(([id]) => id)).toEqual([
-      "active-session",
-    ]);
+    expect(
+      vi.mocked(notificationsMarkRead).mock.calls.map(([id]) => id),
+    ).toEqual(["active-session"]);
   });
 
   it("uses the active session even when focus still points at a previous pane", async () => {
-    const activeSession = makeNotification({ id: "active-session", sessionId: "s2" });
-    const previousSession = makeNotification({ id: "previous-session", sessionId: "s1" });
+    const activeSession = makeNotification({
+      id: "active-session",
+      sessionId: "s2",
+    });
+    const previousSession = makeNotification({
+      id: "previous-session",
+      sessionId: "s1",
+    });
     const previousPane = makeNotification({
       id: "previous-pane",
       actions: [focusPaneAction("pane-a")],
@@ -128,9 +148,9 @@ describe("notification auto-read", () => {
     initNotificationAutoRead();
     await waitTick();
 
-    expect(vi.mocked(notificationsMarkRead).mock.calls.map(([id]) => id)).toEqual([
-      "active-session",
-    ]);
+    expect(
+      vi.mocked(notificationsMarkRead).mock.calls.map(([id]) => id),
+    ).toEqual(["active-session"]);
   });
 
   it("does not mark pane-targeted notifications read before pane layouts hydrate", async () => {

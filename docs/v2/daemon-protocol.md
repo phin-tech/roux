@@ -82,6 +82,7 @@ hook status files written by `roux hook <status>` and routes changes to the
 session service; only files that include a `roux_session_id` field are routed.
 
 Frame shapes (newline-delimited JSON, `"type"` tag):
+
 - `{ "type": "ready" }` — sent once when the stream is open and the subscriber
   is registered.
 - `{ "type": "event", "event": { "sessionId": "...", "status": "..." } }` —
@@ -822,7 +823,16 @@ also scans run output for newline-delimited JSON decision events as a
 compatibility path. Supported first-pass shapes include:
 
 ```json
-{"type":"decision","question":"Choose path?","options":[{"value":"existing","label":"Use existing"},{"value":"new","label":"Create new"}],"defaultValue":"existing","timeoutSeconds":86400}
+{
+  "type": "decision",
+  "question": "Choose path?",
+  "options": [
+    { "value": "existing", "label": "Use existing" },
+    { "value": "new", "label": "Create new" }
+  ],
+  "defaultValue": "existing",
+  "timeoutSeconds": 86400
+}
 ```
 
 and nested forms like `{ "decision": { "question": "...", "options": ["A", "B"] } }`.
@@ -869,6 +879,7 @@ Opens a persistent stream of `WorkItemEvent` changes. Mirrors the
 `session-events` / `mailbox-events` streaming pattern.
 
 Frame shapes (newline-delimited JSON, `"type"` tag):
+
 - `{ "type": "ready" }` — sent once on stream open.
 - `{ "type": "event", "event": { ... } }` — one frame per `WorkItemEvent`
   (created/updated/moved/deleted/imported/sessionBound).

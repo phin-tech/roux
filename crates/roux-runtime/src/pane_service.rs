@@ -70,22 +70,10 @@ impl PaneRecord {
 }
 
 enum PaneMsg {
-    Upsert {
-        record: Box<PaneRecord>,
-        reply: oneshot::Sender<()>,
-    },
-    Remove {
-        id: String,
-        reply: oneshot::Sender<()>,
-    },
-    ListByIds {
-        ids: Vec<String>,
-        reply: oneshot::Sender<Vec<PaneRecord>>,
-    },
-    ListBySession {
-        session_id: String,
-        reply: oneshot::Sender<Vec<PaneRecord>>,
-    },
+    Upsert { record: Box<PaneRecord>, reply: oneshot::Sender<()> },
+    Remove { id: String, reply: oneshot::Sender<()> },
+    ListByIds { ids: Vec<String>, reply: oneshot::Sender<Vec<PaneRecord>> },
+    ListBySession { session_id: String, reply: oneshot::Sender<Vec<PaneRecord>> },
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -125,15 +113,9 @@ impl PaneHandle {
     /// `list_by_session` prefers the explicit `PaneRecord::session_id`
     /// field when present, and falls back to the legacy `{session_id}-`
     /// id-prefix heuristic for older records that predate that field.
-    pub async fn list_by_session(
-        &self,
-        session_id: &str,
-    ) -> Result<Vec<PaneRecord>, ServiceError> {
+    pub async fn list_by_session(&self, session_id: &str) -> Result<Vec<PaneRecord>, ServiceError> {
         let (reply_tx, reply_rx) = oneshot::channel();
-        self.send(PaneMsg::ListBySession {
-            session_id: session_id.to_string(),
-            reply: reply_tx,
-        })?;
+        self.send(PaneMsg::ListBySession { session_id: session_id.to_string(), reply: reply_tx })?;
         reply_rx.await.map_err(|_| ServiceError)
     }
 }
@@ -163,10 +145,7 @@ async fn service_loop(mut rx: mpsc::UnboundedReceiver<PaneMsg>) {
                 let _ = reply.send(());
             }
             PaneMsg::ListByIds { ids, reply } => {
-                let records = ids
-                    .into_iter()
-                    .filter_map(|id| panes.get(&id).cloned())
-                    .collect();
+                let records = ids.into_iter().filter_map(|id| panes.get(&id).cloned()).collect();
                 let _ = reply.send(records);
             }
             PaneMsg::ListBySession { session_id, reply } => {

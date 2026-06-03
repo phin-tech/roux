@@ -148,21 +148,21 @@ File: `src/lib/commands/panes.ts`
 
 ### Creation Commands
 
-| Command ID | Label | Behavior |
-|------------|-------|----------|
+| Command ID                   | Label                        | Behavior                |
+| ---------------------------- | ---------------------------- | ----------------------- |
 | `pane.open-notes-horizontal` | Open Notes Pane (Horizontal) | Split H, new notes pane |
-| `pane.open-notes-vertical` | Open Notes Pane (Vertical) | Split V, new notes pane |
+| `pane.open-notes-vertical`   | Open Notes Pane (Vertical)   | Split V, new notes pane |
 
 **Defaults for new panes:** `notesScope: "session"`, `notesViewMode: "edit"`
 
 ### Scope/Mode Commands
 
-| Command ID | Label | Behavior |
-|------------|-------|----------|
-| `pane.notes-show-session` | Notes: Session Scope | Set focused notes pane to session |
-| `pane.notes-show-repo` | Notes: Repo Scope | Set focused notes pane to repo |
-| `pane.notes-show-project` | Notes: Project Scope | Set focused notes pane to project |
-| `pane.notes-show-global` | Notes: Global Scope | Set focused notes pane to global |
+| Command ID                    | Label                   | Behavior                          |
+| ----------------------------- | ----------------------- | --------------------------------- |
+| `pane.notes-show-session`     | Notes: Session Scope    | Set focused notes pane to session |
+| `pane.notes-show-repo`        | Notes: Repo Scope       | Set focused notes pane to repo    |
+| `pane.notes-show-project`     | Notes: Project Scope    | Set focused notes pane to project |
+| `pane.notes-show-global`      | Notes: Global Scope     | Set focused notes pane to global  |
 | `pane.notes-toggle-view-mode` | Notes: Toggle Edit/Read | Toggle mode on focused notes pane |
 
 ### Command Behavior
@@ -173,17 +173,17 @@ File: `src/lib/commands/panes.ts`
 
 ## Files to Modify
 
-| File | Change |
-|------|--------|
-| `src/lib/panes/instances.ts` | Add `"notes"` to `PaneType`, add `notesScope`/`notesViewMode` fields |
-| `src/lib/panes/persistence.ts` | Add notes fields to `PaneDescriptor` |
-| `src/lib/tauri.ts` | Add notes fields to `PaneDescriptorPayload` |
-| `src/lib/components/NotesPanel.svelte` | Extract core logic to `NotesContent.svelte` |
-| `src/lib/components/NotesContent.svelte` | New: shared notes UI component |
-| `src/lib/components/NotesPane.svelte` | New: pane wrapper for `NotesContent` |
-| `src/lib/components/PaneShell.svelte` | Add notes type rendering + label |
-| `src/lib/sessions/reconnect.ts` | Add notes type to rehydration + known types |
-| `src/lib/commands/panes.ts` | Add creation and scope/mode commands |
+| File                                     | Change                                                               |
+| ---------------------------------------- | -------------------------------------------------------------------- |
+| `src/lib/panes/instances.ts`             | Add `"notes"` to `PaneType`, add `notesScope`/`notesViewMode` fields |
+| `src/lib/panes/persistence.ts`           | Add notes fields to `PaneDescriptor`                                 |
+| `src/lib/tauri.ts`                       | Add notes fields to `PaneDescriptorPayload`                          |
+| `src/lib/components/NotesPanel.svelte`   | Extract core logic to `NotesContent.svelte`                          |
+| `src/lib/components/NotesContent.svelte` | New: shared notes UI component                                       |
+| `src/lib/components/NotesPane.svelte`    | New: pane wrapper for `NotesContent`                                 |
+| `src/lib/components/PaneShell.svelte`    | Add notes type rendering + label                                     |
+| `src/lib/sessions/reconnect.ts`          | Add notes type to rehydration + known types                          |
+| `src/lib/commands/panes.ts`              | Add creation and scope/mode commands                                 |
 
 ## Verification
 

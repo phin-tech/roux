@@ -25,7 +25,8 @@ const INITIAL_STATE: LibraryVariablePromptState = {
 
 let resolver: ((values: Record<string, string> | null) => void) | null = null;
 
-export const libraryVariablePrompt = writable<LibraryVariablePromptState>(INITIAL_STATE);
+export const libraryVariablePrompt =
+  writable<LibraryVariablePromptState>(INITIAL_STATE);
 
 export function requestLibraryVariables(
   request: LibraryVariablePromptRequest,
@@ -117,7 +118,9 @@ export function initialLibraryVariableValue(variable: LibraryVariable): string {
   return initialValueForVariable(variable);
 }
 
-export function libraryVariableType(variable: LibraryVariable): LibraryVariableType {
+export function libraryVariableType(
+  variable: LibraryVariable,
+): LibraryVariableType {
   return variableType(variable);
 }
 

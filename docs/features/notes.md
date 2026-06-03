@@ -3,7 +3,7 @@
 Roux keeps a scoped, Obsidian-compatible markdown vault for your sessions, repos, projects, and yourself. Notes are plain text on disk, scriptable from the CLI, and exposed to agents through environment variables.
 
 !!! warning "Experimental — subject to change"
-    Multi-scoped notes are in active development. Vault layout, CLI flag shapes, frontmatter schema, and environment variable names may change in future releases before stabilizing. If you point Obsidian at your Roux vault, keep your own backups and expect breaking migrations until this banner is removed.
+Multi-scoped notes are in active development. Vault layout, CLI flag shapes, frontmatter schema, and environment variable names may change in future releases before stabilizing. If you point Obsidian at your Roux vault, keep your own backups and expect breaking migrations until this banner is removed.
 
 ## Scopes
 
@@ -88,17 +88,17 @@ The vault is a clean Obsidian vault: just markdown files with YAML frontmatter. 
 
 Every PTY Roux spawns gets the following variables so you and your agents can find the right file without guessing:
 
-| Variable | Points to |
-|---|---|
-| `ROUX_NOTES_ROOT` | Vault root |
-| `ROUX_GLOBAL_NOTES_FILE` | `<root>/global/notes.md` |
-| `ROUX_GLOBAL_NOTES_DIR` | `<root>/global` |
-| `ROUX_REPO_SLUG` | Slug for the current session's repo |
-| `ROUX_REPO_NOTES_FILE` / `_DIR` | Repo scope file and directory |
-| `ROUX_SESSION_PROJECT` | Project slug (unset if no project) |
+| Variable                                   | Points to                                              |
+| ------------------------------------------ | ------------------------------------------------------ |
+| `ROUX_NOTES_ROOT`                          | Vault root                                             |
+| `ROUX_GLOBAL_NOTES_FILE`                   | `<root>/global/notes.md`                               |
+| `ROUX_GLOBAL_NOTES_DIR`                    | `<root>/global`                                        |
+| `ROUX_REPO_SLUG`                           | Slug for the current session's repo                    |
+| `ROUX_REPO_NOTES_FILE` / `_DIR`            | Repo scope file and directory                          |
+| `ROUX_SESSION_PROJECT`                     | Project slug (unset if no project)                     |
 | `ROUX_SESSION_PROJECT_NOTES_FILE` / `_DIR` | Project scope file and directory (unset if no project) |
-| `ROUX_SESSION_DIR` | Session scope directory |
-| `ROUX_SESSION_NOTES_FILE` | `<session-dir>/notes.md` |
+| `ROUX_SESSION_DIR`                         | Session scope directory                                |
+| `ROUX_SESSION_NOTES_FILE`                  | `<session-dir>/notes.md`                               |
 
 These are snapshots at PTY spawn time; restart the shell if you reassign the session to a different project.
 

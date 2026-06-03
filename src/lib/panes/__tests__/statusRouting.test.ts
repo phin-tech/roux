@@ -57,14 +57,18 @@ describe("routeStatusUpdate", () => {
 
   it("maps thinking to generating and attention to blocked", () => {
     expect(
-      (routeStatusUpdate(ev({ status: "thinking" }), trustAll) as {
-        event: { status: string };
-      }).event.status,
+      (
+        routeStatusUpdate(ev({ status: "thinking" }), trustAll) as {
+          event: { status: string };
+        }
+      ).event.status,
     ).toBe("generating");
     expect(
-      (routeStatusUpdate(ev({ status: "attention" }), trustAll) as {
-        event: { status: string };
-      }).event.status,
+      (
+        routeStatusUpdate(ev({ status: "attention" }), trustAll) as {
+          event: { status: string };
+        }
+      ).event.status,
     ).toBe("blocked");
   });
 
@@ -202,7 +206,10 @@ describe("applyStatusRouting", () => {
     createPane({ id: "pane-1", type: "shell", ptyId: "pty-1" });
 
     applyStatusRouting(
-      routeStatusUpdate(ev({ providerSessionId: "claude-session-123" }), trustAll),
+      routeStatusUpdate(
+        ev({ providerSessionId: "claude-session-123" }),
+        trustAll,
+      ),
     );
 
     const pane = get(paneInstances).get("pane-1");
@@ -242,7 +249,10 @@ describe("applyStatusRouting", () => {
     createPane({ id: "pane-1", type: "shell", ptyId: "pty-1" });
 
     applyStatusRouting(
-      routeStatusUpdate(ev({ provider: "claude", providerSessionId: "x" }), trustAll),
+      routeStatusUpdate(
+        ev({ provider: "claude", providerSessionId: "x" }),
+        trustAll,
+      ),
     );
 
     const pane = get(paneInstances).get("pane-1");
@@ -250,9 +260,7 @@ describe("applyStatusRouting", () => {
   });
 
   it("leaves agentStates untouched for legacy events", () => {
-    applyStatusRouting(
-      routeStatusUpdate(ev({ rouxPaneId: null }), trustAll),
-    );
+    applyStatusRouting(routeStatusUpdate(ev({ rouxPaneId: null }), trustAll));
     expect(get(agentStates).size).toBe(0);
   });
 

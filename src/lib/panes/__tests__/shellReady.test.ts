@@ -32,7 +32,9 @@ describe("waitForShellReady", () => {
     vi.advanceTimersByTime(199);
     // Not yet.
     let settled = false;
-    p.then(() => { settled = true; });
+    p.then(() => {
+      settled = true;
+    });
     await Promise.resolve();
     expect(settled).toBe(false);
     vi.advanceTimersByTime(2);
@@ -46,7 +48,9 @@ describe("waitForShellReady", () => {
     emitPtyOutput("pty-1", enc.encode("more rc..."));
     vi.advanceTimersByTime(150);
     let settled = false;
-    p.then(() => { settled = true; });
+    p.then(() => {
+      settled = true;
+    });
     await Promise.resolve();
     expect(settled).toBe(false);
     vi.advanceTimersByTime(60);
@@ -79,8 +83,14 @@ describe("waitForOutput", () => {
 
   it("matches a substring across a single chunk", async () => {
     const p = waitForOutput("pty-1", "Successfully logged into");
-    emitPtyOutput("pty-1", enc.encode("Successfully logged into account 123\n"));
-    await expect(p).resolves.toEqual({ kind: "matched", text: "Successfully logged into" });
+    emitPtyOutput(
+      "pty-1",
+      enc.encode("Successfully logged into account 123\n"),
+    );
+    await expect(p).resolves.toEqual({
+      kind: "matched",
+      text: "Successfully logged into",
+    });
   });
 
   it("matches a substring that straddles chunk boundaries", async () => {

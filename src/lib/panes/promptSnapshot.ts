@@ -37,7 +37,9 @@ const PROMPT_PREFIX_RE = /^(?:\$|>|❯|#)(?:\s|$)/;
  * when the terminal has been scrolled. Returns null if the line can't be
  * read or is empty after stripping.
  */
-export function readPromptSnapshot(buffer: SnapshotBuffer): PromptSnapshot | null {
+export function readPromptSnapshot(
+  buffer: SnapshotBuffer,
+): PromptSnapshot | null {
   const absCursor = buffer.baseY + buffer.cursorY;
   const cursorLine = buffer.getLine(absCursor);
   if (!cursorLine) return null;

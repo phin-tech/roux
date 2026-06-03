@@ -130,7 +130,7 @@
   // Sync the base selector to the user's default whenever the form opens.
   $effect(() => {
     if (newFormOpen) {
-      newBase = ($settings.worktreeDefaultBase ?? "currentBranch");
+      newBase = $settings.worktreeDefaultBase ?? "currentBranch";
     }
   });
 
@@ -282,8 +282,7 @@
     if (!q) return worktrees;
     return worktrees.filter((wt) => {
       return (
-        wt.branch.toLowerCase().includes(q) ||
-        wt.path.toLowerCase().includes(q)
+        wt.branch.toLowerCase().includes(q) || wt.path.toLowerCase().includes(q)
       );
     });
   });
@@ -436,9 +435,7 @@
       addSession(newSession);
       const mainPaneId = initSessionWithProfile(newSession.id, profileRef);
       await connectPaneTerminal(mainPaneId);
-      if (profile)
-        await runProfileInPane(newSession.id, profile, {
-        });
+      if (profile) await runProfileInPane(newSession.id, profile, {});
       setActiveSession(newSession.id);
     } catch (err) {
       worktreesError = `Failed to start session: ${err}`;
@@ -565,13 +562,16 @@
 
   function formatDirtyBranchList(dirty: Worktree[]): string {
     const preview = dirty.slice(0, 5).map((wt) => `  • ${wt.branch}`);
-    const more =
-      dirty.length > 5 ? `\n  …and ${dirty.length - 5} more` : "";
+    const more = dirty.length > 5 ? `\n  …and ${dirty.length - 5} more` : "";
     return `${preview.join("\n")}${more}`;
   }
 
   async function handleBulkRemove(alsoBranch: boolean) {
-    if (!currentRepo || bulkPending || removableSelectedWorktrees.length === 0) {
+    if (
+      !currentRepo ||
+      bulkPending ||
+      removableSelectedWorktrees.length === 0
+    ) {
       return;
     }
     const repo = currentRepo;
@@ -890,7 +890,9 @@
   <div
     class="flex h-9 shrink-0 items-center gap-2 border-b border-hairline bg-bg-surface/30 px-3"
   >
-    <span class="text-[11px] font-semibold uppercase tracking-wider text-text-muted">
+    <span
+      class="text-[11px] font-semibold uppercase tracking-wider text-text-muted"
+    >
       Worktrunk
     </span>
     {#if $worktrunkDetection.version}
@@ -917,7 +919,8 @@
       class="flex h-6 shrink-0 items-center gap-2 border-b border-hairline bg-bg-surface/20 px-3"
       title={currentRepo}
     >
-      <span class="text-[9px] font-semibold uppercase tracking-wider text-text-muted"
+      <span
+        class="text-[9px] font-semibold uppercase tracking-wider text-text-muted"
         >Repo</span
       >
       <span
@@ -931,8 +934,10 @@
           data-testid="worktrunk-repo-clear"
           class="shrink-0 cursor-pointer rounded px-1 text-[9px] text-text-muted hover:bg-bg-hover hover:text-text-primary"
           title="Clear repo override and return to picker / active session"
-          onclick={() => { selectedRepoOverride = null; }}
-        >Change</button>
+          onclick={() => {
+            selectedRepoOverride = null;
+          }}>Change</button
+        >
       {/if}
     </div>
   {/if}
@@ -943,7 +948,8 @@
       class="flex flex-1 flex-col gap-3 overflow-y-auto p-4"
     >
       <p class="text-[11px] text-text-muted">
-        Pick a repo to browse its worktrees, or open a session to auto-select one.
+        Pick a repo to browse its worktrees, or open a session to auto-select
+        one.
       </p>
       <RepoPickerField
         value=""
@@ -952,31 +958,19 @@
         showRefresh={false}
         showBrowse={false}
         noReposText="No git repos found. Configure repo roots in Settings."
-        onselect={(path) => { selectedRepoOverride = path; }}
-        onenter={(text) => { if (text.trim()) selectedRepoOverride = text.trim(); }}
+        onselect={(path) => {
+          selectedRepoOverride = path;
+        }}
+        onenter={(text) => {
+          if (text.trim()) selectedRepoOverride = text.trim();
+        }}
       />
     </div>
   {:else}
-    <div class="flex shrink-0 border-b border-hairline bg-bg-surface/20 text-[11px]">
-      {#each [
-        { id: "worktrees", label: "Worktrees", count: worktrees.length },
-        { id: "hooks", label: "Hooks", count: diagnostics?.hooks.length ?? 0 },
-        {
-          id: "commandLog",
-          label: "Command log",
-          count: diagnostics?.logs.commandLog.length ?? 0,
-        },
-        {
-          id: "hookOutput",
-          label: "Hook output",
-          count: diagnostics?.logs.hookOutput.length ?? 0,
-        },
-        {
-          id: "diagnostic",
-          label: "Diagnostic",
-          count: diagnostics?.logs.diagnostic.length ?? 0,
-        },
-      ] as const as tab}
+    <div
+      class="flex shrink-0 border-b border-hairline bg-bg-surface/20 text-[11px]"
+    >
+      {#each [{ id: "worktrees", label: "Worktrees", count: worktrees.length }, { id: "hooks", label: "Hooks", count: diagnostics?.hooks.length ?? 0 }, { id: "commandLog", label: "Command log", count: diagnostics?.logs.commandLog.length ?? 0 }, { id: "hookOutput", label: "Hook output", count: diagnostics?.logs.hookOutput.length ?? 0 }, { id: "diagnostic", label: "Diagnostic", count: diagnostics?.logs.diagnostic.length ?? 0 }] as const as tab}
         <button
           data-testid={`worktrunk-tab-${tab.id}`}
           class="cursor-pointer px-3 py-2 transition-colors
@@ -1003,7 +997,8 @@
           data-worktrunk-header-menu
         >
           <span class="text-[10px] uppercase tracking-wider text-text-muted"
-            >{#if filterText.trim()}{filteredWorktrees.length} of {/if}{worktrees.length}
+            >{#if filterText.trim()}{filteredWorktrees.length} of
+            {/if}{worktrees.length}
             {worktrees.length === 1 ? "worktree" : "worktrees"}</span
           >
           <div class="ml-auto flex items-center gap-1">
@@ -1048,7 +1043,8 @@
                   type="button"
                   data-testid="worktrunk-select-prunable"
                   class="flex items-center gap-2 rounded px-2 py-1 text-left text-[11px] text-text-primary enabled:cursor-pointer enabled:hover:bg-bg-hover disabled:opacity-40"
-                  disabled={visiblePrunableWorktrees.length === 0 || bulkPending}
+                  disabled={visiblePrunableWorktrees.length === 0 ||
+                    bulkPending}
                   title={visiblePrunableWorktrees.length === 0
                     ? "No visible prunable worktrees can be selected"
                     : `Select ${visiblePrunableWorktrees.length} visible prunable worktree${visiblePrunableWorktrees.length === 1 ? "" : "s"}`}
@@ -1070,7 +1066,8 @@
               class="inline-flex h-6 cursor-pointer items-center rounded border border-border-subtle bg-bg-elevated px-2 text-[10px] text-text-primary transition-colors duration-150 hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-40"
               disabled={bulkPending}
               onclick={() => (newFormOpen = !newFormOpen)}
-            >{newFormOpen ? "Cancel" : "+ New worktree"}</button>
+              >{newFormOpen ? "Cancel" : "+ New worktree"}</button
+            >
           </div>
         </div>
 
@@ -1126,32 +1123,33 @@
               class="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-text-muted"
               for="wt-new-base">Branch from</label
             >
-            <div class="mb-2 flex overflow-hidden rounded border border-border bg-bg-deep text-[11px]">
-              {#each [
-                { id: "currentBranch", label: "Current" },
-                { id: "main", label: "main" },
-                { id: "originMain", label: "origin/main" },
-              ] as const as opt}
+            <div
+              class="mb-2 flex overflow-hidden rounded border border-border bg-bg-deep text-[11px]"
+            >
+              {#each [{ id: "currentBranch", label: "Current" }, { id: "main", label: "main" }, { id: "originMain", label: "origin/main" }] as const as opt}
                 <button
                   data-testid={`worktrunk-new-worktree-base-${opt.id}`}
                   class="cursor-pointer px-2.5 py-1 transition-colors
                     {newBase === opt.id
                     ? 'bg-accent-dim text-text-primary'
                     : 'text-text-secondary hover:bg-bg-hover'}"
-                  onclick={() => (newBase = opt.id)}>{opt.label}</button>
+                  onclick={() => (newBase = opt.id)}>{opt.label}</button
+                >
               {/each}
             </div>
             <div class="flex justify-end gap-2">
               <button
                 class="cursor-pointer rounded border border-border-subtle bg-bg-elevated px-2 py-0.5 text-[10px] text-text-secondary hover:bg-bg-hover"
                 onclick={() => (newFormOpen = false)}
-                disabled={creatingNew}>Cancel</button>
+                disabled={creatingNew}>Cancel</button
+              >
               <button
                 data-testid="worktrunk-new-worktree-submit"
                 class="cursor-pointer rounded border border-accent bg-accent-dim/20 px-2 py-0.5 text-[10px] text-accent hover:bg-accent-dim/40 disabled:opacity-40"
                 onclick={handleCreateNew}
                 disabled={creatingNew || !newBranch.trim()}
-              >{creatingNew ? "Creating…" : "Create"}</button>
+                >{creatingNew ? "Creating…" : "Create"}</button
+              >
             </div>
           </div>
         {/if}
@@ -1162,7 +1160,9 @@
             class="mx-2 mb-2 flex items-center justify-between gap-2 rounded border border-accent-dim/40 bg-accent-dim/10 px-2 py-1.5 text-[11px] text-text-secondary"
           >
             <span class="min-w-0 truncate">
-              <span class="font-mono text-text-primary">{justCreatedWorktree.branch}</span> created.
+              <span class="font-mono text-text-primary"
+                >{justCreatedWorktree.branch}</span
+              > created.
             </span>
             <div class="flex shrink-0 items-center gap-1">
               <button
@@ -1170,14 +1170,22 @@
                 data-testid="worktrunk-open-session-after-create-btn"
                 class="inline-flex h-5 cursor-pointer items-center rounded border border-accent-dim/60 bg-accent-dim/20 px-2 text-[10px] text-accent hover:bg-accent-dim/40 disabled:opacity-40"
                 disabled={spawning === justCreatedWorktree.path}
-                onclick={() => { void handleNewSessionHere(justCreatedWorktree!); justCreatedBranch = null; }}
-              >{spawning === justCreatedWorktree.path ? "Starting…" : "Open session"}</button>
+                onclick={() => {
+                  void handleNewSessionHere(justCreatedWorktree!);
+                  justCreatedBranch = null;
+                }}
+                >{spawning === justCreatedWorktree.path
+                  ? "Starting…"
+                  : "Open session"}</button
+              >
               <button
                 type="button"
                 class="inline-flex h-5 w-5 cursor-pointer items-center justify-center rounded text-text-muted hover:bg-bg-hover hover:text-text-primary"
                 aria-label="Dismiss"
                 title="Dismiss"
-                onclick={() => { justCreatedBranch = null; }}
+                onclick={() => {
+                  justCreatedBranch = null;
+                }}
               >
                 <X size={11} />
               </button>
@@ -1196,8 +1204,8 @@
               <span
                 class="text-accent"
                 data-testid="worktrunk-bulk-copied-flash"
-                aria-live="polite"
-              >Copied</span>
+                aria-live="polite">Copied</span
+              >
             {/if}
             <button
               type="button"
@@ -1316,7 +1324,9 @@
             </div>
           {/if}
           {#if bulkError}
-            <div class="mb-1 flex items-center gap-2 border border-red/30 bg-red/10 px-2 py-1 text-[11px] text-red">
+            <div
+              class="mb-1 flex items-center gap-2 border border-red/30 bg-red/10 px-2 py-1 text-[11px] text-red"
+            >
               <span
                 class="min-w-0 flex-1 truncate"
                 data-testid="worktrunk-bulk-error">{bulkError}</span
@@ -1358,7 +1368,10 @@
               />
               <span>
                 {#if filterText}
-                  Select {visibleRemovableWorktrees.length} removable match{visibleRemovableWorktrees.length === 1 ? "" : "es"}
+                  Select {visibleRemovableWorktrees.length} removable match{visibleRemovableWorktrees.length ===
+                  1
+                    ? ""
+                    : "es"}
                 {:else}
                   Select removable
                 {/if}
@@ -1395,7 +1408,9 @@
                         : `Select ${wt.branch}`}
                     data-testid="worktrunk-row-checkbox"
                   />
-                  <div class="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+                  <div
+                    class="flex min-w-0 flex-1 flex-wrap items-center gap-1.5"
+                  >
                     <WorktreeRowContent
                       {wt}
                       showPath={false}
@@ -1411,7 +1426,8 @@
                         class="inline-flex h-6 cursor-pointer items-center rounded border border-accent-dim/40 bg-accent-dim/20 px-2 text-[10px] text-accent hover:bg-accent-dim/40"
                         onclick={() => handleFocus(session!)}
                         title={`Focus the "${session!.name}" session`}
-                      >Focus</button>
+                        >Focus</button
+                      >
                     {:else}
                       <button
                         type="button"
@@ -1422,7 +1438,8 @@
                         disabled={isSpawning || bulkPending}
                         onclick={() => handleNewSessionHere(wt)}
                         title="Start a new Claude session in this worktree"
-                      >{isSpawning ? "Starting…" : "New session"}</button>
+                        >{isSpawning ? "Starting…" : "New session"}</button
+                      >
                     {/if}
                     <button
                       type="button"
@@ -1432,20 +1449,25 @@
                         disabled:opacity-40"
                       disabled={isRemoving || isSpawning || bulkPending}
                       onclick={() =>
-                        (menuOpenFor = menuOpenFor === wt.path ? null : wt.path)}
+                        (menuOpenFor =
+                          menuOpenFor === wt.path ? null : wt.path)}
                       aria-label="More actions"
                     >
                       <MoreHorizontal size={13} />
                     </button>
                   </div>
                 </div>
-                <div class="ml-5 mt-0.5 flex min-h-5 items-center gap-1.5 overflow-hidden text-[10px] text-text-muted">
-                  <span class="min-w-0 truncate" title={wt.path}>{wt.path}</span>
+                <div
+                  class="ml-5 mt-0.5 flex min-h-5 items-center gap-1.5 overflow-hidden text-[10px] text-text-muted"
+                >
+                  <span class="min-w-0 truncate" title={wt.path}>{wt.path}</span
+                  >
                   {#if hasSession}
                     <span
                       class="shrink-0 rounded bg-accent-dim/15 px-1 py-0.5 text-accent"
                       title={`Roux session "${session!.name}" is active in this worktree`}
-                    >active session</span>
+                      >active session</span
+                    >
                   {/if}
                 </div>
                 {#if menuOpenFor === wt.path}
@@ -1490,11 +1512,15 @@
         </div>
       </div>
     {:else if loading && !diagnostics}
-      <div class="flex flex-1 items-center justify-center text-sm text-text-muted">
+      <div
+        class="flex flex-1 items-center justify-center text-sm text-text-muted"
+      >
         Loading…
       </div>
     {:else if error}
-      <div class="p-4 text-sm text-red">Failed to load diagnostics: {error}</div>
+      <div class="p-4 text-sm text-red">
+        Failed to load diagnostics: {error}
+      </div>
     {:else if diagnostics}
       <div class="flex flex-1 min-h-0 overflow-hidden">
         <div class="flex flex-1 flex-col overflow-auto">
@@ -1539,8 +1565,8 @@
                     href="https://worktrunk.dev/hook/"
                     target="_blank"
                     rel="noreferrer"
-                    class="text-blue underline"
-                  >Learn about worktrunk hooks</a>.
+                    class="text-blue underline">Learn about worktrunk hooks</a
+                  >.
                 </div>
               {:else}
                 <ul class="flex flex-col gap-2">
@@ -1579,7 +1605,8 @@
             <div
               class="flex h-8 shrink-0 items-center gap-2 border-b border-hairline bg-bg-surface/30 px-3"
             >
-              <span class="flex-1 truncate font-mono text-[10px] text-text-muted"
+              <span
+                class="flex-1 truncate font-mono text-[10px] text-text-muted"
                 >{readerPath}</span
               >
               <button
@@ -1626,27 +1653,31 @@
     style:left={`${contextMenuPos.x}px`}
     style:top={`${contextMenuPos.y}px`}
   >
-    <div class="border-b border-border-subtle/40 px-2 py-1 text-[10px] text-text-muted">
+    <div
+      class="border-b border-border-subtle/40 px-2 py-1 text-[10px] text-text-muted"
+    >
       {contextMenuFor.branch}
     </div>
     <button
       data-testid="worktrunk-context-copy"
       class="cursor-pointer rounded px-2 py-1 text-left text-[11px] text-text-primary hover:bg-bg-hover disabled:opacity-40"
       disabled={contextBusy}
-      onclick={() => handleCopyPath(contextMenuFor!)}
-    >Copy path</button>
+      onclick={() => handleCopyPath(contextMenuFor!)}>Copy path</button
+    >
     <button
       data-testid="worktrunk-context-reveal"
       class="cursor-pointer rounded px-2 py-1 text-left text-[11px] text-text-primary hover:bg-bg-hover disabled:opacity-40"
       disabled={contextBusy}
       onclick={() => handleRevealInFinder(contextMenuFor!)}
-    >Reveal in Finder</button>
+      >Reveal in Finder</button
+    >
     <button
       data-testid="worktrunk-context-terminal"
       class="cursor-pointer rounded px-2 py-1 text-left text-[11px] text-text-primary hover:bg-bg-hover disabled:opacity-40"
       disabled={contextBusy}
       onclick={() => handleOpenTerminal(contextMenuFor!)}
-    >Open in terminal</button>
+      >Open in terminal</button
+    >
     {#if contextError}
       <div
         data-testid="worktrunk-context-error"
@@ -1674,7 +1705,8 @@
             class="group flex items-center gap-2 border-b border-border-subtle/40 px-2 py-1.5 text-left hover:bg-bg-hover"
             onclick={() => openLogEntry(entry.path)}
           >
-            <span class="flex-1 truncate font-mono text-[11px] text-text-primary"
+            <span
+              class="flex-1 truncate font-mono text-[11px] text-text-primary"
               >{entry.file}</span
             >
             <span class="text-[10px] text-text-muted"
@@ -1712,13 +1744,10 @@
                 >{entry.source}</span
               >
               {#if entry.hookType}
-                <span class="text-[10px] text-text-muted"
-                  >{entry.hookType}</span
+                <span class="text-[10px] text-text-muted">{entry.hookType}</span
                 >
               {/if}
-              <span class="text-[11px] text-text-primary"
-                >{entry.name}</span
-              >
+              <span class="text-[11px] text-text-primary">{entry.name}</span>
               <span class="ml-auto text-[10px] text-text-muted"
                 >{formatRelativeTime(entry.modifiedAt ?? null)}</span
               >

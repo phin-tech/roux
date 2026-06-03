@@ -73,7 +73,10 @@ app-level shortcuts (`cmd+q`, `cmd+k`, palette state, etc.).
 
   ```ts
   if (
-    e.metaKey && !e.shiftKey && !e.altKey && !e.ctrlKey &&
+    e.metaKey &&
+    !e.shiftKey &&
+    !e.altKey &&
+    !e.ctrlKey &&
     /^[0-9]$/.test(e.key)
   ) {
     const slot = e.key === "0" ? 10 : parseInt(e.key, 10);
@@ -126,7 +129,7 @@ app-level shortcuts (`cmd+q`, `cmd+k`, palette state, etc.).
 - **More than 10 sessions**: slots 11+ get no overlay badge and no shortcut.
   This is intentional — the binding set is fixed at the 10 digit keys.
 - **Command palette is open**: the existing handler already early-returns when
-  `showPalette` is true. The digit branch is placed *after* the palette guard
+  `showPalette` is true. The digit branch is placed _after_ the palette guard
   so the same behavior applies.
 - **Quick shortcut without hold**: the 200ms delay means a user who presses
   `Cmd+K`, `Cmd+N`, `Cmd+W`, or `Cmd+1..0` and releases immediately never sees

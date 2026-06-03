@@ -95,11 +95,16 @@ describe("SessionDetailView", () => {
   });
 
   it("renders live session metadata and read-only pane summary", async () => {
-    sessionState.set({ sessions: [makeSession()], activeSessionId: "session-1" });
-    projects.set([{ id: "project-1", name: "Main Project", repoRoots: ["/repo"] }]);
-    sessionLayouts.set(new Map([
-      ["session-1", { kind: "leaf", paneId: "pane-1" }],
-    ]));
+    sessionState.set({
+      sessions: [makeSession()],
+      activeSessionId: "session-1",
+    });
+    projects.set([
+      { id: "project-1", name: "Main Project", repoRoots: ["/repo"] },
+    ]);
+    sessionLayouts.set(
+      new Map([["session-1", { kind: "leaf", paneId: "pane-1" }]]),
+    );
     paneInstances.set(new Map([["pane-1", makePane()]]));
 
     render(SessionDetailView, { sessionId: "session-1" });
@@ -114,7 +119,10 @@ describe("SessionDetailView", () => {
   });
 
   it("renders a Unix epoch createdAt value instead of treating it as missing", async () => {
-    sessionState.set({ sessions: [makeSession({ createdAt: 0 })], activeSessionId: "session-1" });
+    sessionState.set({
+      sessions: [makeSession({ createdAt: 0 })],
+      activeSessionId: "session-1",
+    });
 
     render(SessionDetailView, { sessionId: "session-1" });
 
@@ -123,7 +131,10 @@ describe("SessionDetailView", () => {
 
   it("opens an attached document inline", async () => {
     const attachment = makeAttachment();
-    sessionState.set({ sessions: [makeSession()], activeSessionId: "session-1" });
+    sessionState.set({
+      sessions: [makeSession()],
+      activeSessionId: "session-1",
+    });
     vi.mocked(listDocuments).mockResolvedValue([attachment]);
     vi.mocked(getDocument).mockResolvedValue({
       attachment,
@@ -132,10 +143,14 @@ describe("SessionDetailView", () => {
 
     render(SessionDetailView, { sessionId: "session-1" });
 
-    await fireEvent.click(await screen.findByRole("button", { name: "Implementation notes" }));
+    await fireEvent.click(
+      await screen.findByRole("button", { name: "Implementation notes" }),
+    );
 
     expect(getDocument).toHaveBeenCalledWith("session-1.doc-1");
-    expect(await screen.findByText("These are the attached notes.")).toBeTruthy();
+    expect(
+      await screen.findByText("These are the attached notes."),
+    ).toBeTruthy();
   });
 
   it("ignores stale attachment reads when a later selection resolves first", async () => {
@@ -156,7 +171,10 @@ describe("SessionDetailView", () => {
       | ((value: { attachment: Attachment; content: string }) => void)
       | undefined;
 
-    sessionState.set({ sessions: [makeSession()], activeSessionId: "session-1" });
+    sessionState.set({
+      sessions: [makeSession()],
+      activeSessionId: "session-1",
+    });
     vi.mocked(listDocuments).mockResolvedValue([first, second]);
     vi.mocked(getDocument).mockImplementation((documentId) => {
       return new Promise((resolve) => {
@@ -167,7 +185,9 @@ describe("SessionDetailView", () => {
 
     render(SessionDetailView, { sessionId: "session-1" });
 
-    await fireEvent.click(await screen.findByRole("button", { name: "First note" }));
+    await fireEvent.click(
+      await screen.findByRole("button", { name: "First note" }),
+    );
     await fireEvent.click(screen.getByRole("button", { name: "Second note" }));
 
     resolveSecond?.({ attachment: second, content: "Second content" });
@@ -221,11 +241,18 @@ describe("SessionDetailView", () => {
 
     const view = render(SessionDetailView, { sessionId: "session-1" });
 
-    await fireEvent.click(await screen.findByRole("button", { name: "First session note" }));
+    await fireEvent.click(
+      await screen.findByRole("button", { name: "First session note" }),
+    );
     await view.rerender({ sessionId: "session-2" });
-    expect(await screen.findByRole("button", { name: "Second session note" })).toBeTruthy();
+    expect(
+      await screen.findByRole("button", { name: "Second session note" }),
+    ).toBeTruthy();
 
-    resolveFirst?.({ attachment: firstAttachment, content: "First session stale content" });
+    resolveFirst?.({
+      attachment: firstAttachment,
+      content: "First session stale content",
+    });
     await new Promise((resolve) => setTimeout(resolve, 0));
     await tick();
 
@@ -241,7 +268,10 @@ describe("SessionDetailView", () => {
       | ((value: { attachment: Attachment; content: string }) => void)
       | undefined;
 
-    sessionState.set({ sessions: [makeSession()], activeSessionId: "session-1" });
+    sessionState.set({
+      sessions: [makeSession()],
+      activeSessionId: "session-1",
+    });
     vi.mocked(listDocuments).mockResolvedValue([attachment]);
     vi.mocked(getDocument).mockImplementation(() => {
       return new Promise((resolve) => {
@@ -251,11 +281,15 @@ describe("SessionDetailView", () => {
 
     render(SessionDetailView, { sessionId: "session-1" });
 
-    await fireEvent.click(await screen.findByRole("button", { name: "Live session note" }));
+    await fireEvent.click(
+      await screen.findByRole("button", { name: "Live session note" }),
+    );
     sessionState.update((state) => ({
       ...state,
       sessions: state.sessions.map((session) =>
-        session.id === "session-1" ? { ...session, status: "generating" } : session,
+        session.id === "session-1"
+          ? { ...session, status: "generating" }
+          : session,
       ),
     }));
     await tick();
@@ -270,10 +304,15 @@ describe("SessionDetailView", () => {
   });
 
   it("renames the session inline", async () => {
-    sessionState.set({ sessions: [makeSession()], activeSessionId: "session-1" });
+    sessionState.set({
+      sessions: [makeSession()],
+      activeSessionId: "session-1",
+    });
     render(SessionDetailView, { sessionId: "session-1" });
 
-    await fireEvent.click(screen.getByRole("button", { name: "Rename session" }));
+    await fireEvent.click(
+      screen.getByRole("button", { name: "Rename session" }),
+    );
     const input = screen.getByLabelText("Session name");
     await fireEvent.input(input, { target: { value: "Renamed Session" } });
     await fireEvent.keyDown(input, { key: "Enter" });
@@ -285,7 +324,9 @@ describe("SessionDetailView", () => {
     sessionState.set({ sessions: [makeSession()], activeSessionId: null });
     render(SessionDetailView, { sessionId: "session-1" });
 
-    await fireEvent.click(screen.getByRole("button", { name: "Open terminal" }));
+    await fireEvent.click(
+      screen.getByRole("button", { name: "Open terminal" }),
+    );
 
     expect(get(sessionState).activeSessionId).toBe("session-1");
     expect(closeMainView).toHaveBeenCalled();
@@ -296,7 +337,9 @@ describe("SessionDetailView", () => {
     sessionState.set({ sessions: [session], activeSessionId: "session-1" });
     render(SessionDetailView, { sessionId: "session-1" });
 
-    await fireEvent.click(screen.getByRole("button", { name: "Continue session" }));
+    await fireEvent.click(
+      screen.getByRole("button", { name: "Continue session" }),
+    );
 
     expect(continueSession).toHaveBeenCalledWith(session);
   });

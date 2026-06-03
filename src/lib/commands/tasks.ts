@@ -24,7 +24,7 @@ export function registerTaskCommands() {
             const activeId = queries.activeSessionId();
             if (activeId) void runTask(activeId, session.worktreePath, task);
           },
-        }))
+        })),
       );
     },
   });
@@ -41,7 +41,12 @@ export function registerTaskCommands() {
       return false;
     },
     getItems: () => {
-      const items: { id: string; label: string; description: string; action: () => void }[] = [];
+      const items: {
+        id: string;
+        label: string;
+        description: string;
+        action: () => void;
+      }[] = [];
       const instances = get(paneInstances);
       for (const inst of instances.values()) {
         if (inst.type !== "command" || !inst.command) continue;

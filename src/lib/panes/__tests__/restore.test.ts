@@ -18,7 +18,9 @@ vi.mock("$lib/panes/profileRunner", () => ({
 
 const resolveProfileRefMock = vi.fn();
 vi.mock("$lib/panes/profiles", async () => {
-  const actual = await vi.importActual<typeof import("$lib/panes/profiles")>("$lib/panes/profiles");
+  const actual = await vi.importActual<typeof import("$lib/panes/profiles")>(
+    "$lib/panes/profiles",
+  );
   return {
     ...actual,
     resolveProfileRef: (...args: unknown[]) => resolveProfileRefMock(...args),
@@ -269,7 +271,9 @@ describe("restoreSessionPanes", () => {
   });
 
   it("marks the pane retryable when auto-respawn fails", async () => {
-    spawnShellMock.mockRejectedValueOnce(new Error("No such file or directory"));
+    spawnShellMock.mockRejectedValueOnce(
+      new Error("No such file or directory"),
+    );
 
     const payload: PaneStatePayload = {
       schemaVersion: 5,

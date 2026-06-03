@@ -35,6 +35,7 @@ env markers; the missing piece is the skill document and two extra env vars.
 
 **1. Bundled skill document**
 A single `SKILL.md` shipped inside the Roux binary/resources. Contents:
+
 - Frontmatter: `name: roux`, description mentioning Roux + trigger conditions.
 - Trigger guidance: "use when `$ROUX_SESSION=1` and the user asks about
   spawning panes, reading pane output, switching worktrees, orchestrating
@@ -51,12 +52,14 @@ shows: name, current status (installed + version, or missing + reason), and
 a per-item action button.
 
 Rows (v1):
+
 - Roux CLI — installed path or "not installed" + Reinstall.
 - Claude Code hooks — installed / stale / missing + Reinstall.
 - Claude Code skill — installed / stale / missing + Reinstall.
 - `gh` — found / missing (informational only; no install action).
 
 Entry points:
+
 - **Onboarding mode** (`mode="onboarding"`): rendered in a modal when any
   installable row is missing on launch. Adds a welcome header and an
   "Install all missing" button that runs every needed installer in sequence.
@@ -67,6 +70,7 @@ Entry points:
   etc.
 
 Backend:
+
 - `check_doctor_status()` → struct with one entry per integration
   (`name`, `status`, `detail`, `version?`).
 - `reinstall_cli()`, `reinstall_hooks()`, `reinstall_skill()`,
@@ -87,6 +91,7 @@ kept internally or folded into `check_doctor_status`.
 **4. Extended PTY env**
 `src-tauri/src/pty.rs` currently sets `ROUX_SESSION`, `ROUX_SOCKET`,
 `ROUX_CLI`, `ROUX_SESSION_ID`, `ROUX_PANE_ID`. Add:
+
 - `ROUX_PROJECT_ID` — id of the project the session belongs to (when known).
 - `ROUX_WORKTREE_PATH` — absolute path to the worktree root when the session
   is worktree-backed; unset otherwise.

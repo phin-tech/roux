@@ -91,10 +91,7 @@ describe("layout tree", () => {
       });
       expect(treeShape(getLayout("s1"))).toEqual({
         dir: "h",
-        children: [
-          "s1-main",
-          { dir: "v", children: ["shell-1", "shell-2"] },
-        ],
+        children: ["s1-main", { dir: "v", children: ["shell-1", "shell-2"] }],
       });
     });
   });
@@ -255,7 +252,7 @@ describe("layout tree", () => {
         return new Map(m);
       });
       expect(collectLeafIds(getLayout("s1")).sort()).toEqual(
-        ["s1-main", "shell-1", "shell-2"].sort()
+        ["s1-main", "shell-1", "shell-2"].sort(),
       );
     });
 
@@ -376,34 +373,39 @@ describe("toggleStack", () => {
   });
 
   it("switches the explicit stack path even when focus is elsewhere", () => {
-    sessionLayouts.set(new Map([
-      ["s1", {
-        kind: "split",
-        direction: "h",
-        children: [
+    sessionLayouts.set(
+      new Map([
+        [
+          "s1",
           {
             kind: "split",
             direction: "h",
-            stacked: true,
-            activeIndex: 0,
             children: [
-              { kind: "leaf", paneId: "left-a" },
-              { kind: "leaf", paneId: "left-b" },
-            ],
-          },
-          {
-            kind: "split",
-            direction: "h",
-            stacked: true,
-            activeIndex: 0,
-            children: [
-              { kind: "leaf", paneId: "right-a" },
-              { kind: "leaf", paneId: "right-b" },
+              {
+                kind: "split",
+                direction: "h",
+                stacked: true,
+                activeIndex: 0,
+                children: [
+                  { kind: "leaf", paneId: "left-a" },
+                  { kind: "leaf", paneId: "left-b" },
+                ],
+              },
+              {
+                kind: "split",
+                direction: "h",
+                stacked: true,
+                activeIndex: 0,
+                children: [
+                  { kind: "leaf", paneId: "right-a" },
+                  { kind: "leaf", paneId: "right-b" },
+                ],
+              },
             ],
           },
         ],
-      }],
-    ]));
+      ]),
+    );
     setLogicalFocus("right-a");
 
     setActiveStackIndex("s1", 1, [0]);
@@ -422,18 +424,23 @@ describe("toggleStack", () => {
   });
 
   it("does not publish a layout change when selecting the already-active stack tab", () => {
-    sessionLayouts.set(new Map([
-      ["s1", {
-        kind: "split",
-        direction: "h",
-        stacked: true,
-        activeIndex: 0,
-        children: [
-          { kind: "leaf", paneId: "p1" },
-          { kind: "leaf", paneId: "p2" },
+    sessionLayouts.set(
+      new Map([
+        [
+          "s1",
+          {
+            kind: "split",
+            direction: "h",
+            stacked: true,
+            activeIndex: 0,
+            children: [
+              { kind: "leaf", paneId: "p1" },
+              { kind: "leaf", paneId: "p2" },
+            ],
+          },
         ],
-      }],
-    ]));
+      ]),
+    );
     setLogicalFocus("p1");
 
     let publishes = 0;
@@ -477,16 +484,21 @@ describe("resizeSplitDivider", () => {
   });
 
   it("resizes adjacent children in a two-pane split", () => {
-    sessionLayouts.set(new Map([
-      ["s1", {
-        kind: "split",
-        direction: "h",
-        children: [
-          { kind: "leaf", paneId: "p1" },
-          { kind: "leaf", paneId: "p2" },
+    sessionLayouts.set(
+      new Map([
+        [
+          "s1",
+          {
+            kind: "split",
+            direction: "h",
+            children: [
+              { kind: "leaf", paneId: "p1" },
+              { kind: "leaf", paneId: "p2" },
+            ],
+          },
         ],
-      }],
-    ]));
+      ]),
+    );
 
     resizeSplitDivider("s1", [], 0, 100, 1000);
 
@@ -498,18 +510,23 @@ describe("resizeSplitDivider", () => {
   });
 
   it("only changes the adjacent pair in a multi-child split", () => {
-    sessionLayouts.set(new Map([
-      ["s1", {
-        kind: "split",
-        direction: "h",
-        children: [
-          { kind: "leaf", paneId: "p1" },
-          { kind: "leaf", paneId: "p2" },
-          { kind: "leaf", paneId: "p3" },
+    sessionLayouts.set(
+      new Map([
+        [
+          "s1",
+          {
+            kind: "split",
+            direction: "h",
+            children: [
+              { kind: "leaf", paneId: "p1" },
+              { kind: "leaf", paneId: "p2" },
+              { kind: "leaf", paneId: "p3" },
+            ],
+            sizes: [0.2, 0.5, 0.3],
+          },
         ],
-        sizes: [0.2, 0.5, 0.3],
-      }],
-    ]));
+      ]),
+    );
 
     resizeSplitDivider("s1", [], 1, -100, 1000);
 
@@ -521,17 +538,22 @@ describe("resizeSplitDivider", () => {
   });
 
   it("clamps adjacent children to the minimum size", () => {
-    sessionLayouts.set(new Map([
-      ["s1", {
-        kind: "split",
-        direction: "h",
-        children: [
-          { kind: "leaf", paneId: "p1" },
-          { kind: "leaf", paneId: "p2" },
+    sessionLayouts.set(
+      new Map([
+        [
+          "s1",
+          {
+            kind: "split",
+            direction: "h",
+            children: [
+              { kind: "leaf", paneId: "p1" },
+              { kind: "leaf", paneId: "p2" },
+            ],
+            sizes: [0.5, 0.5],
+          },
         ],
-        sizes: [0.5, 0.5],
-      }],
-    ]));
+      ]),
+    );
 
     resizeSplitDivider("s1", [], 0, 900, 1000);
 
@@ -544,24 +566,29 @@ describe("resizeSplitDivider", () => {
   });
 
   it("resizes a nested split by path without changing the root split", () => {
-    sessionLayouts.set(new Map([
-      ["s1", {
-        kind: "split",
-        direction: "h",
-        children: [
-          { kind: "leaf", paneId: "p1" },
+    sessionLayouts.set(
+      new Map([
+        [
+          "s1",
           {
             kind: "split",
-            direction: "v",
+            direction: "h",
             children: [
-              { kind: "leaf", paneId: "p2" },
-              { kind: "leaf", paneId: "p3" },
+              { kind: "leaf", paneId: "p1" },
+              {
+                kind: "split",
+                direction: "v",
+                children: [
+                  { kind: "leaf", paneId: "p2" },
+                  { kind: "leaf", paneId: "p3" },
+                ],
+              },
             ],
+            sizes: [0.3, 0.7],
           },
         ],
-        sizes: [0.3, 0.7],
-      }],
-    ]));
+      ]),
+    );
 
     resizeSplitDivider("s1", [1], 0, 50, 500);
 

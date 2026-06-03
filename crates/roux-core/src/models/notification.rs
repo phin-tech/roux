@@ -132,8 +132,7 @@ mod tests {
         // Regression: a missing `rename_all_fields = "camelCase"` once caused
         // this to emit `session_id`, and the frontend handler (which reads
         // `event.sessionId`) silently no-op'd — the clear button did nothing.
-        let json =
-            serde_json::to_string(&NotificationEvent::Cleared { session_id: None }).unwrap();
+        let json = serde_json::to_string(&NotificationEvent::Cleared { session_id: None }).unwrap();
         assert!(json.contains("\"sessionId\""), "expected camelCase field in: {json}");
         assert!(!json.contains("\"session_id\""), "snake_case leaked in: {json}");
         assert!(json.contains("\"type\":\"cleared\""));

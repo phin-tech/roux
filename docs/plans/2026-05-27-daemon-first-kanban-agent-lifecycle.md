@@ -1,6 +1,7 @@
 # Daemon-First Kanban Agent Lifecycle
 
 ## Summary
+
 Make Kanban card planning, starting, implementation, review, decisions, and
 run history daemon-owned. The frontend should render and control this lifecycle,
 but it should not infer lifecycle transitions from local UI state or optimistically
@@ -22,6 +23,7 @@ The core product contract is:
   moves it to **Done**.
 
 ## Lifecycle
+
 Use these primary card states:
 
 - `todo`: rough or unstarted work.
@@ -40,6 +42,7 @@ Use side-state badges derived from daemon state rather than extra columns:
 - `stopped`: latest implementation run was explicitly stopped.
 
 ## Daemon Ownership
+
 The daemon owns all durable/runtime behavior for Kanban:
 
 - Card readiness and lifecycle transitions.
@@ -64,6 +67,7 @@ fallback should not create split-brain ownership for cards, runs, sessions, or
 worktrees.
 
 ## Card Configuration
+
 Cards can be created without complete execution config. This supports imported
 issues, rough ideas, and planning-first workflows.
 
@@ -83,6 +87,7 @@ Plain shell and type-only profiles are not valid for implementation Start. They
 may still be valid for manual sessions outside the autonomous Kanban workflow.
 
 ## Planning Runs
+
 Planning is a first-class run kind, separate from implementation.
 
 `work-item-plan` should:
@@ -108,6 +113,7 @@ Planning does not move the card to **In Progress**. When accepted, the card shou
 become `ready` if required configuration is present.
 
 ## Implementation Start
+
 `work-item-start` is the transactional daemon command for autonomous work.
 
 It should:
@@ -134,6 +140,7 @@ If any step before prompt dispatch fails, the daemon should:
   actions when applicable.
 
 ## Worktree Policy
+
 Each card should get a dedicated implementation worktree by default.
 
 Defaults:
@@ -149,6 +156,7 @@ Defaults:
 The daemon should be the only component that mutates the card-to-worktree binding.
 
 ## Active Run Rules
+
 Each card can have:
 
 - Many historical planning runs.
@@ -166,6 +174,7 @@ ask the user what to do instead of silently reusing state. Suggested options:
 - Cancel.
 
 ## Prompt Contract
+
 The daemon generates prompts so the autonomous-work contract is centralized and
 testable.
 
@@ -185,6 +194,7 @@ Planning prompts should focus on clarifying and refining the card, not editing
 the repo unless explicitly allowed.
 
 ## Review Flow
+
 Agent completion should request review, not final completion.
 
 When the agent claims completion:
@@ -200,6 +210,7 @@ Future automated review can run as another daemon-owned run kind tied to the
 same card and worktree.
 
 ## Decision Prompts
+
 Structured decisions are first-class daemon state. They can block planning,
 implementation, or review automation.
 
@@ -218,6 +229,7 @@ When unresolved required decisions exist, the card shows `blocked` and the activ
 run remains blocked until all required decisions are resolved or time out.
 
 ## Frontend Actions
+
 The card primary action should be derived from daemon state:
 
 - Missing config: **Configure**.
@@ -243,6 +255,7 @@ Delete should always ask what to do with associated runtime resources:
 - Delete card and cleanup sessions/PTYs/worktrees where safe.
 
 ## Public Interfaces
+
 Expected daemon/socket additions or refinements:
 
 - `work-item-plan`
@@ -269,6 +282,7 @@ When protocol payloads change, update the daemon protocol docs, CLI callers,
 MCP tools, Tauri daemon client, frontend stores, and generated bindings together.
 
 ## Implementation Phases
+
 1. Model readiness and statuses in the daemon without changing UI behavior.
 2. Make `work-item-start` enforce the daemon-owned start transaction and stop
    frontend optimistic status moves.
@@ -280,6 +294,7 @@ MCP tools, Tauri daemon client, frontend stores, and generated bindings together
 8. Add automated review as a later daemon-owned run kind.
 
 ## Test Plan
+
 Daemon/Rust tests:
 
 - Card without project/repo is not startable.
@@ -315,6 +330,7 @@ Manual verification:
 - Completion leaves the terminal available and moves the card to review.
 
 ## Open Questions
+
 - Exact persisted shape for readiness: stored field, derived response, or both.
 - Whether `ready` should be a first-class board column immediately or a badge in
   `todo` for the first iteration.

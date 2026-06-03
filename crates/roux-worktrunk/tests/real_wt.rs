@@ -277,17 +277,11 @@ fn list_worktrees_reports_locked_worktree() {
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .output()
         .expect("spawn wt list");
-    assert!(
-        out.status.success(),
-        "wt list failed: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
+    assert!(out.status.success(), "wt list failed: {}", String::from_utf8_lossy(&out.stderr));
     let items: Vec<WtItem> = serde_json::from_slice(&out.stdout).expect("parse JSON");
 
-    let feat = items
-        .iter()
-        .find(|i| i.branch.as_deref() == Some("feat"))
-        .expect("feat entry present");
+    let feat =
+        items.iter().find(|i| i.branch.as_deref() == Some("feat")).expect("feat entry present");
     assert_eq!(
         feat.locked_reason(),
         Some("under test"),
@@ -346,10 +340,7 @@ fn create_worktree_creates_new_branch_and_returns_valid_path() {
 
     assert!(path.is_absolute(), "returned path must be absolute: {path:?}");
     assert!(path.is_dir(), "returned path must exist on disk: {path:?}");
-    assert!(
-        path.join(".git").exists(),
-        "worktree must carry a .git marker: {path:?}"
-    );
+    assert!(path.join(".git").exists(), "worktree must carry a .git marker: {path:?}");
 }
 
 #[test]
@@ -503,13 +494,8 @@ fn remove_worktree_returns_typed_error_for_nonexistent_path() {
     let nonexistent = tempfile::tempdir().unwrap();
     let phantom = nonexistent.path().join("never-created");
 
-    let err = remove_worktree(
-        &wt(),
-        &repo,
-        &phantom,
-        &test_remove_opts(fake_home.path(), false),
-    )
-    .expect_err("removing a path wt doesn't know should fail");
+    let err = remove_worktree(&wt(), &repo, &phantom, &test_remove_opts(fake_home.path(), false))
+        .expect_err("removing a path wt doesn't know should fail");
 
     match err {
         WtError::NotFound { .. } | WtError::NonZeroExit { .. } => {}
@@ -566,8 +552,8 @@ fn list_logs_still_succeeds_after_wt_activity() {
 fn show_config_reports_user_path_even_when_absent() {
     let (_tmp, repo) = init_repo();
     let fake_home = tempfile::tempdir().unwrap();
-    let show = show_config(&wt(), &repo, &diag_env(fake_home.path()))
-        .expect("show_config should succeed");
+    let show =
+        show_config(&wt(), &repo, &diag_env(fake_home.path())).expect("show_config should succeed");
     // User config lives under $HOME; we pointed HOME at a tempdir with
     // no config there, so exists is false but path is reported.
     assert!(!show.user.exists);
@@ -586,14 +572,10 @@ fn show_config_surfaces_project_hook_when_present() {
     let fake_home = tempfile::tempdir().unwrap();
 
     std::fs::create_dir_all(repo.join(".config")).unwrap();
-    std::fs::write(
-        repo.join(".config").join("wt.toml"),
-        "post-start = \"echo hi\"\n",
-    )
-    .unwrap();
+    std::fs::write(repo.join(".config").join("wt.toml"), "post-start = \"echo hi\"\n").unwrap();
 
-    let show = show_config(&wt(), &repo, &diag_env(fake_home.path()))
-        .expect("show_config should succeed");
+    let show =
+        show_config(&wt(), &repo, &diag_env(fake_home.path())).expect("show_config should succeed");
     assert!(show.project.exists);
     let hooks = extract_hook_defs(&show);
     let post_start = hooks
@@ -619,23 +601,15 @@ fn remove_worktree_refuses_locked_without_force() {
 
     git(&repo, &["worktree", "lock", "--reason", "test lock", path.to_str().unwrap()]);
 
-    let err = remove_worktree(
-        &wt_bin,
-        &repo,
-        &path,
-        &test_remove_opts(fake_home.path(), false),
-    )
-    .expect_err("remove of locked worktree must not silently succeed");
+    let err = remove_worktree(&wt_bin, &repo, &path, &test_remove_opts(fake_home.path(), false))
+        .expect_err("remove of locked worktree must not silently succeed");
 
     match err {
         WtError::Locked { .. } | WtError::NonZeroExit { .. } => {}
         other => panic!("expected Locked or NonZeroExit, got {other:?}"),
     }
     // Path should still exist — we didn't force.
-    assert!(
-        path.exists(),
-        "locked worktree must not be removed without force"
-    );
+    assert!(path.exists(), "locked worktree must not be removed without force");
     // Cleanup
     git(&repo, &["worktree", "unlock", path.to_str().unwrap()]);
     let _ = remove_worktree(&wt_bin, &repo, &path, &test_remove_opts(fake_home.path(), true));
@@ -658,10 +632,7 @@ fn create_worktree_returns_typed_error_on_bogus_base() {
     // stderr for debugging. Exit status errors land as NonZeroExit.
     match err {
         WtError::NonZeroExit { stderr, .. } => {
-            assert!(
-                !stderr.is_empty(),
-                "stderr should carry the wt error message"
-            );
+            assert!(!stderr.is_empty(), "stderr should carry the wt error message");
         }
         other => panic!("expected NonZeroExit, got {other:?}"),
     }

@@ -13,7 +13,10 @@ interface NewProjectDialogState {
   project: Project | null;
 }
 
-const state = writable<NewProjectDialogState>({ visible: false, project: null });
+const state = writable<NewProjectDialogState>({
+  visible: false,
+  project: null,
+});
 
 export const newProjectDialogState: Readable<NewProjectDialogState> = {
   subscribe: state.subscribe,

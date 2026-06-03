@@ -77,7 +77,10 @@ export function toTauriAccelerator(shortcut: string | null): string | null {
   // Chord shortcuts (space-separated) aren't expressible as OS accelerators.
   if (shortcut.includes(" ")) return null;
 
-  const parts = shortcut.split("+").map((p) => p.trim()).filter(Boolean);
+  const parts = shortcut
+    .split("+")
+    .map((p) => p.trim())
+    .filter(Boolean);
   if (parts.length === 0) return null;
 
   const mods: string[] = [];
@@ -112,7 +115,9 @@ export function eventToAccelerator(e: KeyboardEvent): string | null {
   const key = e.key;
   if (!key) return null;
   // Bare modifiers ("Meta", "Shift", etc.) aren't accelerators.
-  if (["Meta", "Control", "Alt", "Shift", "Super", "Hyper", "OS"].includes(key)) {
+  if (
+    ["Meta", "Control", "Alt", "Shift", "Super", "Hyper", "OS"].includes(key)
+  ) {
     return null;
   }
 

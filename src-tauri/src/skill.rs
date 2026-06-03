@@ -40,7 +40,11 @@ pub fn parse_version(content: &str) -> Option<u32> {
         if let Some(idx) = line.find(VERSION_MARKER) {
             let rest = &line[idx + VERSION_MARKER.len()..];
             // Take the first run of digits after the marker.
-            let digits: String = rest.chars().skip_while(|c| !c.is_ascii_digit()).take_while(|c| c.is_ascii_digit()).collect();
+            let digits: String = rest
+                .chars()
+                .skip_while(|c| !c.is_ascii_digit())
+                .take_while(|c| c.is_ascii_digit())
+                .collect();
             if !digits.is_empty() {
                 return digits.parse().ok();
             }

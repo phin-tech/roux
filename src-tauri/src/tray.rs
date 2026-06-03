@@ -114,17 +114,12 @@ async fn do_refresh(app: &AppHandle) {
         let state = app.state::<AppState>();
         let all = state.notification_manager.list();
         let total = all.iter().filter(|n| !n.read).count();
-        let top: Vec<Notification> = all
-            .into_iter()
-            .filter(|n| !n.read)
-            .take(MAX_NOTIFS_IN_TRAY)
-            .collect();
+        let top: Vec<Notification> =
+            all.into_iter().filter(|n| !n.read).take(MAX_NOTIFS_IN_TRAY).collect();
         (top, total)
     };
 
-    let needs_attention = active
-        .iter()
-        .any(|s| matches!(s.status, SessionStatus::Attention));
+    let needs_attention = active.iter().any(|s| matches!(s.status, SessionStatus::Attention));
 
     let menu = match build_menu(app, &active, &unread, total_unread) {
         Ok(m) => m,
@@ -139,11 +134,8 @@ async fn do_refresh(app: &AppHandle) {
         }
         // macOS: surface the unread count next to the icon. No-op
         // on platforms where set_title isn't supported.
-        let _ = tray.set_title(if total_unread > 0 {
-            Some(format!("{}", total_unread))
-        } else {
-            None
-        });
+        let _ =
+            tray.set_title(if total_unread > 0 { Some(format!("{}", total_unread)) } else { None });
 
         // Swap the icon only when the attention state actually flips.
         // Avoids per-tick set_icon churn (cheap but visible flicker on
@@ -250,9 +242,8 @@ fn build_menu(
     total_unread: usize,
 ) -> tauri::Result<Menu<Wry>> {
     let header_label = format_header(sessions.len(), total_unread);
-    let header = MenuItemBuilder::with_id("tray::header", header_label)
-        .enabled(false)
-        .build(app)?;
+    let header =
+        MenuItemBuilder::with_id("tray::header", header_label).enabled(false).build(app)?;
 
     let mut builder = MenuBuilder::new(app).item(&header).separator();
 
@@ -271,21 +262,14 @@ fn build_menu(
         builder = builder.separator();
     }
 
-    builder
-        .text(MENU_ID_SHOW, "Show Roux")
-        .text(MENU_ID_QUIT, "Quit Roux")
-        .build()
+    builder.text(MENU_ID_SHOW, "Show Roux").text(MENU_ID_QUIT, "Quit Roux").build()
 }
 
 fn format_header(active_sessions: usize, unread: usize) -> String {
     let sessions_part = if active_sessions == 0 {
         "no active sessions".to_string()
     } else {
-        format!(
-            "{} active session{}",
-            active_sessions,
-            if active_sessions == 1 { "" } else { "s" }
-        )
+        format!("{} active session{}", active_sessions, if active_sessions == 1 { "" } else { "s" })
     };
     if unread > 0 {
         format!("Roux — {sessions_part} · {unread} unread")
@@ -310,12 +294,9 @@ fn build_notifications_submenu(
 
     if total_unread > unread.len() {
         let extra = total_unread - unread.len();
-        let more = MenuItemBuilder::with_id(
-            "tray::notif::more",
-            format!("+ {extra} more in app"),
-        )
-        .enabled(false)
-        .build(app)?;
+        let more = MenuItemBuilder::with_id("tray::notif::more", format!("+ {extra} more in app"))
+            .enabled(false)
+            .build(app)?;
         sub = sub.item(&more);
     }
 
@@ -387,9 +368,7 @@ fn handle_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
         // location regardless of `ENABLED`, but this contextual line is
         // worth preserving too — `rlog!` would silently drop it when the
         // user has logging disabled, defeating the diagnostic goal.
-        crate::logging::log_unconditional(&format!(
-            "tray: handle_menu_event panicked: {msg}"
-        ));
+        crate::logging::log_unconditional(&format!("tray: handle_menu_event panicked: {msg}"));
     }
 }
 

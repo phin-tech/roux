@@ -52,7 +52,11 @@ function makeArchived(id: string, overrides: Partial<Session> = {}): Session {
 
 describe("ArchivedSessionsList", () => {
   beforeEach(() => {
-    archivedSessionsState.set({ sessions: [], loaded: false, worktreeExists: new Map() });
+    archivedSessionsState.set({
+      sessions: [],
+      loaded: false,
+      worktreeExists: new Map(),
+    });
     mockListArchivedSessions.mockReset();
     mockListSessions.mockReset().mockResolvedValue([]);
     mockSessionWorktreeExists.mockReset();
@@ -64,7 +68,11 @@ describe("ArchivedSessionsList", () => {
   });
 
   afterEach(() => {
-    archivedSessionsState.set({ sessions: [], loaded: false, worktreeExists: new Map() });
+    archivedSessionsState.set({
+      sessions: [],
+      loaded: false,
+      worktreeExists: new Map(),
+    });
     vi.restoreAllMocks();
   });
 
@@ -73,7 +81,9 @@ describe("ArchivedSessionsList", () => {
       makeArchived("feature-a"),
       makeArchived("feature-gone"),
     ]);
-    mockSessionWorktreeExists.mockImplementation(async (id) => id !== "feature-gone");
+    mockSessionWorktreeExists.mockImplementation(
+      async (id) => id !== "feature-gone",
+    );
 
     render(ArchivedSessionsList, { collapsed: false });
 
@@ -82,8 +92,12 @@ describe("ArchivedSessionsList", () => {
 
     const restoreButtons = screen.getAllByText("Restore");
     expect(restoreButtons).toHaveLength(2);
-    const enabledRestore = restoreButtons[0].closest("button") as HTMLButtonElement;
-    const disabledRestore = restoreButtons[1].closest("button") as HTMLButtonElement;
+    const enabledRestore = restoreButtons[0].closest(
+      "button",
+    ) as HTMLButtonElement;
+    const disabledRestore = restoreButtons[1].closest(
+      "button",
+    ) as HTMLButtonElement;
     expect(enabledRestore.disabled).toBe(false);
     expect(enabledRestore.getAttribute("title")).toBe(
       "Move this session back to Active sessions",
@@ -101,17 +115,23 @@ describe("ArchivedSessionsList", () => {
 
     await fireEvent.click(screen.getAllByTestId("archived-session-menu")[0]);
 
-    expect(screen.getByText("Notes").closest("button")?.getAttribute("title")).toBe(
-      "Open notes for this archived session",
-    );
-    expect(screen.getByText("Reveal").closest("button")?.getAttribute("title")).toBe(
-      "Show this worktree folder in your file manager",
-    );
     expect(
-      screen.getByText("Remove worktree").closest("button")?.getAttribute("title"),
+      screen.getByText("Notes").closest("button")?.getAttribute("title"),
+    ).toBe("Open notes for this archived session");
+    expect(
+      screen.getByText("Reveal").closest("button")?.getAttribute("title"),
+    ).toBe("Show this worktree folder in your file manager");
+    expect(
+      screen
+        .getByText("Remove worktree")
+        .closest("button")
+        ?.getAttribute("title"),
     ).toBe("Delete the worktree folder but keep this history entry");
     expect(
-      screen.getByText("Delete history").closest("button")?.getAttribute("title"),
+      screen
+        .getByText("Delete history")
+        .closest("button")
+        ?.getAttribute("title"),
     ).toBe("Permanently delete this archived session entry");
     expect(screen.queryByText("Clean")).toBeNull();
     expect(screen.queryByText("Delete")).toBeNull();
@@ -177,7 +197,9 @@ describe("ArchivedSessionsList", () => {
     await screen.findByText("login");
     expect(screen.getAllByTestId("archived-session-row")).toHaveLength(3);
 
-    const filterInput = screen.getByTestId("archived-filter-input") as HTMLInputElement;
+    const filterInput = screen.getByTestId(
+      "archived-filter-input",
+    ) as HTMLInputElement;
     await fireEvent.input(filterInput, { target: { value: "checkout" } });
     expect(screen.getAllByTestId("archived-session-row")).toHaveLength(1);
     expect(screen.getByText("checkout-fix")).not.toBeNull();
@@ -186,7 +208,9 @@ describe("ArchivedSessionsList", () => {
     expect(screen.getAllByTestId("archived-session-row")).toHaveLength(1);
     expect(screen.getByText("docs-pass")).not.toBeNull();
 
-    await fireEvent.input(filterInput, { target: { value: "no-match-anywhere" } });
+    await fireEvent.input(filterInput, {
+      target: { value: "no-match-anywhere" },
+    });
     expect(screen.queryAllByTestId("archived-session-row")).toHaveLength(0);
     expect(
       screen.getByText(/No archived sessions match "no-match-anywhere"/),
@@ -207,7 +231,9 @@ describe("ArchivedSessionsList", () => {
     render(ArchivedSessionsList, { collapsed: false });
 
     await screen.findByText("feature-a");
-    const checkboxes = screen.getAllByTestId("archived-row-checkbox") as HTMLInputElement[];
+    const checkboxes = screen.getAllByTestId(
+      "archived-row-checkbox",
+    ) as HTMLInputElement[];
     await fireEvent.click(checkboxes[0]);
     await fireEvent.click(checkboxes[2]);
 
@@ -215,10 +241,16 @@ describe("ArchivedSessionsList", () => {
     await fireEvent.click(screen.getByText("Delete"));
 
     await waitFor(() => {
-      expect(vi.mocked(deleteSessionPermanently)).toHaveBeenCalledWith("feature-a");
-      expect(vi.mocked(deleteSessionPermanently)).toHaveBeenCalledWith("feature-c");
+      expect(vi.mocked(deleteSessionPermanently)).toHaveBeenCalledWith(
+        "feature-a",
+      );
+      expect(vi.mocked(deleteSessionPermanently)).toHaveBeenCalledWith(
+        "feature-c",
+      );
     });
-    expect(vi.mocked(deleteSessionPermanently)).not.toHaveBeenCalledWith("feature-b");
+    expect(vi.mocked(deleteSessionPermanently)).not.toHaveBeenCalledWith(
+      "feature-b",
+    );
   });
 
   it("select-all only checks the currently filtered rows", async () => {
@@ -232,7 +264,9 @@ describe("ArchivedSessionsList", () => {
     render(ArchivedSessionsList, { collapsed: false });
 
     await screen.findByText("feature-a");
-    const filterInput = screen.getByTestId("archived-filter-input") as HTMLInputElement;
+    const filterInput = screen.getByTestId(
+      "archived-filter-input",
+    ) as HTMLInputElement;
     await fireEvent.input(filterInput, { target: { value: "feature" } });
     expect(screen.getAllByTestId("archived-session-row")).toHaveLength(2);
 
@@ -259,12 +293,16 @@ describe("ArchivedSessionsList", () => {
     await screen.findByText("feature-a");
 
     // Select feature-a while broad.
-    const checkboxes = screen.getAllByTestId("archived-row-checkbox") as HTMLInputElement[];
+    const checkboxes = screen.getAllByTestId(
+      "archived-row-checkbox",
+    ) as HTMLInputElement[];
     await fireEvent.click(checkboxes[0]);
     expect(screen.getByText("1 selected")).not.toBeNull();
 
     // Narrow filter so feature-a is hidden — selection must persist.
-    const filterInput = screen.getByTestId("archived-filter-input") as HTMLInputElement;
+    const filterInput = screen.getByTestId(
+      "archived-filter-input",
+    ) as HTMLInputElement;
     await fireEvent.input(filterInput, { target: { value: "bugfix" } });
     expect(screen.queryByText("feature-a")).toBeNull();
     expect(screen.getByText("1 selected")).not.toBeNull();
@@ -272,7 +310,9 @@ describe("ArchivedSessionsList", () => {
     // Bulk delete should still operate on the hidden selected row.
     await fireEvent.click(screen.getByText("Delete"));
     await waitFor(() => {
-      expect(vi.mocked(deleteSessionPermanently)).toHaveBeenCalledWith("feature-a");
+      expect(vi.mocked(deleteSessionPermanently)).toHaveBeenCalledWith(
+        "feature-a",
+      );
     });
   });
 
@@ -286,8 +326,12 @@ describe("ArchivedSessionsList", () => {
     render(ArchivedSessionsList, { collapsed: false });
 
     await screen.findByText("feature-a");
-    const rowCheckboxes = screen.getAllByTestId("archived-row-checkbox") as HTMLInputElement[];
-    const selectAll = screen.getByTestId("archived-select-all") as HTMLInputElement;
+    const rowCheckboxes = screen.getAllByTestId(
+      "archived-row-checkbox",
+    ) as HTMLInputElement[];
+    const selectAll = screen.getByTestId(
+      "archived-select-all",
+    ) as HTMLInputElement;
     expect(selectAll.indeterminate).toBe(false);
 
     await fireEvent.click(rowCheckboxes[0]);
@@ -303,7 +347,9 @@ describe("ArchivedSessionsList", () => {
       makeArchived("feature-a"),
       makeArchived("feature-gone"),
     ]);
-    mockSessionWorktreeExists.mockImplementation(async (id) => id !== "feature-gone");
+    mockSessionWorktreeExists.mockImplementation(
+      async (id) => id !== "feature-gone",
+    );
     vi.mocked(deleteSessionPermanently).mockResolvedValue(undefined);
     mockRemoveWorktree.mockResolvedValue(undefined);
     vi.spyOn(window, "confirm").mockReturnValue(true);
@@ -326,8 +372,12 @@ describe("ArchivedSessionsList", () => {
     await fireEvent.click(screen.getByTestId("archived-header-menu"));
     await fireEvent.click(screen.getByText("Clear all history"));
     await waitFor(() => {
-      expect(vi.mocked(deleteSessionPermanently)).toHaveBeenCalledWith("feature-a");
-      expect(vi.mocked(deleteSessionPermanently)).toHaveBeenCalledWith("feature-gone");
+      expect(vi.mocked(deleteSessionPermanently)).toHaveBeenCalledWith(
+        "feature-a",
+      );
+      expect(vi.mocked(deleteSessionPermanently)).toHaveBeenCalledWith(
+        "feature-gone",
+      );
     });
   });
 
@@ -352,11 +402,15 @@ describe("ArchivedSessionsList", () => {
     render(ArchivedSessionsList, { collapsed: false });
 
     await screen.findByText("feature-a");
-    const checkboxes = screen.getAllByTestId("archived-row-checkbox") as HTMLInputElement[];
+    const checkboxes = screen.getAllByTestId(
+      "archived-row-checkbox",
+    ) as HTMLInputElement[];
     await fireEvent.click(checkboxes[0]);
     await fireEvent.click(checkboxes[1]);
 
-    const deleteBtn = screen.getByText("Delete").closest("button") as HTMLButtonElement;
+    const deleteBtn = screen
+      .getByText("Delete")
+      .closest("button") as HTMLButtonElement;
     await fireEvent.click(deleteBtn);
     // While pending, the button should disable and a second click must not
     // fire another backend call.
@@ -399,16 +453,25 @@ describe("ArchivedSessionsList", () => {
     render(ArchivedSessionsList, { collapsed: false });
 
     await screen.findByText("feature-gone");
-    const checkboxes = screen.getAllByTestId("archived-row-checkbox") as HTMLInputElement[];
+    const checkboxes = screen.getAllByTestId(
+      "archived-row-checkbox",
+    ) as HTMLInputElement[];
     await fireEvent.click(checkboxes[0]);
 
-    const restoreBtn = screen.getAllByText("Restore")[0].closest("button") as HTMLButtonElement;
+    const restoreBtn = screen
+      .getAllByText("Restore")[0]
+      .closest("button") as HTMLButtonElement;
     expect(restoreBtn.disabled).toBe(true);
   });
 
   it("notifies the parent after a single archived session is restored", async () => {
     const archived = makeArchived("feature-a");
-    const restored: Session = { ...archived, archived: false, endedAt: null, status: "disconnected" };
+    const restored: Session = {
+      ...archived,
+      archived: false,
+      endedAt: null,
+      status: "disconnected",
+    };
     const onrestore = vi.fn().mockResolvedValue(undefined);
     mockListArchivedSessions.mockResolvedValue([archived]);
     mockSessionWorktreeExists.mockResolvedValue(true);
@@ -429,7 +492,12 @@ describe("ArchivedSessionsList", () => {
 
   it("keeps the restored active row and shows an error when reconnect after restore fails", async () => {
     const archived = makeArchived("feature-a");
-    const restored: Session = { ...archived, archived: false, endedAt: null, status: "disconnected" };
+    const restored: Session = {
+      ...archived,
+      archived: false,
+      endedAt: null,
+      status: "disconnected",
+    };
     const onrestore = vi.fn().mockRejectedValue(new Error("spawn failed"));
     mockListArchivedSessions.mockResolvedValue([archived]);
     mockSessionWorktreeExists.mockResolvedValue(true);

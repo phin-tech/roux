@@ -42,7 +42,8 @@ export function registerWatchCommands() {
     id: "watch.add-http",
     label: "Add HTTP Watch",
     category: "Watches",
-    inputPlaceholder: "Enter URL to monitor (e.g. https://api.example.com/health)...",
+    inputPlaceholder:
+      "Enter URL to monitor (e.g. https://api.example.com/health)...",
     getItems: () => [],
     onInput: async (url: string) => {
       if (!url.startsWith("http")) return;
@@ -70,7 +71,8 @@ export function registerWatchCommands() {
     id: "watch.add-shell",
     label: "Add Shell Command Watch",
     category: "Watches",
-    inputPlaceholder: "Enter command to watch (e.g. curl -s http://localhost:3000)...",
+    inputPlaceholder:
+      "Enter command to watch (e.g. curl -s http://localhost:3000)...",
     getItems: () => [],
     onInput: async (command: string) => {
       if (!command.trim()) return;
@@ -103,7 +105,7 @@ export function registerWatchCommands() {
       if (!input.trim()) return;
       const session = queries.activeSession();
       const urlMatch = input.match(
-        /github\.com\/([^/]+\/[^/]+)\/actions\/runs\/(\d+)/
+        /github\.com\/([^/]+\/[^/]+)\/actions\/runs\/(\d+)/,
       );
       let kind: WatchKind;
       let name: string;
@@ -129,7 +131,9 @@ export function registerWatchCommands() {
       const config: CreateWatchConfig = {
         name,
         kind,
-        mode: urlMatch ? { type: "oneShot" } : { type: "recurring", intervalSecs: 30 },
+        mode: urlMatch
+          ? { type: "oneShot" }
+          : { type: "recurring", intervalSecs: 30 },
         scope: session
           ? { type: "session", sessionId: session.id }
           : { type: "global" },
@@ -143,7 +147,8 @@ export function registerWatchCommands() {
     id: "watch.add-github-pr",
     label: "Add GitHub PR Watch",
     category: "Watches",
-    inputPlaceholder: "Enter PR URL (e.g. https://github.com/owner/repo/pull/123) or owner/repo#123...",
+    inputPlaceholder:
+      "Enter PR URL (e.g. https://github.com/owner/repo/pull/123) or owner/repo#123...",
     getItems: () => [],
     onInput: async (input: string) => {
       if (!input.trim()) return;

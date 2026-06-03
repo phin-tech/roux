@@ -23,8 +23,14 @@ function normalizeState(state: TextEditState): TextEditState {
   };
 }
 
-function replaceRange(state: TextEditState, start: number, end: number, replacement: string): TextEditState {
-  const nextValue = state.value.slice(0, start) + replacement + state.value.slice(end);
+function replaceRange(
+  state: TextEditState,
+  start: number,
+  end: number,
+  replacement: string,
+): TextEditState {
+  const nextValue =
+    state.value.slice(0, start) + replacement + state.value.slice(end);
   const nextCursor = start + replacement.length;
   return {
     value: nextValue,
@@ -33,7 +39,10 @@ function replaceRange(state: TextEditState, start: number, end: number, replacem
   };
 }
 
-function lineRangeAt(value: string, index: number): { start: number; end: number } {
+function lineRangeAt(
+  value: string,
+  index: number,
+): { start: number; end: number } {
   const clampedIndex = clamp(index, 0, value.length);
   const start = value.lastIndexOf("\n", Math.max(0, clampedIndex - 1)) + 1;
   const nextNewline = value.indexOf("\n", clampedIndex);
@@ -55,9 +64,17 @@ function isWhitespace(char: string): boolean {
   return /\s/.test(char);
 }
 
-export function insertAtSelection(state: TextEditState, text: string): TextEditState {
+export function insertAtSelection(
+  state: TextEditState,
+  text: string,
+): TextEditState {
   const normalized = normalizeState(state);
-  return replaceRange(normalized, normalized.selectionStart, normalized.selectionEnd, text);
+  return replaceRange(
+    normalized,
+    normalized.selectionStart,
+    normalized.selectionEnd,
+    text,
+  );
 }
 
 export function clearBuffer(_state: TextEditState): TextEditState {
@@ -68,7 +85,9 @@ export function clearBuffer(_state: TextEditState): TextEditState {
   };
 }
 
-export function copyAndClearCurrentLine(state: TextEditState): CopyTextEditState {
+export function copyAndClearCurrentLine(
+  state: TextEditState,
+): CopyTextEditState {
   const normalized = normalizeState(state);
   const range = lineRangeAt(normalized.value, normalized.selectionStart);
   const next = replaceRange(normalized, range.start, range.end, "");
@@ -81,11 +100,18 @@ export function copyAndClearCurrentLine(state: TextEditState): CopyTextEditState
 export function clearSelectedLines(state: TextEditState): TextEditState {
   const normalized = normalizeState(state);
   const startRange = lineRangeAt(normalized.value, normalized.selectionStart);
-  const endIndex = hasSelection(normalized) ? Math.max(normalized.selectionStart, normalized.selectionEnd - 1) : normalized.selectionEnd;
+  const endIndex = hasSelection(normalized)
+    ? Math.max(normalized.selectionStart, normalized.selectionEnd - 1)
+    : normalized.selectionEnd;
   const endRange = lineRangeAt(normalized.value, endIndex);
   const clearedText = normalized.value.slice(startRange.start, endRange.end);
   const replacement = "\n".repeat(clearedText.split("\n").length - 1);
-  const next = replaceRange(normalized, startRange.start, endRange.end, replacement);
+  const next = replaceRange(
+    normalized,
+    startRange.start,
+    endRange.end,
+    replacement,
+  );
   return {
     ...next,
     selectionStart: startRange.start,
@@ -96,7 +122,12 @@ export function clearSelectedLines(state: TextEditState): TextEditState {
 export function deleteWordLeft(state: TextEditState): TextEditState {
   const normalized = normalizeState(state);
   if (hasSelection(normalized)) {
-    return replaceRange(normalized, normalized.selectionStart, normalized.selectionEnd, "");
+    return replaceRange(
+      normalized,
+      normalized.selectionStart,
+      normalized.selectionEnd,
+      "",
+    );
   }
 
   let start = normalized.selectionStart;
@@ -104,7 +135,11 @@ export function deleteWordLeft(state: TextEditState): TextEditState {
   if (start > 0 && isWordChar(normalized.value[start - 1])) {
     while (start > 0 && isWordChar(normalized.value[start - 1])) start -= 1;
   } else {
-    while (start > 0 && !isWhitespace(normalized.value[start - 1]) && !isWordChar(normalized.value[start - 1])) {
+    while (
+      start > 0 &&
+      !isWhitespace(normalized.value[start - 1]) &&
+      !isWordChar(normalized.value[start - 1])
+    ) {
       start -= 1;
     }
   }
@@ -115,7 +150,12 @@ export function deleteWordLeft(state: TextEditState): TextEditState {
 export function deleteToLineStart(state: TextEditState): TextEditState {
   const normalized = normalizeState(state);
   if (hasSelection(normalized)) {
-    return replaceRange(normalized, normalized.selectionStart, normalized.selectionEnd, "");
+    return replaceRange(
+      normalized,
+      normalized.selectionStart,
+      normalized.selectionEnd,
+      "",
+    );
   }
   const range = lineRangeAt(normalized.value, normalized.selectionStart);
   return replaceRange(normalized, range.start, normalized.selectionStart, "");
@@ -124,7 +164,12 @@ export function deleteToLineStart(state: TextEditState): TextEditState {
 export function deleteToLineEnd(state: TextEditState): TextEditState {
   const normalized = normalizeState(state);
   if (hasSelection(normalized)) {
-    return replaceRange(normalized, normalized.selectionStart, normalized.selectionEnd, "");
+    return replaceRange(
+      normalized,
+      normalized.selectionStart,
+      normalized.selectionEnd,
+      "",
+    );
   }
   const range = lineRangeAt(normalized.value, normalized.selectionStart);
   return replaceRange(normalized, normalized.selectionStart, range.end, "");

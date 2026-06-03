@@ -35,7 +35,11 @@ describe("mainViewRoute", () => {
       runId: "lazygit:s1",
     });
 
-    openMainView({ kind: "preferences", category: "externalTools", externalToolId: "github" });
+    openMainView({
+      kind: "preferences",
+      category: "externalTools",
+      externalToolId: "github",
+    });
     expect(get(mainViewRoute)).toEqual({
       kind: "preferences",
       category: "externalTools",

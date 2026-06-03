@@ -8,9 +8,13 @@ export interface LibraryPromptDragPayload {
   title: string;
 }
 
-export const draggedLibraryPrompt = writable<LibraryPromptDragPayload | null>(null);
+export const draggedLibraryPrompt = writable<LibraryPromptDragPayload | null>(
+  null,
+);
 
-export function libraryPromptDragPayload(item: LibraryItem): LibraryPromptDragPayload | null {
+export function libraryPromptDragPayload(
+  item: LibraryItem,
+): LibraryPromptDragPayload | null {
   if (item.itemType !== "prompt") return null;
   return {
     itemId: item.id,
@@ -18,7 +22,10 @@ export function libraryPromptDragPayload(item: LibraryItem): LibraryPromptDragPa
   };
 }
 
-export function writeLibraryPromptDragData(dataTransfer: DataTransfer, item: LibraryItem): boolean {
+export function writeLibraryPromptDragData(
+  dataTransfer: DataTransfer,
+  item: LibraryItem,
+): boolean {
   const payload = libraryPromptDragPayload(item);
   if (!payload) return false;
 
@@ -33,12 +40,16 @@ export function clearDraggedLibraryPrompt(): void {
   draggedLibraryPrompt.set(null);
 }
 
-export function hasLibraryPromptDragData(dataTransfer: DataTransfer | null): boolean {
+export function hasLibraryPromptDragData(
+  dataTransfer: DataTransfer | null,
+): boolean {
   if (!dataTransfer) return false;
   return Array.from(dataTransfer.types).includes(LIBRARY_PROMPT_DRAG_MIME);
 }
 
-export function readLibraryPromptDragData(dataTransfer: DataTransfer | null): LibraryPromptDragPayload | null {
+export function readLibraryPromptDragData(
+  dataTransfer: DataTransfer | null,
+): LibraryPromptDragPayload | null {
   if (!dataTransfer) return null;
 
   const raw = dataTransfer.getData(LIBRARY_PROMPT_DRAG_MIME);
@@ -46,7 +57,8 @@ export function readLibraryPromptDragData(dataTransfer: DataTransfer | null): Li
 
   try {
     const parsed = JSON.parse(raw) as Partial<LibraryPromptDragPayload>;
-    if (typeof parsed.itemId !== "string" || parsed.itemId.trim() === "") return null;
+    if (typeof parsed.itemId !== "string" || parsed.itemId.trim() === "")
+      return null;
     if (typeof parsed.title !== "string") return null;
     return {
       itemId: parsed.itemId,

@@ -67,6 +67,7 @@ That is not the full design below yet. As of this note:
 ## Problem
 
 Currently, when Roux closes:
+
 - PTY processes are killed
 - Terminal scrollback is lost
 - Sessions are restored as "disconnected" with metadata only
@@ -91,6 +92,7 @@ roux daemon                  ← background process, owns all PTYs
 ```
 
 ### Daemon responsibilities
+
 - Spawn and own PTY processes
 - Buffer scrollback (configurable, e.g., last 10k lines per session)
 - Accept client connections via Unix socket
@@ -102,6 +104,7 @@ roux daemon                  ← background process, owns all PTYs
 - Clean up dead sessions
 
 ### Client responsibilities (Tauri GUI)
+
 - Connect to daemon socket on startup
 - Receive PTY output and feed to xterm.js
 - Send keystrokes to daemon
@@ -109,6 +112,7 @@ roux daemon                  ← background process, owns all PTYs
 - Handle reconnection if daemon restarts
 
 ### CLI client (`roux attach`)
+
 - Connect to daemon socket
 - Run a local terminal emulator (raw mode)
 - Render PTY output directly to stdout
@@ -133,6 +137,7 @@ roux daemon                  ← background process, owns all PTYs
 ## Estimated scope
 
 ~500-800 lines of Rust for the daemon:
+
 - `crates/roux-cli/src/daemon.rs` — daemon entrypoint and process lifetime
 - `crates/roux-runtime` — shared session/project/PTY runtime services used by both daemon and desktop
 - socket server/client handling for daemon-owned PTYs
@@ -140,6 +145,7 @@ roux daemon                  ← background process, owns all PTYs
 - `roux attach <id>` — attach from CLI
 
 ~200 lines of frontend changes:
+
 - Replace direct PTY IPC with socket client
 - Handle reconnection on daemon restart
 

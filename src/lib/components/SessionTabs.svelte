@@ -50,12 +50,7 @@
     onTogglePin?: () => void;
   }
 
-  let {
-    onclose,
-    onNewSession,
-    pinned = false,
-    onTogglePin,
-  }: Props = $props();
+  let { onclose, onNewSession, pinned = false, onTogglePin }: Props = $props();
 
   // Sidebar collapse state is persisted so it survives reload. We also track
   // which project ids have been seen at least once: any *newly* created
@@ -67,11 +62,14 @@
 
   function loadStringSet(key: string): Set<string> {
     try {
-      if (typeof window === "undefined" || !window.localStorage) return new Set();
+      if (typeof window === "undefined" || !window.localStorage)
+        return new Set();
       const raw = window.localStorage.getItem(key);
       if (!raw) return new Set();
       const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? new Set(parsed.filter((v) => typeof v === "string")) : new Set();
+      return Array.isArray(parsed)
+        ? new Set(parsed.filter((v) => typeof v === "string"))
+        : new Set();
     } catch {
       return new Set();
     }
@@ -207,7 +205,9 @@
     if (($settings.groupBy ?? "repo") !== "project") return [];
     const project = projectsById.get(groupKey);
     if (!project) return [];
-    return (project.sessionBlueprints ?? []).filter((bp) => !liveBlueprintIds.has(bp.id));
+    return (project.sessionBlueprints ?? []).filter(
+      (bp) => !liveBlueprintIds.has(bp.id),
+    );
   }
 
   let spawningAll = $state(new Set<string>());
@@ -235,7 +235,10 @@
     }
   }
 
-  async function spawnBlueprintFromSidebar(project: Project, bp: SessionBlueprint) {
+  async function spawnBlueprintFromSidebar(
+    project: Project,
+    bp: SessionBlueprint,
+  ) {
     try {
       await spawnBlueprintForProject(project, bp);
     } catch (e) {
@@ -248,7 +251,9 @@
   const GROUP_BY_CYCLE = ["repo", "project", "session"] as const;
 
   function nextGroupBy(current: GroupBy): GroupBy {
-    const i = GROUP_BY_CYCLE.indexOf(current as (typeof GROUP_BY_CYCLE)[number]);
+    const i = GROUP_BY_CYCLE.indexOf(
+      current as (typeof GROUP_BY_CYCLE)[number],
+    );
     return GROUP_BY_CYCLE[(i + 1) % GROUP_BY_CYCLE.length];
   }
 
@@ -256,8 +261,14 @@
     updateSetting("groupBy", nextGroupBy($settings.groupBy ?? "repo"));
   }
 
-  let contextMenu = $state<{ x: number; y: number; session: Session } | null>(null);
-  let groupHeaderMenu = $state<{ x: number; y: number; project: Project } | null>(null);
+  let contextMenu = $state<{ x: number; y: number; session: Session } | null>(
+    null,
+  );
+  let groupHeaderMenu = $state<{
+    x: number;
+    y: number;
+    project: Project;
+  } | null>(null);
   let groupHeaderConfirmDelete = $state(false);
   let worktreeInput = $state(false);
   let worktreeBase = $state<string | null>(null);
@@ -331,7 +342,11 @@
     resetMenus();
   }
 
-  function pickWorktreeBase(base: string | null, label: string, fetchFirst: boolean) {
+  function pickWorktreeBase(
+    base: string | null,
+    label: string,
+    fetchFirst: boolean,
+  ) {
     worktreeBase = base;
     worktreeBaseLabel = label;
     worktreeFetchFirst = fetchFirst;
@@ -356,7 +371,9 @@
     e.preventDefault();
     const trigger = e.currentTarget as HTMLElement;
     const submenu = trigger.nextElementSibling;
-    const first = submenu?.querySelector<HTMLButtonElement>('button[role="menuitem"]');
+    const first = submenu?.querySelector<HTMLButtonElement>(
+      'button[role="menuitem"]',
+    );
     first?.focus();
   }
 
@@ -396,9 +413,10 @@
         // (the outer .group loses :focus-within). A second Escape would
         // then need to be handled by the context-menu level — currently
         // the context menu closes on outside click, not Escape.
-        const trigger = parent.parentElement?.querySelector<HTMLButtonElement>(
-          ":scope > button",
-        );
+        const trigger =
+          parent.parentElement?.querySelector<HTMLButtonElement>(
+            ":scope > button",
+          );
         trigger?.focus();
         break;
       }
@@ -457,22 +475,17 @@
       const { runProfileInPane } = await import("$lib/panes/profileRunner");
       const profile = resolveProfileRef(profileRef);
 
-      const session = await createSessionShell(
-        repo, name, null, branch,
-        {
-          profile: profileId,
-          base: worktreeBase,
-          fetchFirst: worktreeFetchFirst,
-        },
-      );
+      const session = await createSessionShell(repo, name, null, branch, {
+        profile: profileId,
+        base: worktreeBase,
+        fetchFirst: worktreeFetchFirst,
+      });
       log(`Worktree session created: ${session.id}`);
       addSession(session);
       const mainPaneId = initSessionWithProfile(session.id, profileRef);
       const { connectPaneTerminal } = await import("$lib/panes/terminals");
       await connectPaneTerminal(mainPaneId);
-      if (profile)
-        await runProfileInPane(session.id, profile, {
-        });
+      if (profile) await runProfileInPane(session.id, profile, {});
       closeContextMenu();
     } catch (e) {
       logError("Failed to create worktree session", e);
@@ -541,7 +554,9 @@
   async function handleArchivedRestore(id: string) {
     const session = get(sessionState).sessions.find((s) => s.id === id);
     if (!session) {
-      throw new Error(`restored session ${id} was not returned by listSessions`);
+      throw new Error(
+        `restored session ${id} was not returned by listSessions`,
+      );
     }
     setActiveSession(id);
     try {
@@ -599,7 +614,6 @@
   }
 
   onDestroy(() => endArchivedDrag());
-
 </script>
 
 <svelte:window onclick={closeContextMenu} />
@@ -658,8 +672,16 @@
           oncontextmenu={(e) => handleGroupHeaderContextMenu(e, group.key)}
           title={group.key}
         >
-          <span class="text-[10px] text-text-secondary transition-transform duration-150 {collapsedGroups.has(group.key) ? '' : 'rotate-90'}">&#9654;</span>
-          <span class="truncate text-[11px] font-semibold text-text-secondary">{group.name}</span>
+          <span
+            class="text-[10px] text-text-secondary transition-transform duration-150 {collapsedGroups.has(
+              group.key,
+            )
+              ? ''
+              : 'rotate-90'}">&#9654;</span
+          >
+          <span class="truncate text-[11px] font-semibold text-text-secondary"
+            >{group.name}</span
+          >
         </button>
       {/if}
       {#if !collapsedGroups.has(group.key)}
@@ -688,7 +710,9 @@
                 <span class="text-[10px] leading-none">+</span>
                 <span class="flex-1 truncate font-mono">{bp.name}</span>
                 {#if bp.branch}
-                  <span class="shrink-0 text-[10px] opacity-70">{bp.branch}</span>
+                  <span class="shrink-0 text-[10px] opacity-70"
+                    >{bp.branch}</span
+                  >
                 {/if}
               </button>
             {/if}
@@ -725,7 +749,6 @@
       onrestore={handleArchivedRestore}
     />
   </div>
-
 </div>
 
 {#if contextMenu}
@@ -739,7 +762,11 @@
     {#if projectMenu}
       {#if !newProjectInput}
         <div class="px-1 py-1">
-          <div class="px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-text-muted">Set Project</div>
+          <div
+            class="px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-text-muted"
+          >
+            Set Project
+          </div>
           {#if contextMenu.session.projectId}
             <button
               class="flex w-full cursor-pointer items-center gap-2 bg-transparent px-3 py-1.5 text-left text-xs text-text-secondary hover:bg-bg-hover hover:text-text-primary"
@@ -752,7 +779,9 @@
           {#each $projects as project (project.id)}
             <button
               class="flex w-full cursor-pointer items-center gap-2 bg-transparent px-3 py-1.5 text-left text-xs hover:bg-bg-hover
-                {contextMenu.session.projectId === project.id ? 'text-accent' : 'text-text-secondary hover:text-text-primary'}"
+                {contextMenu.session.projectId === project.id
+                ? 'text-accent'
+                : 'text-text-secondary hover:text-text-primary'}"
               onclick={() => assignProject(project.id)}
             >
               {project.name}
@@ -760,7 +789,9 @@
           {/each}
           <button
             class="flex w-full cursor-pointer items-center gap-2 bg-transparent px-3 py-1.5 text-left text-xs text-accent hover:bg-bg-hover"
-            onclick={() => { newProjectInput = true; }}
+            onclick={() => {
+              newProjectInput = true;
+            }}
           >
             <span class="text-[10px]">+</span>
             New Project...
@@ -770,7 +801,10 @@
         <div class="px-3 py-2">
           <div class="mb-1.5 text-[11px] text-text-muted">Project name</div>
           <form
-            onsubmit={(e) => { e.preventDefault(); handleCreateAndAssignProject(); }}
+            onsubmit={(e) => {
+              e.preventDefault();
+              handleCreateAndAssignProject();
+            }}
             class="flex gap-1.5"
           >
             <!-- svelte-ignore a11y_autofocus -->
@@ -828,11 +862,21 @@
             role="menu"
             aria-label="Branch from"
           >
-            <div class="px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-text-muted">Branch from</div>
+            <div
+              class="px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-text-muted"
+            >
+              Branch from
+            </div>
             <button
               class="flex w-full cursor-pointer items-center gap-2 bg-transparent px-3 py-1.5 text-left text-xs text-text-secondary hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
               role="menuitem"
-              onclick={() => contextMenu && pickWorktreeBase(currentBranchBase(contextMenu.session), "current branch", false)}
+              onclick={() =>
+                contextMenu &&
+                pickWorktreeBase(
+                  currentBranchBase(contextMenu.session),
+                  "current branch",
+                  false,
+                )}
               onkeydown={handleWorktreeMenuItemKeydown}
             >
               Current branch
@@ -848,7 +892,8 @@
             <button
               class="flex w-full cursor-pointer items-center gap-2 bg-transparent px-3 py-1.5 text-left text-xs text-text-secondary hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
               role="menuitem"
-              onclick={() => pickWorktreeBase("origin/main", "origin/main", true)}
+              onclick={() =>
+                pickWorktreeBase("origin/main", "origin/main", true)}
               onkeydown={handleWorktreeMenuItemKeydown}
             >
               origin/main
@@ -892,7 +937,9 @@
           </button>
         </form>
         {#if worktreeError}
-          <div class="mt-1 truncate text-[10px] text-red" title={worktreeError}>{worktreeError}</div>
+          <div class="mt-1 truncate text-[10px] text-red" title={worktreeError}>
+            {worktreeError}
+          </div>
         {/if}
       </div>
     {/if}
@@ -928,13 +975,16 @@
     {:else}
       <div class="px-3 py-2">
         <div class="mb-1.5 text-[11px] text-text-muted">
-          Delete <span class="font-mono text-text-primary">{groupHeaderMenu.project.name}</span>?
+          Delete <span class="font-mono text-text-primary"
+            >{groupHeaderMenu.project.name}</span
+          >?
           <br />Sessions stay (just untagged).
         </div>
         <div class="flex gap-1.5">
           <button
             class="flex-1 cursor-pointer border border-red/30 bg-red/15 px-2.5 py-1.5 text-[11px] font-medium text-red hover:bg-red/24"
-            onclick={() => groupHeaderMenu && handleDeleteProject(groupHeaderMenu.project)}
+            onclick={() =>
+              groupHeaderMenu && handleDeleteProject(groupHeaderMenu.project)}
           >
             Delete
           </button>

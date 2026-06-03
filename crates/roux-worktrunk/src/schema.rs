@@ -137,17 +137,11 @@ impl WtItem {
     }
 
     pub fn is_locked(&self) -> bool {
-        matches!(
-            self.worktree.as_ref().and_then(|w| w.state.as_deref()),
-            Some("locked")
-        )
+        matches!(self.worktree.as_ref().and_then(|w| w.state.as_deref()), Some("locked"))
     }
 
     pub fn is_prunable(&self) -> bool {
-        matches!(
-            self.worktree.as_ref().and_then(|w| w.state.as_deref()),
-            Some("prunable")
-        )
+        matches!(self.worktree.as_ref().and_then(|w| w.state.as_deref()), Some("prunable"))
     }
 
     /// The `reason` string from `wt list` when the worktree is locked.

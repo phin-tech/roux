@@ -20,7 +20,9 @@
   const filtered = $derived.by(() => {
     const q = filter.trim().toLowerCase();
     if (!q) return sessions;
-    return sessions.filter((s) => s.summary.toLowerCase().includes(q) || s.sessionId.includes(q));
+    return sessions.filter(
+      (s) => s.summary.toLowerCase().includes(q) || s.sessionId.includes(q),
+    );
   });
 
   function timeAgo(ts: number): string {
@@ -44,11 +46,17 @@
 <div class="flex h-full w-full flex-col items-center justify-center p-8">
   <div class="w-full max-w-md space-y-4">
     <div class="text-center space-y-1">
-      <div class="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl border border-border-subtle bg-bg-surface/80 text-accent shadow-[0_12px_32px_rgba(2,6,23,0.4)]">
+      <div
+        class="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl border border-border-subtle bg-bg-surface/80 text-accent shadow-[0_12px_32px_rgba(2,6,23,0.4)]"
+      >
         <span class="text-xl">&#9095;</span>
       </div>
-      <p class="pt-3 text-sm font-semibold tracking-tight text-text-primary">Resume or start new</p>
-      <p class="text-sm font-medium text-text-secondary">{cwd.split("/").pop()}</p>
+      <p class="pt-3 text-sm font-semibold tracking-tight text-text-primary">
+        Resume or start new
+      </p>
+      <p class="text-sm font-medium text-text-secondary">
+        {cwd.split("/").pop()}
+      </p>
     </div>
 
     {#if loading}
@@ -93,15 +101,24 @@
               onclick={() => onResume(cs.sessionId)}
             >
               <div class="min-w-0 flex-1">
-                <div class="truncate text-[13px] font-semibold text-text-primary">
+                <div
+                  class="truncate text-[13px] font-semibold text-text-primary"
+                >
                   {cs.summary || "Empty session"}
                 </div>
                 <div class="mt-0.5 flex items-center gap-2">
-                  <span class="font-mono text-[11px] text-text-secondary">{cs.sessionId.slice(0, 8)}</span>
-                  <span class="text-[11px] text-text-muted">{timeAgo(cs.modifiedAt)}</span>
+                  <span class="font-mono text-[11px] text-text-secondary"
+                    >{cs.sessionId.slice(0, 8)}</span
+                  >
+                  <span class="text-[11px] text-text-muted"
+                    >{timeAgo(cs.modifiedAt)}</span
+                  >
                 </div>
               </div>
-              <span class="shrink-0 pt-1 text-[11px] text-text-secondary opacity-80 transition-opacity group-hover:opacity-100">&#8594;</span>
+              <span
+                class="shrink-0 pt-1 text-[11px] text-text-secondary opacity-80 transition-opacity group-hover:opacity-100"
+                >&#8594;</span
+              >
             </button>
           {/each}
         </div>

@@ -43,10 +43,7 @@ import { applyLayoutToSession, resolveFirstLeafInfo } from "../layoutRunner";
 import { spawnShell, killPty } from "$lib/tauri";
 import { initTerminal, attachPtyListeners } from "$lib/panes/terminals";
 import { runProfileInPane } from "$lib/panes/profileRunner";
-import {
-  resetProfileRegistry,
-  setUserProfiles,
-} from "../profiles";
+import { resetProfileRegistry, setUserProfiles } from "../profiles";
 import type { SpawnProfile } from "../profiles";
 import { paneInstances, resetInstances, getInstance } from "../instances";
 import { sessionLayouts, resetLayouts } from "../layout";
@@ -55,7 +52,10 @@ import type { LayoutSpec, LayoutPaneNode, Session } from "$lib/bindings";
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
-function stubProfile(id: string, extras: Partial<SpawnProfile> = {}): SpawnProfile {
+function stubProfile(
+  id: string,
+  extras: Partial<SpawnProfile> = {},
+): SpawnProfile {
   return {
     id,
     name: id,
@@ -207,8 +207,7 @@ describe("applyLayoutToSession", () => {
 
     // runProfileInPane called with the resolved profile
     expect(runProfileInPane).toHaveBeenCalledTimes(1);
-    expect(runProfileInPane).toHaveBeenCalledWith("s1", claude, {
-    });
+    expect(runProfileInPane).toHaveBeenCalledWith("s1", claude, {});
 
     // Focus set to main pane
     expect(get(focusedPaneId)).toBe("s1-main");
@@ -251,8 +250,7 @@ describe("applyLayoutToSession", () => {
 
     // runProfileInPane called twice
     expect(runProfileInPane).toHaveBeenCalledTimes(2);
-    expect(runProfileInPane).toHaveBeenCalledWith("s2", claude, {
-    });
+    expect(runProfileInPane).toHaveBeenCalledWith("s2", claude, {});
   });
 
   // ── Test 3: Nested 2x2 split (no flattening) ────────────────────────────
@@ -315,8 +313,7 @@ describe("applyLayoutToSession", () => {
 
     // runProfileInPane called with the inline profile verbatim
     expect(runProfileInPane).toHaveBeenCalledTimes(1);
-    expect(runProfileInPane).toHaveBeenCalledWith("s4", inlineProfile, {
-    });
+    expect(runProfileInPane).toHaveBeenCalledWith("s4", inlineProfile, {});
 
     // Pane's spawnProfileRef is inline
     const inst = getInstance("s4-main");
@@ -367,11 +364,7 @@ describe("applyLayoutToSession", () => {
 
     const session = stubSession("s6");
     const layout = layoutSpec(
-      splitNode("horizontal", [
-        leafNode("p"),
-        leafNode("p"),
-        leafNode("p"),
-      ]),
+      splitNode("horizontal", [leafNode("p"), leafNode("p"), leafNode("p")]),
     );
 
     // First spawnShell call (leaf 2) succeeds, second (leaf 3) rejects
@@ -474,12 +467,18 @@ describe("applyLayoutToSession", () => {
 
     // [size=60, size=40] → [0.6, 0.4]
     expect(
-      await applySizes([leafNode("p", { size: 60 }), leafNode("p", { size: 40 })]),
+      await applySizes([
+        leafNode("p", { size: 60 }),
+        leafNode("p", { size: 40 }),
+      ]),
     ).toEqual([0.6, 0.4]);
 
     // [size=1, size=1] → [0.5, 0.5]
     expect(
-      await applySizes([leafNode("p", { size: 1 }), leafNode("p", { size: 1 })]),
+      await applySizes([
+        leafNode("p", { size: 1 }),
+        leafNode("p", { size: 1 }),
+      ]),
     ).toEqual([0.5, 0.5]);
 
     // [no size, no size] → undefined
@@ -538,8 +537,6 @@ describe("applyLayoutToSession", () => {
 
     // Both leaves get profile commands
     expect(runProfileInPane).toHaveBeenCalledTimes(2);
-    expect(runProfileInPane).toHaveBeenCalledWith("s9", claude, {
-    });
+    expect(runProfileInPane).toHaveBeenCalledWith("s9", claude, {});
   });
-
 });

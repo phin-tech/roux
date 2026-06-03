@@ -100,10 +100,7 @@ impl PtyOutputDeliveryState {
         self.next_backlog_delivery()
     }
 
-    pub fn delivery_succeeded(
-        &mut self,
-        kind: PtyOutputDeliveryKind,
-    ) -> Option<PtyOutputDelivery> {
+    pub fn delivery_succeeded(&mut self, kind: PtyOutputDeliveryKind) -> Option<PtyOutputDelivery> {
         if matches!(kind, PtyOutputDeliveryKind::Backlog) {
             self.next_backlog_delivery()
         } else {
@@ -117,10 +114,9 @@ impl PtyOutputDeliveryState {
     }
 
     fn next_backlog_delivery(&mut self) -> Option<PtyOutputDelivery> {
-        self.backlog.pop_front().map(|bytes| PtyOutputDelivery {
-            kind: PtyOutputDeliveryKind::Backlog,
-            bytes,
-        })
+        self.backlog
+            .pop_front()
+            .map(|bytes| PtyOutputDelivery { kind: PtyOutputDeliveryKind::Backlog, bytes })
     }
 }
 
@@ -164,16 +160,12 @@ pub fn plan_reader_step<'a>(step: PtyReaderStep<'a>) -> PtyReaderPlan<'a> {
             output_chunk: PtyOutputChunk::Data(bytes.to_vec()),
             stop: false,
         },
-        PtyReaderStep::Eof => PtyReaderPlan {
-            observer_bytes: None,
-            output_chunk: PtyOutputChunk::Eof,
-            stop: true,
-        },
-        PtyReaderStep::Error => PtyReaderPlan {
-            observer_bytes: None,
-            output_chunk: PtyOutputChunk::Error,
-            stop: true,
-        },
+        PtyReaderStep::Eof => {
+            PtyReaderPlan { observer_bytes: None, output_chunk: PtyOutputChunk::Eof, stop: true }
+        }
+        PtyReaderStep::Error => {
+            PtyReaderPlan { observer_bytes: None, output_chunk: PtyOutputChunk::Error, stop: true }
+        }
     }
 }
 
@@ -191,11 +183,7 @@ impl PtyOutputFlusher {
         Self::with_limits(start_ms, PTY_FLUSH_INTERVAL_MS, PTY_FLUSH_BATCH_LIMIT_BYTES)
     }
 
-    pub fn with_limits(
-        start_ms: u64,
-        flush_interval_ms: u64,
-        batch_limit_bytes: usize,
-    ) -> Self {
+    pub fn with_limits(start_ms: u64, flush_interval_ms: u64, batch_limit_bytes: usize) -> Self {
         Self {
             batch: Vec::with_capacity(8192),
             last_flush_ms: start_ms,
@@ -218,17 +206,10 @@ impl PtyOutputFlusher {
     }
 
     pub fn on_timeout(&mut self, now_ms: u64) -> Vec<PtyOutputFlushAction> {
-        self.flush_batch(now_ms)
-            .map(PtyOutputFlushAction::Output)
-            .into_iter()
-            .collect()
+        self.flush_batch(now_ms).map(PtyOutputFlushAction::Output).into_iter().collect()
     }
 
-    pub fn on_chunk(
-        &mut self,
-        chunk: PtyOutputChunk,
-        now_ms: u64,
-    ) -> Vec<PtyOutputFlushAction> {
+    pub fn on_chunk(&mut self, chunk: PtyOutputChunk, now_ms: u64) -> Vec<PtyOutputFlushAction> {
         if self.finished {
             return Vec::new();
         }
@@ -316,19 +297,13 @@ mod tests {
         let first = state.attach().expect("first backlog delivery");
         assert_eq!(
             first,
-            PtyOutputDelivery {
-                kind: PtyOutputDeliveryKind::Backlog,
-                bytes: vec![1, 2, 3],
-            }
+            PtyOutputDelivery { kind: PtyOutputDeliveryKind::Backlog, bytes: vec![1, 2, 3] }
         );
 
         let second = state.delivery_succeeded(first.kind).expect("second backlog delivery");
         assert_eq!(
             second,
-            PtyOutputDelivery {
-                kind: PtyOutputDeliveryKind::Backlog,
-                bytes: vec![4, 5, 6],
-            }
+            PtyOutputDelivery { kind: PtyOutputDeliveryKind::Backlog, bytes: vec![4, 5, 6] }
         );
         assert_eq!(state.delivery_succeeded(second.kind), None);
     }
@@ -341,10 +316,7 @@ mod tests {
         let delivery = state.send(vec![9, 8, 7]).expect("live delivery");
         assert_eq!(
             delivery,
-            PtyOutputDelivery {
-                kind: PtyOutputDeliveryKind::Live,
-                bytes: vec![9, 8, 7],
-            }
+            PtyOutputDelivery { kind: PtyOutputDeliveryKind::Live, bytes: vec![9, 8, 7] }
         );
         assert_eq!(state.delivery_succeeded(delivery.kind), None);
     }
@@ -360,10 +332,7 @@ mod tests {
         let retry = state.attach().expect("retry delivery");
         assert_eq!(
             retry,
-            PtyOutputDelivery {
-                kind: PtyOutputDeliveryKind::Backlog,
-                bytes: vec![1, 2, 3],
-            }
+            PtyOutputDelivery { kind: PtyOutputDeliveryKind::Backlog, bytes: vec![1, 2, 3] }
         );
     }
 
@@ -416,14 +385,9 @@ mod tests {
     #[test]
     fn flusher_flushes_batch_on_timeout() {
         let mut flusher = PtyOutputFlusher::with_limits(0, 16, 32);
-        assert!(flusher
-            .on_chunk(PtyOutputChunk::Data(vec![1, 2, 3]), 1)
-            .is_empty());
+        assert!(flusher.on_chunk(PtyOutputChunk::Data(vec![1, 2, 3]), 1).is_empty());
 
-        assert_eq!(
-            flusher.on_timeout(17),
-            vec![PtyOutputFlushAction::Output(vec![1, 2, 3])]
-        );
+        assert_eq!(flusher.on_timeout(17), vec![PtyOutputFlushAction::Output(vec![1, 2, 3])]);
         assert_eq!(flusher.recv_timeout_ms(17), None);
         assert_eq!(flusher.on_timeout(18), Vec::<PtyOutputFlushAction>::new());
     }
@@ -431,9 +395,7 @@ mod tests {
     #[test]
     fn flusher_finishes_after_flushing_pending_output() {
         let mut flusher = PtyOutputFlusher::with_limits(0, 16, 32);
-        assert!(flusher
-            .on_chunk(PtyOutputChunk::Data(vec![1, 2, 3]), 1)
-            .is_empty());
+        assert!(flusher.on_chunk(PtyOutputChunk::Data(vec![1, 2, 3]), 1).is_empty());
 
         assert_eq!(
             flusher.on_chunk(PtyOutputChunk::Eof, 2),
@@ -476,11 +438,7 @@ mod tests {
 
         assert_eq!(
             plan,
-            PtyReaderPlan {
-                observer_bytes: None,
-                output_chunk: PtyOutputChunk::Eof,
-                stop: true,
-            }
+            PtyReaderPlan { observer_bytes: None, output_chunk: PtyOutputChunk::Eof, stop: true }
         );
     }
 
@@ -490,11 +448,7 @@ mod tests {
 
         assert_eq!(
             plan,
-            PtyReaderPlan {
-                observer_bytes: None,
-                output_chunk: PtyOutputChunk::Error,
-                stop: true,
-            }
+            PtyReaderPlan { observer_bytes: None, output_chunk: PtyOutputChunk::Error, stop: true }
         );
     }
 }

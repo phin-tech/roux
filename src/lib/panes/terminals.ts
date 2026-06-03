@@ -35,10 +35,14 @@ export function initTerminal(paneId: string): void {
   const instance = getInstance(paneId);
   const existing = getTerminalController(paneId);
   if (!instance || existing || instance.type === "markdown") {
-    log(`initTerminal(${paneId}): skipped (exists=${!!instance}, hasTerm=${!!existing}, type=${instance?.type})`);
+    log(
+      `initTerminal(${paneId}): skipped (exists=${!!instance}, hasTerm=${!!existing}, type=${instance?.type})`,
+    );
     return;
   }
-  log(`initTerminal(${paneId}): creating terminal for type=${instance.type} ptyId=${instance.ptyId}`);
+  log(
+    `initTerminal(${paneId}): creating terminal for type=${instance.type} ptyId=${instance.ptyId}`,
+  );
 
   const controller = ensureTerminalController(paneId, {
     allowKeyboardEvent: (event) => {
@@ -48,7 +52,12 @@ export function initTerminal(paneId: string): void {
         const cmd = commandRegistry.get(id);
         if (id === "pane.open-multiline-editor") {
           const pane = getInstance(paneId);
-          return !!cmd && !!pane && (pane.type === "shell" || pane.type === "command") && !!getAttachedPtyId(pane);
+          return (
+            !!cmd &&
+            !!pane &&
+            (pane.type === "shell" || pane.type === "command") &&
+            !!getAttachedPtyId(pane)
+          );
         }
         return !!cmd && (!cmd.available || cmd.available());
       });
@@ -130,7 +139,9 @@ export async function attachPtyListeners(
     log(`attachPtyListeners(${paneId}): no instance found, bailing`);
     return;
   }
-  log(`attachPtyListeners(${paneId}): ptyId=${instance.ptyId} hasChannel=${!!getPaneOutputChannel(paneId)} hasTerm=${!!getTerminalController(paneId)}`);
+  log(
+    `attachPtyListeners(${paneId}): ptyId=${instance.ptyId} hasChannel=${!!getPaneOutputChannel(paneId)} hasTerm=${!!getTerminalController(paneId)}`,
+  );
 
   const targetPtyId = instance.ptyId;
 

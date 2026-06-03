@@ -1,12 +1,16 @@
 <script lang="ts">
-  import { updateStatus, performInstall, dismissUpdateBanner } from "$lib/stores/updater";
+  import {
+    updateStatus,
+    performInstall,
+    dismissUpdateBanner,
+  } from "$lib/stores/updater";
   import { quitApp } from "$lib/tauri";
 
   let visible = $derived(
     $updateStatus.kind === "available" ||
-    $updateStatus.kind === "downloading" ||
-    $updateStatus.kind === "installed-restart-required" ||
-    $updateStatus.kind === "error"
+      $updateStatus.kind === "downloading" ||
+      $updateStatus.kind === "installed-restart-required" ||
+      $updateStatus.kind === "error",
   );
 </script>
 
@@ -18,27 +22,35 @@
     {#if $updateStatus.kind === "available"}
       <div class="flex items-center gap-3">
         <div>
-          <div class="font-semibold text-text-primary">Roux {$updateStatus.version} is available</div>
-          <div class="text-[11px] text-text-muted">Install now to get the latest version.</div>
+          <div class="font-semibold text-text-primary">
+            Roux {$updateStatus.version} is available
+          </div>
+          <div class="text-[11px] text-text-muted">
+            Install now to get the latest version.
+          </div>
         </div>
         <button
           class="rounded border border-accent bg-accent-dim px-2.5 py-1 text-[11px] font-semibold text-text-primary hover:bg-accent/40"
-          onclick={() => void performInstall()}
-        >Install and restart</button>
+          onclick={() => void performInstall()}>Install and restart</button
+        >
         <button
           class="rounded border border-border px-2.5 py-1 text-[11px] text-text-secondary hover:bg-bg-hover"
-          onclick={dismissUpdateBanner}
-        >Later</button>
+          onclick={dismissUpdateBanner}>Later</button
+        >
       </div>
     {:else if $updateStatus.kind === "downloading"}
       <div class="flex items-center gap-3">
         <div class="text-text-primary">
-          Downloading update{$updateStatus.progress !== null ? ` (${Math.round($updateStatus.progress * 100)}%)` : "…"}
+          Downloading update{$updateStatus.progress !== null
+            ? ` (${Math.round($updateStatus.progress * 100)}%)`
+            : "…"}
         </div>
         <div class="h-1 w-40 overflow-hidden rounded bg-bg-deep">
           <div
             class="h-full bg-accent transition-[width] duration-200"
-            style="width: {$updateStatus.progress !== null ? Math.round($updateStatus.progress * 100) : 30}%"
+            style="width: {$updateStatus.progress !== null
+              ? Math.round($updateStatus.progress * 100)
+              : 30}%"
           ></div>
         </div>
       </div>
@@ -46,16 +58,18 @@
       <div class="flex items-center gap-3">
         <div>
           <div class="font-semibold text-text-primary">Update installed</div>
-          <div class="text-[11px] text-text-muted">Quit and reopen Roux to finish.</div>
+          <div class="text-[11px] text-text-muted">
+            Quit and reopen Roux to finish.
+          </div>
         </div>
         <button
           class="rounded border border-accent bg-accent-dim px-2.5 py-1 text-[11px] font-semibold text-text-primary hover:bg-accent/40"
-          onclick={() => void quitApp()}
-        >Quit Roux</button>
+          onclick={() => void quitApp()}>Quit Roux</button
+        >
         <button
           class="rounded border border-border px-2.5 py-1 text-[11px] text-text-secondary hover:bg-bg-hover"
-          onclick={dismissUpdateBanner}
-        >Later</button>
+          onclick={dismissUpdateBanner}>Later</button
+        >
       </div>
     {:else if $updateStatus.kind === "error"}
       <div class="flex items-center gap-3">
@@ -70,8 +84,8 @@
         </div>
         <button
           class="rounded border border-border px-2.5 py-1 text-[11px] text-text-secondary hover:bg-bg-hover"
-          onclick={dismissUpdateBanner}
-        >Dismiss</button>
+          onclick={dismissUpdateBanner}>Dismiss</button
+        >
       </div>
     {/if}
   </div>

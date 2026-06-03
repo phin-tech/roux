@@ -78,7 +78,10 @@ function shouldFetch(entry: PrLookupEntry | undefined): boolean {
  * when the lookup confirmed no PR, or `undefined` when nothing has run.
  */
 export function prLookupForSession(
-  session: Pick<Session, "repoRoot" | "branch" | "pinnedPrUrl"> | null | undefined,
+  session:
+    | Pick<Session, "repoRoot" | "branch" | "pinnedPrUrl">
+    | null
+    | undefined,
 ): Readable<PrInfo | null | undefined> {
   return derived(lookupStore, ($map) => {
     if (!session) return null;
@@ -115,7 +118,10 @@ export function prLookupFor(
  * either no cached entry or the last lookup succeeded.
  */
 export function prLookupErrorFor(
-  session: Pick<Session, "repoRoot" | "branch" | "pinnedPrUrl"> | null | undefined,
+  session:
+    | Pick<Session, "repoRoot" | "branch" | "pinnedPrUrl">
+    | null
+    | undefined,
 ): Readable<string | null> {
   return derived(lookupStore, ($map) => {
     if (!session) return null;

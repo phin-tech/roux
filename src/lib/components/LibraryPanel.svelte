@@ -34,7 +34,11 @@
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import Settings from "@lucide/svelte/icons/settings";
   import { activeSession } from "$lib/stores/sessions";
-  import { openLibraryEdit, openLibraryNew, openLibraryWindow } from "$lib/stores/libraryWindow";
+  import {
+    openLibraryEdit,
+    openLibraryNew,
+    openLibraryWindow,
+  } from "$lib/stores/libraryWindow";
   import {
     initialLibraryVariableValue,
     libraryVariableType,
@@ -43,7 +47,10 @@
   } from "$lib/stores/libraryVariablePrompt";
   import { focusedPaneId } from "$lib/panes/focus";
   import { getAttachedPtyId, paneInstances } from "$lib/panes/instances";
-  import { clearDraggedLibraryPrompt, writeLibraryPromptDragData } from "$lib/library/drag";
+  import {
+    clearDraggedLibraryPrompt,
+    writeLibraryPromptDragData,
+  } from "$lib/library/drag";
   import PinButton from "./PinButton.svelte";
   import CollapseSidebarButton from "./CollapseSidebarButton.svelte";
 
@@ -118,7 +125,9 @@
       ]);
       items = nextItems;
       sources = nextSources;
-      gitStatuses = Object.fromEntries(nextStatuses.map((status) => [status.sourceId, status]));
+      gitStatuses = Object.fromEntries(
+        nextStatuses.map((status) => [status.sourceId, status]),
+      );
       if (selected) {
         const selectedId = selected.item.id;
         if (nextItems.some((item) => item.id === selectedId)) {
@@ -194,14 +203,18 @@
     }
     try {
       const read = await readLibraryItem(item.id, sessionId);
-      await sendRead(read, async () => {
-        if (read.item.itemType !== "prompt") return {};
-        return requestLibraryVariables({
-          title: read.item.title,
-          variables: read.item.variables,
-          initialValues: {},
-        });
-      }, ptyId);
+      await sendRead(
+        read,
+        async () => {
+          if (read.item.itemType !== "prompt") return {};
+          return requestLibraryVariables({
+            title: read.item.title,
+            variables: read.item.variables,
+            initialValues: {},
+          });
+        },
+        ptyId,
+      );
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
       sendStatus = "error";
@@ -209,7 +222,10 @@
   }
 
   function onItemDragStart(event: DragEvent, item: LibraryItem) {
-    if (!event.dataTransfer || !writeLibraryPromptDragData(event.dataTransfer, item)) {
+    if (
+      !event.dataTransfer ||
+      !writeLibraryPromptDragData(event.dataTransfer, item)
+    ) {
       event.preventDefault();
       return;
     }
@@ -228,14 +244,18 @@
       return;
     }
     try {
-      const variables = read.item.itemType === "prompt" ? await collectVariables() : {};
+      const variables =
+        read.item.itemType === "prompt" ? await collectVariables() : {};
       if (!variables) return;
-      const content = read.item.itemType === "prompt"
-          ? (await renderLibraryPrompt({
-              itemId: read.item.id,
-              sessionId,
-              variables,
-            })).content
+      const content =
+        read.item.itemType === "prompt"
+          ? (
+              await renderLibraryPrompt({
+                itemId: read.item.id,
+                sessionId,
+                variables,
+              })
+            ).content
           : read.body;
       await writeToSession(target, `${content}\r`);
       sendStatus = "sent";
@@ -245,10 +265,16 @@
     }
   }
 
-  async function collectPromptVariables(): Promise<Record<string, string> | null> {
+  async function collectPromptVariables(): Promise<Record<
+    string,
+    string
+  > | null> {
     if (!selected) return null;
     const nextValues = { ...variableValues };
-    const errors = validateLibraryVariableValues(selected.item.variables, nextValues);
+    const errors = validateLibraryVariableValues(
+      selected.item.variables,
+      nextValues,
+    );
     variableErrors = errors;
     if (Object.keys(errors).length > 0) {
       sendStatus = "idle";
@@ -265,7 +291,10 @@
   }
 
   async function browsePinnedRepo() {
-    const selectedPath = await open({ directory: true, title: "Select Library Repo" });
+    const selectedPath = await open({
+      directory: true,
+      title: "Select Library Repo",
+    });
     if (typeof selectedPath === "string") {
       repoDraft = selectedPath;
     }
@@ -273,7 +302,12 @@
 
   async function addPinnedRepo(path: string) {
     const trimmed = path.trim();
-    if (!trimmed || sources.some((source) => source.kind === "localRepo" && source.path === trimmed)) {
+    if (
+      !trimmed ||
+      sources.some(
+        (source) => source.kind === "localRepo" && source.path === trimmed,
+      )
+    ) {
       repoDraft = "";
       return;
     }
@@ -319,7 +353,11 @@
   }
 
   async function toggleSource(source: LibrarySource) {
-    await saveSources(sources.map((item) => (item.id === source.id ? { ...item, enabled: !item.enabled } : item)));
+    await saveSources(
+      sources.map((item) =>
+        item.id === source.id ? { ...item, enabled: !item.enabled } : item,
+      ),
+    );
   }
 
   async function moveSource(index: number, delta: -1 | 1) {
@@ -335,7 +373,9 @@
     const previousSources = sources;
     error = null;
     try {
-      sources = await setLibrarySources(next.map((source, index) => ({ ...source, order: index })));
+      sources = await setLibrarySources(
+        next.map((source, index) => ({ ...source, order: index })),
+      );
       await refresh();
     } catch (e) {
       sources = previousSources;
@@ -350,11 +390,15 @@
 
   function layerLabel(item: LibraryItem): string {
     if (item.sourceLayer === "activeRepo") return "active";
-    if (item.sourceLayer === "localRepo" || item.sourceLayer === "gitRepo") return item.sourceLabel;
+    if (item.sourceLayer === "localRepo" || item.sourceLayer === "gitRepo")
+      return item.sourceLabel;
     return "global";
   }
 
-  function itemCountForLayer(layer: "global" | "activeRepo" | "localRepo" | "gitRepo", sourceId?: string | null): number {
+  function itemCountForLayer(
+    layer: "global" | "activeRepo" | "localRepo" | "gitRepo",
+    sourceId?: string | null,
+  ): number {
     return items.filter((item) => {
       if (item.sourceLayer !== layer) return false;
       return sourceId ? item.sourceId === sourceId : true;
@@ -368,11 +412,18 @@
   function shortRepo(path: string | null): string {
     if (!path) return "";
     const segments = path.split("/").filter(Boolean);
-    const forgeHosts = new Set(["github.com", "gitlab.com", "bitbucket.org", "codeberg.org"]);
+    const forgeHosts = new Set([
+      "github.com",
+      "gitlab.com",
+      "bitbucket.org",
+      "codeberg.org",
+    ]);
     for (let i = 0; i < segments.length - 2; i++) {
-      if (forgeHosts.has(segments[i])) return `${segments[i + 1]}/${segments[i + 2]}`;
+      if (forgeHosts.has(segments[i]))
+        return `${segments[i + 1]}/${segments[i + 2]}`;
     }
-    if (segments.length >= 2) return `${segments[segments.length - 2]}/${segments[segments.length - 1]}`;
+    if (segments.length >= 2)
+      return `${segments[segments.length - 2]}/${segments[segments.length - 1]}`;
     return segments[0] ?? path;
   }
 
@@ -381,7 +432,8 @@
   }
 
   function sourceSubtitle(source: LibrarySource): string {
-    if (source.kind === "localRepo") return libraryPathForRepo(source.path ?? "");
+    if (source.kind === "localRepo")
+      return libraryPathForRepo(source.path ?? "");
     return `${source.url ?? ""}${source.branch ? ` · ${source.branch}` : ""}`;
   }
 
@@ -420,10 +472,14 @@
     if (status.error) return status.error;
     if (!status.checkedOut) return "Not cloned";
     if (status.dirty) return "Uncommitted local changes";
-    if (status.remoteState === "behind") return `${status.behind} commit${status.behind === 1 ? "" : "s"} behind ${status.trackingBranch ?? "remote"}`;
-    if (status.remoteState === "ahead") return `${status.ahead} commit${status.ahead === 1 ? "" : "s"} ahead of ${status.trackingBranch ?? "remote"}`;
-    if (status.remoteState === "diverged") return `Diverged from ${status.trackingBranch ?? "remote"}`;
-    if (status.remoteState === "upToDate") return `Up to date with ${status.trackingBranch ?? "remote"}`;
+    if (status.remoteState === "behind")
+      return `${status.behind} commit${status.behind === 1 ? "" : "s"} behind ${status.trackingBranch ?? "remote"}`;
+    if (status.remoteState === "ahead")
+      return `${status.ahead} commit${status.ahead === 1 ? "" : "s"} ahead of ${status.trackingBranch ?? "remote"}`;
+    if (status.remoteState === "diverged")
+      return `Diverged from ${status.trackingBranch ?? "remote"}`;
+    if (status.remoteState === "upToDate")
+      return `Up to date with ${status.trackingBranch ?? "remote"}`;
     return "Git status unknown";
   }
 
@@ -443,10 +499,18 @@
 </script>
 
 <div class="flex h-full min-h-0 flex-col bg-bg-deep" class:hidden={!visible}>
-  <div class="flex h-10 shrink-0 items-center justify-between border-b border-hairline bg-bg-surface/30 px-3">
+  <div
+    class="flex h-10 shrink-0 items-center justify-between border-b border-hairline bg-bg-surface/30 px-3"
+  >
     <div class="flex min-w-0 items-center gap-2">
-      <span class="text-[12px] font-bold uppercase tracking-[0.13em] text-text-primary">Library</span>
-      <span class="rounded bg-green/15 px-2 py-0.5 font-mono text-[10px] font-semibold text-green">{items.length}</span>
+      <span
+        class="text-[12px] font-bold uppercase tracking-[0.13em] text-text-primary"
+        >Library</span
+      >
+      <span
+        class="rounded bg-green/15 px-2 py-0.5 font-mono text-[10px] font-semibold text-green"
+        >{items.length}</span
+      >
     </div>
     <div class="flex shrink-0 items-center gap-1">
       <button
@@ -471,7 +535,11 @@
       {#if onTogglePin}
         <PinButton {pinned} ontoggle={onTogglePin} />
       {/if}
-      <CollapseSidebarButton onclick={onclose} label="Collapse library sidebar" title="Collapse library sidebar" />
+      <CollapseSidebarButton
+        onclick={onclose}
+        label="Collapse library sidebar"
+        title="Collapse library sidebar"
+      />
     </div>
   </div>
 
@@ -479,25 +547,32 @@
     class="flex h-6 shrink-0 items-center gap-2 border-b border-hairline bg-bg-surface/20 px-3"
     title={activeRepo ? libraryPathForRepo(activeRepo) : "Global library"}
   >
-    <span class="text-[9px] font-semibold uppercase tracking-wider text-text-muted">Scope</span>
+    <span
+      class="text-[9px] font-semibold uppercase tracking-wider text-text-muted"
+      >Scope</span
+    >
     <span class="truncate font-mono text-[10px] text-text-secondary">
       {activeRepo ? shortRepo(activeRepo) : "global"}
     </span>
   </div>
 
-  <div class="flex shrink-0 border-b border-hairline bg-bg-surface/20 text-[11px]">
-    {#each [
-      { id: "items", label: "Items", count: items.length },
-      { id: "sources", label: "Sources", count: sources.length },
-    ] as const as tab}
+  <div
+    class="flex shrink-0 border-b border-hairline bg-bg-surface/20 text-[11px]"
+  >
+    {#each [{ id: "items", label: "Items", count: items.length }, { id: "sources", label: "Sources", count: sources.length }] as const as tab}
       <button
         type="button"
-        class="cursor-pointer px-3 py-2 transition-colors {view === tab.id ? 'border-b-2 border-accent text-text-primary' : 'text-text-secondary hover:bg-bg-hover'}"
+        class="cursor-pointer px-3 py-2 transition-colors {view === tab.id
+          ? 'border-b-2 border-accent text-text-primary'
+          : 'text-text-secondary hover:bg-bg-hover'}"
         onclick={() => (view = tab.id)}
       >
         {tab.label}
         {#if tab.count > 0}
-          <span class="ml-1 rounded bg-bg-active px-1 text-[9px] font-semibold text-text-muted">{tab.count}</span>
+          <span
+            class="ml-1 rounded bg-bg-active px-1 text-[9px] font-semibold text-text-muted"
+            >{tab.count}</span
+          >
         {/if}
       </button>
     {/each}
@@ -505,7 +580,11 @@
 
   <div class="app-scrollbar flex min-h-0 flex-1 flex-col overflow-y-auto">
     {#if error}
-      <div class="mx-3 mt-3 border border-red/30 bg-red/10 px-3 py-2 text-xs text-red">{error}</div>
+      <div
+        class="mx-3 mt-3 border border-red/30 bg-red/10 px-3 py-2 text-xs text-red"
+      >
+        {error}
+      </div>
     {/if}
 
     {#if view === "items"}
@@ -542,36 +621,52 @@
           bind:value={filter}
         />
 
-        <div class="flex overflow-hidden rounded border border-border bg-bg-deep text-[11px]">
-          {#each [
-            { id: "all", label: "All", count: items.length },
-            { id: "prompt", label: "Prompts", count: itemCountForType("prompt") },
-            { id: "skill", label: "Skills", count: itemCountForType("skill") },
-          ] as const as type}
+        <div
+          class="flex overflow-hidden rounded border border-border bg-bg-deep text-[11px]"
+        >
+          {#each [{ id: "all", label: "All", count: items.length }, { id: "prompt", label: "Prompts", count: itemCountForType("prompt") }, { id: "skill", label: "Skills", count: itemCountForType("skill") }] as const as type}
             <button
               type="button"
-              class="flex-1 cursor-pointer px-2 py-1 transition-colors {typeFilter === type.id ? 'bg-accent-dim text-text-primary' : 'text-text-secondary hover:bg-bg-hover'}"
+              class="flex-1 cursor-pointer px-2 py-1 transition-colors {typeFilter ===
+              type.id
+                ? 'bg-accent-dim text-text-primary'
+                : 'text-text-secondary hover:bg-bg-hover'}"
               onclick={() => (typeFilter = type.id)}
             >
               {type.label}
               {#if type.count > 0}
-                <span class="ml-1 font-mono text-[9px] text-text-muted">{type.count}</span>
+                <span class="ml-1 font-mono text-[9px] text-text-muted"
+                  >{type.count}</span
+                >
               {/if}
             </button>
           {/each}
         </div>
 
         {#if loading && items.length === 0}
-          <p class="rounded border border-border-subtle bg-bg-surface/30 p-3 text-sm text-text-muted">Loading...</p>
+          <p
+            class="rounded border border-border-subtle bg-bg-surface/30 p-3 text-sm text-text-muted"
+          >
+            Loading...
+          </p>
         {:else if filteredItems.length === 0}
-          <p class="rounded border border-border-subtle bg-bg-surface/30 p-3 text-sm text-text-muted">No library items found</p>
+          <p
+            class="rounded border border-border-subtle bg-bg-surface/30 p-3 text-sm text-text-muted"
+          >
+            No library items found
+          </p>
         {:else}
           <ul class="flex flex-col gap-2">
             {#each filteredItems as item (item.id)}
               <li>
                 <div
                   role="presentation"
-                  class="group flex items-center gap-2 rounded border border-border-subtle bg-bg-surface/30 p-2 transition-colors {item.itemType === 'prompt' ? 'cursor-grab active:cursor-grabbing' : ''} {selected?.item.id === item.id ? 'border-accent-dim/50 bg-accent-dim/15' : 'hover:bg-bg-hover'}"
+                  class="group flex items-center gap-2 rounded border border-border-subtle bg-bg-surface/30 p-2 transition-colors {item.itemType ===
+                  'prompt'
+                    ? 'cursor-grab active:cursor-grabbing'
+                    : ''} {selected?.item.id === item.id
+                    ? 'border-accent-dim/50 bg-accent-dim/15'
+                    : 'hover:bg-bg-hover'}"
                   title={item.sourcePath}
                   draggable={item.itemType === "prompt"}
                   ondragstart={(event) => onItemDragStart(event, item)}
@@ -582,12 +677,20 @@
                     class="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left"
                     onclick={() => selectItem(item)}
                   >
-                    <span class="rounded bg-accent-dim/20 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-accent">
+                    <span
+                      class="rounded bg-accent-dim/20 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-accent"
+                    >
                       {item.itemType}
                     </span>
                     <span class="min-w-0 flex-1">
-                      <span class="block truncate text-xs font-semibold text-text-primary">{item.title}</span>
-                      <span class="mt-0.5 block truncate font-mono text-[10px] text-text-muted">{item.id} · {layerLabel(item)}</span>
+                      <span
+                        class="block truncate text-xs font-semibold text-text-primary"
+                        >{item.title}</span
+                      >
+                      <span
+                        class="mt-0.5 block truncate font-mono text-[10px] text-text-muted"
+                        >{item.id} · {layerLabel(item)}</span
+                      >
                     </span>
                   </button>
                   <button
@@ -608,8 +711,14 @@
           <div class="rounded border border-border-subtle bg-bg-surface/20 p-3">
             <div class="mb-3 flex items-start justify-between gap-3">
               <div class="min-w-0">
-                <div class="truncate text-sm font-semibold text-text-primary">{selected.item.title}</div>
-                <div class="mt-1 truncate font-mono text-[10px] text-text-muted">{selected.item.sourcePath}</div>
+                <div class="truncate text-sm font-semibold text-text-primary">
+                  {selected.item.title}
+                </div>
+                <div
+                  class="mt-1 truncate font-mono text-[10px] text-text-muted"
+                >
+                  {selected.item.sourcePath}
+                </div>
               </div>
               <div class="flex shrink-0 gap-1">
                 <button
@@ -624,21 +733,36 @@
                   class="rounded border border-accent-dim/40 bg-accent-dim/20 px-2 py-0.5 text-[10px] text-accent hover:bg-accent-dim/40"
                   onclick={sendSelected}
                 >
-                  {selected.item.itemType === "prompt" ? "Send" : "Send context"}
+                  {selected.item.itemType === "prompt"
+                    ? "Send"
+                    : "Send context"}
                 </button>
               </div>
             </div>
 
             {#if selected.item.variables.length > 0}
-              <div class="mb-3 space-y-2 rounded border border-border-subtle bg-bg-surface/40 p-2">
+              <div
+                class="mb-3 space-y-2 rounded border border-border-subtle bg-bg-surface/40 p-2"
+              >
                 {#each selected.item.variables as variable (variable.name)}
                   <label class="block">
-                    <span class="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-text-muted">{variable.label ?? variable.name}</span>
+                    <span
+                      class="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-text-muted"
+                      >{variable.label ?? variable.name}</span
+                    >
                     {#if libraryVariableType(variable) === "select"}
                       <select
-                        class="w-full rounded border border-border bg-bg-deep px-2 py-1.5 text-xs text-text-primary outline-none focus:border-accent-dim {variableErrors[variable.name] ? 'border-red/50' : ''}"
+                        class="w-full rounded border border-border bg-bg-deep px-2 py-1.5 text-xs text-text-primary outline-none focus:border-accent-dim {variableErrors[
+                          variable.name
+                        ]
+                          ? 'border-red/50'
+                          : ''}"
                         value={variableValues[variable.name] ?? ""}
-                        onchange={(e) => updateSelectedVariable(variable.name, e.currentTarget.value)}
+                        onchange={(e) =>
+                          updateSelectedVariable(
+                            variable.name,
+                            e.currentTarget.value,
+                          )}
                       >
                         {#if !variable.required}
                           <option value="">None</option>
@@ -649,16 +773,33 @@
                       </select>
                     {:else}
                       <input
-                        class="w-full rounded border border-border bg-bg-deep px-2 py-1.5 text-xs text-text-primary outline-none focus:border-accent-dim {variableErrors[variable.name] ? 'border-red/50' : ''}"
-                        type={libraryVariableType(variable) === "int" || libraryVariableType(variable) === "float" ? "number" : "text"}
-                        step={libraryVariableType(variable) === "int" ? "1" : libraryVariableType(variable) === "float" ? "any" : undefined}
+                        class="w-full rounded border border-border bg-bg-deep px-2 py-1.5 text-xs text-text-primary outline-none focus:border-accent-dim {variableErrors[
+                          variable.name
+                        ]
+                          ? 'border-red/50'
+                          : ''}"
+                        type={libraryVariableType(variable) === "int" ||
+                        libraryVariableType(variable) === "float"
+                          ? "number"
+                          : "text"}
+                        step={libraryVariableType(variable) === "int"
+                          ? "1"
+                          : libraryVariableType(variable) === "float"
+                            ? "any"
+                            : undefined}
                         value={variableValues[variable.name] ?? ""}
-                        oninput={(e) => updateSelectedVariable(variable.name, e.currentTarget.value)}
+                        oninput={(e) =>
+                          updateSelectedVariable(
+                            variable.name,
+                            e.currentTarget.value,
+                          )}
                         placeholder={variable.required ? "Required" : ""}
                       />
                     {/if}
                     {#if variableErrors[variable.name]}
-                      <div class="mt-1 text-[11px] text-red">{variableErrors[variable.name]}</div>
+                      <div class="mt-1 text-[11px] text-red">
+                        {variableErrors[variable.name]}
+                      </div>
                     {/if}
                   </label>
                 {/each}
@@ -666,15 +807,25 @@
             {/if}
 
             {#if sendStatus === "sent"}
-              <div class="mb-3 rounded border border-green/25 bg-green/10 px-2 py-1.5 text-xs text-green">Sent to agent</div>
+              <div
+                class="mb-3 rounded border border-green/25 bg-green/10 px-2 py-1.5 text-xs text-green"
+              >
+                Sent to agent
+              </div>
             {/if}
 
-            <div class="library-prose rounded border border-border-subtle bg-bg-deep/50 p-3">
+            <div
+              class="library-prose rounded border border-border-subtle bg-bg-deep/50 p-3"
+            >
               {@html renderedHtml}
             </div>
           </div>
         {:else}
-          <div class="rounded border border-border-subtle bg-bg-surface/30 p-3 text-sm text-text-muted">Select a prompt or skill</div>
+          <div
+            class="rounded border border-border-subtle bg-bg-surface/30 p-3 text-sm text-text-muted"
+          >
+            Select a prompt or skill
+          </div>
         {/if}
       </div>
     {:else}
@@ -682,11 +833,19 @@
         <div class="rounded border border-border-subtle bg-bg-surface/30 p-3">
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
-              <div class="text-sm font-semibold text-text-primary">Global Library</div>
-              <div class="mt-1 text-xs text-text-secondary">Shared prompts and skills from your Roux vault.</div>
-              <div class="mt-2 font-mono text-[10px] text-text-muted">library/prompts · library/skills</div>
+              <div class="text-sm font-semibold text-text-primary">
+                Global Library
+              </div>
+              <div class="mt-1 text-xs text-text-secondary">
+                Shared prompts and skills from your Roux vault.
+              </div>
+              <div class="mt-2 font-mono text-[10px] text-text-muted">
+                library/prompts · library/skills
+              </div>
             </div>
-            <span class="shrink-0 rounded bg-bg-active px-2 py-0.5 font-mono text-[10px] font-semibold text-text-muted">
+            <span
+              class="shrink-0 rounded bg-bg-active px-2 py-0.5 font-mono text-[10px] font-semibold text-text-muted"
+            >
               {itemCountForLayer("global")}
             </span>
           </div>
@@ -695,19 +854,33 @@
         <div class="rounded border border-border-subtle bg-bg-surface/30 p-3">
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
-              <div class="text-sm font-semibold text-text-primary">Active Repo Library</div>
+              <div class="text-sm font-semibold text-text-primary">
+                Active Repo Library
+              </div>
               {#if activeRepo}
-                <div class="mt-1 truncate font-mono text-[10px] text-text-muted">{libraryPathForRepo(activeRepo)}</div>
+                <div
+                  class="mt-1 truncate font-mono text-[10px] text-text-muted"
+                >
+                  {libraryPathForRepo(activeRepo)}
+                </div>
               {:else}
-                <div class="mt-1 text-xs text-text-muted">No active repo session</div>
+                <div class="mt-1 text-xs text-text-muted">
+                  No active repo session
+                </div>
               {/if}
             </div>
-            <span class="shrink-0 rounded bg-bg-active px-2 py-0.5 font-mono text-[10px] font-semibold text-text-muted">
+            <span
+              class="shrink-0 rounded bg-bg-active px-2 py-0.5 font-mono text-[10px] font-semibold text-text-muted"
+            >
               {itemCountForLayer("activeRepo")}
             </span>
           </div>
           {#if activeRepo}
-            <button type="button" class="mt-3 rounded border border-border-subtle bg-bg-elevated px-2 py-0.5 text-[10px] text-text-secondary hover:border-accent hover:text-accent" onclick={pinActiveRepo}>
+            <button
+              type="button"
+              class="mt-3 rounded border border-border-subtle bg-bg-elevated px-2 py-0.5 text-[10px] text-text-secondary hover:border-accent hover:text-accent"
+              onclick={pinActiveRepo}
+            >
               Pin active repo
             </button>
           {/if}
@@ -716,17 +889,21 @@
         <div class="rounded border border-border-subtle bg-bg-surface/30 p-3">
           <div class="flex flex-wrap items-start justify-between gap-3">
             <div class="min-w-0 flex-1">
-              <div class="text-sm font-semibold text-text-primary">Skill sync</div>
+              <div class="text-sm font-semibold text-text-primary">
+                Skill sync
+              </div>
               <div class="mt-1 text-xs text-text-secondary">
-                Mirror Library skills into <code class="font-mono text-[11px]">.claude/skills/</code> so Claude can load them.
-                Off by default.
+                Mirror Library skills into <code class="font-mono text-[11px]"
+                  >.claude/skills/</code
+                > so Claude can load them. Off by default.
               </div>
             </div>
             <select
               class="shrink-0 rounded border border-border bg-bg-deep px-2 py-1 text-xs text-text-primary outline-none focus:border-accent-dim"
               value={$settings.librarySkillSyncDefault ?? "off"}
               onchange={(event) => {
-                const next = (event.currentTarget as HTMLSelectElement).value as SkillSyncMode;
+                const next = (event.currentTarget as HTMLSelectElement)
+                  .value as SkillSyncMode;
                 updateSetting("librarySkillSyncDefault", next);
               }}
               aria-label="Default skill sync mode"
@@ -755,73 +932,179 @@
         <div class="rounded border border-border-subtle bg-bg-surface/30 p-3">
           <div class="mb-3 flex items-center justify-between gap-3">
             <div>
-              <div class="text-sm font-semibold text-text-primary">Library Sources</div>
-              <div class="mt-1 text-xs text-text-secondary">Ordered layers. Later sources override earlier sources.</div>
+              <div class="text-sm font-semibold text-text-primary">
+                Library Sources
+              </div>
+              <div class="mt-1 text-xs text-text-secondary">
+                Ordered layers. Later sources override earlier sources.
+              </div>
             </div>
-            <span class="rounded bg-bg-active px-2 py-0.5 font-mono text-[10px] font-semibold text-text-muted">{sources.length}</span>
+            <span
+              class="rounded bg-bg-active px-2 py-0.5 font-mono text-[10px] font-semibold text-text-muted"
+              >{sources.length}</span
+            >
           </div>
 
           {#if sources.length === 0}
-            <p class="mb-3 rounded border border-border-subtle bg-bg-deep/50 p-3 text-sm text-text-muted">No library sources</p>
+            <p
+              class="mb-3 rounded border border-border-subtle bg-bg-deep/50 p-3 text-sm text-text-muted"
+            >
+              No library sources
+            </p>
           {:else}
             <ul class="mb-3 flex flex-col gap-2">
               {#each sources as source, index (source.id)}
-                <li class="rounded border border-border-subtle bg-bg-deep/50 p-2">
+                <li
+                  class="rounded border border-border-subtle bg-bg-deep/50 p-2"
+                >
                   <div class="flex flex-wrap items-center gap-2">
-                  <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-bg-active font-mono text-[10px] font-semibold text-text-muted">{index + 1}</span>
-                  <span class="min-w-0 flex-1">
-                    <span class="block truncate text-[11px] font-semibold text-text-primary">{source.name || source.path || source.url}</span>
-                    <span class="mt-0.5 block truncate font-mono text-[9px] text-text-muted">{sourceSubtitle(source)}</span>
-                  </span>
-                  {#if source.kind === "gitRepo"}
-                    {@const status = sourceStatus(source)}
-                    <span class="flex shrink-0 items-center gap-1 text-text-muted">
-                      {#if busySourceId === source.id}
-                        <RefreshCw size={14} class="animate-spin" aria-label="Syncing source" />
-                      {:else if status?.error}
-                        <CloudOff size={14} class="text-red" aria-label="Git source error" title={status.error} />
-                      {:else if !status?.checkedOut}
-                        <GitBranch size={14} class="text-text-muted" aria-label="Not cloned" title="Not cloned" />
-                      {:else}
-                        {#if status.dirty}
-                          <FilePenLine size={14} class="text-yellow" aria-label="Dirty checkout" title="Uncommitted local changes" />
-                        {/if}
-                        {#if status.remoteState === "upToDate"}
-                          <Check size={14} class="text-green" aria-label="Up to date" title={gitStatusTitle(status)} />
-                        {:else if status.remoteState === "behind"}
-                          <ArrowDown size={14} class="text-blue" aria-label="Behind remote" title={gitStatusTitle(status)} />
-                        {:else if status.remoteState === "ahead"}
-                          <ArrowUp size={14} class="text-blue" aria-label="Ahead of remote" title={gitStatusTitle(status)} />
-                        {:else if status.remoteState === "diverged"}
-                          <GitCompareArrows size={14} class="text-red" aria-label="Diverged from remote" title={gitStatusTitle(status)} />
-                        {:else}
-                          <GitBranch size={14} aria-label="Unknown Git status" title={gitStatusTitle(status)} />
-                        {/if}
-                        {#if status.behindDefault}
-                          <span class="flex items-center gap-0.5 text-yellow" title={`${status.behindDefault} behind ${status.defaultBranch ?? "default branch"}`}>
-                            <History size={14} aria-label="Behind default branch" />
-                            <span class="font-mono text-[9px]">{status.behindDefault}</span>
-                          </span>
-                        {/if}
-                      {/if}
+                    <span
+                      class="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-bg-active font-mono text-[10px] font-semibold text-text-muted"
+                      >{index + 1}</span
+                    >
+                    <span class="min-w-0 flex-1">
+                      <span
+                        class="block truncate text-[11px] font-semibold text-text-primary"
+                        >{source.name || source.path || source.url}</span
+                      >
+                      <span
+                        class="mt-0.5 block truncate font-mono text-[9px] text-text-muted"
+                        >{sourceSubtitle(source)}</span
+                      >
                     </span>
-                  {/if}
-                  <span class="shrink-0 rounded bg-bg-active px-1.5 py-0.5 font-mono text-[10px] text-text-muted">
-                    {itemCountForLayer(source.kind, source.id)}
-                  </span>
+                    {#if source.kind === "gitRepo"}
+                      {@const status = sourceStatus(source)}
+                      <span
+                        class="flex shrink-0 items-center gap-1 text-text-muted"
+                      >
+                        {#if busySourceId === source.id}
+                          <RefreshCw
+                            size={14}
+                            class="animate-spin"
+                            aria-label="Syncing source"
+                          />
+                        {:else if status?.error}
+                          <CloudOff
+                            size={14}
+                            class="text-red"
+                            aria-label="Git source error"
+                            title={status.error}
+                          />
+                        {:else if !status?.checkedOut}
+                          <GitBranch
+                            size={14}
+                            class="text-text-muted"
+                            aria-label="Not cloned"
+                            title="Not cloned"
+                          />
+                        {:else}
+                          {#if status.dirty}
+                            <FilePenLine
+                              size={14}
+                              class="text-yellow"
+                              aria-label="Dirty checkout"
+                              title="Uncommitted local changes"
+                            />
+                          {/if}
+                          {#if status.remoteState === "upToDate"}
+                            <Check
+                              size={14}
+                              class="text-green"
+                              aria-label="Up to date"
+                              title={gitStatusTitle(status)}
+                            />
+                          {:else if status.remoteState === "behind"}
+                            <ArrowDown
+                              size={14}
+                              class="text-blue"
+                              aria-label="Behind remote"
+                              title={gitStatusTitle(status)}
+                            />
+                          {:else if status.remoteState === "ahead"}
+                            <ArrowUp
+                              size={14}
+                              class="text-blue"
+                              aria-label="Ahead of remote"
+                              title={gitStatusTitle(status)}
+                            />
+                          {:else if status.remoteState === "diverged"}
+                            <GitCompareArrows
+                              size={14}
+                              class="text-red"
+                              aria-label="Diverged from remote"
+                              title={gitStatusTitle(status)}
+                            />
+                          {:else}
+                            <GitBranch
+                              size={14}
+                              aria-label="Unknown Git status"
+                              title={gitStatusTitle(status)}
+                            />
+                          {/if}
+                          {#if status.behindDefault}
+                            <span
+                              class="flex items-center gap-0.5 text-yellow"
+                              title={`${status.behindDefault} behind ${status.defaultBranch ?? "default branch"}`}
+                            >
+                              <History
+                                size={14}
+                                aria-label="Behind default branch"
+                              />
+                              <span class="font-mono text-[9px]"
+                                >{status.behindDefault}</span
+                              >
+                            </span>
+                          {/if}
+                        {/if}
+                      </span>
+                    {/if}
+                    <span
+                      class="shrink-0 rounded bg-bg-active px-1.5 py-0.5 font-mono text-[10px] text-text-muted"
+                    >
+                      {itemCountForLayer(source.kind, source.id)}
+                    </span>
                   </div>
                   <div class="mt-2 flex flex-wrap items-center gap-1 pl-7">
                     {#if source.kind === "gitRepo"}
                       {#if sourceStatus(source)?.checkedOut}
-                        <button type="button" class="rounded border border-border-subtle bg-bg-elevated px-2 py-0.5 text-[10px] text-text-secondary hover:text-text-primary disabled:opacity-30" disabled={busySourceId === source.id} onclick={() => syncSource(source)}>Sync</button>
+                        <button
+                          type="button"
+                          class="rounded border border-border-subtle bg-bg-elevated px-2 py-0.5 text-[10px] text-text-secondary hover:text-text-primary disabled:opacity-30"
+                          disabled={busySourceId === source.id}
+                          onclick={() => syncSource(source)}>Sync</button
+                        >
                       {:else}
-                        <button type="button" class="rounded border border-border-subtle bg-bg-elevated px-2 py-0.5 text-[10px] text-text-secondary hover:text-text-primary disabled:opacity-30" disabled={busySourceId === source.id} onclick={() => cloneSource(source)}>Clone</button>
+                        <button
+                          type="button"
+                          class="rounded border border-border-subtle bg-bg-elevated px-2 py-0.5 text-[10px] text-text-secondary hover:text-text-primary disabled:opacity-30"
+                          disabled={busySourceId === source.id}
+                          onclick={() => cloneSource(source)}>Clone</button
+                        >
                       {/if}
                     {/if}
-                    <button type="button" class="rounded border border-border-subtle bg-bg-elevated px-2 py-0.5 text-[10px] text-text-secondary hover:text-text-primary" onclick={() => toggleSource(source)}>{source.enabled ? "Disable" : "Enable"}</button>
-                    <button type="button" class="rounded border border-border-subtle bg-bg-elevated px-2 py-0.5 text-[10px] text-text-secondary hover:text-text-primary disabled:opacity-30" disabled={index === 0} onclick={() => moveSource(index, -1)}>Up</button>
-                    <button type="button" class="rounded border border-border-subtle bg-bg-elevated px-2 py-0.5 text-[10px] text-text-secondary hover:text-text-primary disabled:opacity-30" disabled={index === sources.length - 1} onclick={() => moveSource(index, 1)}>Down</button>
-                    <button type="button" class="rounded border border-border-subtle bg-bg-elevated px-2 py-0.5 text-[10px] text-text-secondary hover:border-red/50 hover:text-red" onclick={() => removeSource(source.id)}>Remove</button>
+                    <button
+                      type="button"
+                      class="rounded border border-border-subtle bg-bg-elevated px-2 py-0.5 text-[10px] text-text-secondary hover:text-text-primary"
+                      onclick={() => toggleSource(source)}
+                      >{source.enabled ? "Disable" : "Enable"}</button
+                    >
+                    <button
+                      type="button"
+                      class="rounded border border-border-subtle bg-bg-elevated px-2 py-0.5 text-[10px] text-text-secondary hover:text-text-primary disabled:opacity-30"
+                      disabled={index === 0}
+                      onclick={() => moveSource(index, -1)}>Up</button
+                    >
+                    <button
+                      type="button"
+                      class="rounded border border-border-subtle bg-bg-elevated px-2 py-0.5 text-[10px] text-text-secondary hover:text-text-primary disabled:opacity-30"
+                      disabled={index === sources.length - 1}
+                      onclick={() => moveSource(index, 1)}>Down</button
+                    >
+                    <button
+                      type="button"
+                      class="rounded border border-border-subtle bg-bg-elevated px-2 py-0.5 text-[10px] text-text-secondary hover:border-red/50 hover:text-red"
+                      onclick={() => removeSource(source.id)}>Remove</button
+                    >
                   </div>
                 </li>
               {/each}
@@ -834,11 +1117,21 @@
               placeholder="/path/to/repo"
               bind:value={repoDraft}
             />
-            <button type="button" class="rounded border border-border-subtle bg-bg-elevated px-2 text-[10px] text-text-secondary hover:text-text-primary" onclick={browsePinnedRepo}>Browse</button>
-            <button type="button" class="rounded border border-border-subtle bg-bg-elevated px-2 text-[10px] text-text-secondary hover:text-text-primary" onclick={() => addPinnedRepo(repoDraft)}>Add Local</button>
+            <button
+              type="button"
+              class="rounded border border-border-subtle bg-bg-elevated px-2 text-[10px] text-text-secondary hover:text-text-primary"
+              onclick={browsePinnedRepo}>Browse</button
+            >
+            <button
+              type="button"
+              class="rounded border border-border-subtle bg-bg-elevated px-2 text-[10px] text-text-secondary hover:text-text-primary"
+              onclick={() => addPinnedRepo(repoDraft)}>Add Local</button
+            >
           </div>
 
-          <div class="grid grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)] gap-1 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)_72px_auto]">
+          <div
+            class="grid grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)] gap-1 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)_72px_auto]"
+          >
             <input
               class="min-w-0 rounded border border-border bg-bg-deep px-2 py-1.5 text-xs text-text-primary outline-none focus:border-accent-dim"
               placeholder="Name"
@@ -854,7 +1147,11 @@
               placeholder="main"
               bind:value={gitBranchDraft}
             />
-            <button type="button" class="rounded border border-border-subtle bg-bg-elevated px-2 text-[10px] text-text-secondary hover:text-text-primary" onclick={addGitSource}>Add Git</button>
+            <button
+              type="button"
+              class="rounded border border-border-subtle bg-bg-elevated px-2 text-[10px] text-text-secondary hover:text-text-primary"
+              onclick={addGitSource}>Add Git</button
+            >
           </div>
         </div>
       </div>

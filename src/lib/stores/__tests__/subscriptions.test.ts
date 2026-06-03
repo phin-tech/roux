@@ -14,7 +14,11 @@ import {
 } from "$lib/stores/subscriptions";
 import type { BusSubscription } from "$lib/tauri";
 
-function fixture(id: string, alias = "auditor", pattern = "*"): BusSubscription {
+function fixture(
+  id: string,
+  alias = "auditor",
+  pattern = "*",
+): BusSubscription {
   return {
     id,
     alias,
@@ -37,7 +41,10 @@ describe("subscriptions store", () => {
   });
 
   it("created event for an existing id replaces in place (idempotent reload)", () => {
-    applySubscriptionEvent({ kind: "created", subscription: fixture("a", "x") });
+    applySubscriptionEvent({
+      kind: "created",
+      subscription: fixture("a", "x"),
+    });
     applySubscriptionEvent({
       kind: "created",
       subscription: { ...fixture("a", "y"), pattern: "**" },

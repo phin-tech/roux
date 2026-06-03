@@ -52,7 +52,9 @@ pub enum RegistryMessage {
     /// FSM whose identity records this session id — its notifications
     /// get auto-dismissed without the hook needing to fire any more
     /// status files (which it won't, because the agent is gone).
-    SessionEnded { session_id: String },
+    SessionEnded {
+        session_id: String,
+    },
 }
 
 /// Effect-dispatch boundary. Trait-object so production and test code
@@ -197,21 +199,14 @@ mod tests {
     }
 
     fn pane_identity(pane: &str) -> AgentIdentity {
-        AgentIdentity {
-            pane_id: Some(pane.into()),
-            session_id: None,
-            cwd: None,
-        }
+        AgentIdentity { pane_id: Some(pane.into()), session_id: None, cwd: None }
     }
 
     fn input(identity: AgentIdentity, event: AgentEvent, cwd: &str) -> AgentInput {
         AgentInput {
             identity,
             event,
-            context: EventContext {
-                cwd: cwd.into(),
-                ..EventContext::default()
-            },
+            context: EventContext { cwd: cwd.into(), ..EventContext::default() },
         }
     }
 
@@ -441,8 +436,7 @@ mod tests {
             context: EventContext::default(),
         })))
         .unwrap();
-        tx.send(RegistryMessage::SessionEnded { session_id: "s-42".into() })
-            .unwrap();
+        tx.send(RegistryMessage::SessionEnded { session_id: "s-42".into() }).unwrap();
         drop(tx);
         handle.join().unwrap();
 

@@ -41,17 +41,14 @@ pub fn start_watching(
     status_dir: PathBuf,
     session_handle: SessionHandle,
 ) -> Result<(), StatusSourceError> {
-    fs::create_dir_all(&status_dir)
-        .map_err(StatusSourceError::CreateDir)?;
+    fs::create_dir_all(&status_dir).map_err(StatusSourceError::CreateDir)?;
 
     let rt = tokio::runtime::Handle::current();
 
     let (notify_tx, notify_rx) = mpsc::channel::<notify::Result<Event>>();
     let mut watcher = RecommendedWatcher::new(notify_tx, notify::Config::default())
         .map_err(StatusSourceError::CreateWatcher)?;
-    watcher
-        .watch(&status_dir, RecursiveMode::NonRecursive)
-        .map_err(StatusSourceError::WatchDir)?;
+    watcher.watch(&status_dir, RecursiveMode::NonRecursive).map_err(StatusSourceError::WatchDir)?;
 
     // Scan after watch() is active so concurrent writes are either seen here
     // or delivered through notify_rx — no gap between the scan and the watcher.

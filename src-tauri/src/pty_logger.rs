@@ -21,29 +21,16 @@ pub struct PtyLogger {
 
 impl PtyLogger {
     pub fn new(session_id: &str, pty_id: &str) -> Self {
-        let dir = roux_config_dir()
-            .join("sessions")
-            .join(session_id)
-            .join(pty_id);
+        let dir = roux_config_dir().join("sessions").join(session_id).join(pty_id);
 
         let path = dir.join("terminal.log");
 
         let file = fs::create_dir_all(&dir)
-            .and_then(|_| {
-                OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open(&path)
-            })
+            .and_then(|_| OpenOptions::new().create(true).append(true).open(&path))
             .map(BufWriter::new)
             .ok();
 
-        Self {
-            file,
-            ring: VecDeque::with_capacity(RING_BUFFER_MAX),
-            path,
-            seq: 0,
-        }
+        Self { file, ring: VecDeque::with_capacity(RING_BUFFER_MAX), path, seq: 0 }
     }
 
     /// Write bytes to both file and ring buffer

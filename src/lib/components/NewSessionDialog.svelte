@@ -17,7 +17,11 @@
   } from "$lib/tauri";
   import { addSession, removeSession } from "$lib/stores/sessions";
   import { layoutList, type LayoutSpec } from "$lib/panes/layouts";
-  import { applyLayoutToSession, resolveFirstLeafInfo, type LayoutApplyError } from "$lib/panes/layoutRunner";
+  import {
+    applyLayoutToSession,
+    resolveFirstLeafInfo,
+    type LayoutApplyError,
+  } from "$lib/panes/layoutRunner";
   import { initSessionWithProfile } from "$lib/panes/actions";
   import { defaultAgentProfileId } from "$lib/panes/defaultAgent";
   import { settings } from "$lib/stores/settings";
@@ -85,16 +89,22 @@
   let layoutPickOpen = $state(false);
   let profilePickInput = $state("");
   let profilePickOpen = $state(false);
-  const pickerShellClass = "relative min-w-0 rounded-md border border-border bg-bg-deep";
-  const pickerInputRowClass = "flex min-w-0 items-center gap-2 border-b border-border px-2 py-1.5";
+  const pickerShellClass =
+    "relative min-w-0 rounded-md border border-border bg-bg-deep";
+  const pickerInputRowClass =
+    "flex min-w-0 items-center gap-2 border-b border-border px-2 py-1.5";
   const pickerInputClass =
     "min-w-0 flex-1 bg-transparent px-1 py-1 font-mono text-[12px] text-text-primary outline-none placeholder:text-text-muted";
-  const pickerListClass = "app-scrollbar absolute left-0 right-0 z-50 overflow-y-auto border border-border bg-bg-surface p-1 shadow-lg";
+  const pickerListClass =
+    "app-scrollbar absolute left-0 right-0 z-50 overflow-y-auto border border-border bg-bg-surface p-1 shadow-lg";
   const pickerItemClass =
     "flex cursor-pointer items-center rounded-md border border-border-subtle bg-bg-surface/50 px-2.5 py-2 text-left transition-colors hover:bg-bg-hover";
 
   /** True when focus is moving to something outside `el` (or focus is lost with no next target). */
-  function focusLeavingElement(el: HTMLElement, related: EventTarget | null): boolean {
+  function focusLeavingElement(
+    el: HTMLElement,
+    related: EventTarget | null,
+  ): boolean {
     if (related == null) return true;
     if (!(related instanceof Node)) return true;
     return !el.contains(related);
@@ -172,7 +182,10 @@
       label: `${profile.name}${profile.source === "user" ? " (user)" : ""}`,
     }));
     if (!isWorkItemStart && inlineProfile) {
-      options.push({ value: "__inline__", label: `${inlineProfile.name} (custom)` });
+      options.push({
+        value: "__inline__",
+        label: `${inlineProfile.name} (custom)`,
+      });
     }
     if (!isWorkItemStart) {
       options.push({ value: "__custom__", label: "Custom…" });
@@ -200,8 +213,14 @@
       selectedWorktree = null;
       return;
     }
-    if (!selectedWorktree || !filteredWorktrees.some((wt) => wt.path === selectedWorktree?.path)) {
-      selectedWorktree = filteredWorktrees[Math.min(worktreeActiveIndex, filteredWorktrees.length - 1)] ?? null;
+    if (
+      !selectedWorktree ||
+      !filteredWorktrees.some((wt) => wt.path === selectedWorktree?.path)
+    ) {
+      selectedWorktree =
+        filteredWorktrees[
+          Math.min(worktreeActiveIndex, filteredWorktrees.length - 1)
+        ] ?? null;
     }
   });
 
@@ -269,7 +288,11 @@
     const justOpened = visible && !wasVisible;
     wasVisible = visible;
     if (visible) {
-      if (justOpened && selectedProfileId !== "__inline__" && selectedProfileId !== "__custom__") {
+      if (
+        justOpened &&
+        selectedProfileId !== "__inline__" &&
+        selectedProfileId !== "__custom__"
+      ) {
         selectedProfileId = defaultAgentProfileId();
       }
       if (workItemStart && seededWorkItemStartId !== workItemStart.itemId) {
@@ -277,7 +300,10 @@
         sessionName = workItemStart.title;
         selectedLayoutId = "";
         layoutPickOpen = false;
-        if (selectedProfileId === "__inline__" || selectedProfileId === "__custom__") {
+        if (
+          selectedProfileId === "__inline__" ||
+          selectedProfileId === "__custom__"
+        ) {
           selectedProfileId = defaultAgentProfileId();
           inlineProfile = null;
         }
@@ -334,7 +360,7 @@
       const resolution = resolveLocalRepoForPr(info);
       if (resolution.kind === "unique") {
         repoPath = resolution.path;
-          await detectGitRepo(resolution.path);
+        await detectGitRepo(resolution.path);
         if (seq !== prLookupSeq) return;
         await runFetchPrBranch(info, resolution.path, seq);
       } else if (resolution.kind === "ambiguous") {
@@ -352,7 +378,12 @@
 
   async function runFetchPrBranch(info: PrInfo, path: string, seq: number) {
     try {
-      const branch = await fetchPrBranch(path, info.number, info.headRef, info.isCrossRepository);
+      const branch = await fetchPrBranch(
+        path,
+        info.number,
+        info.headRef,
+        info.isCrossRepository,
+      );
       if (seq !== prLookupSeq) return;
       prResolvedBranch = branch;
       prLookup = "ok";
@@ -366,7 +397,10 @@
 
   function resolveLocalRepoForPr(
     info: PrInfo,
-  ): { kind: "unique"; path: string } | { kind: "ambiguous" } | { kind: "none" } {
+  ):
+    | { kind: "unique"; path: string }
+    | { kind: "ambiguous" }
+    | { kind: "none" } {
     const target = info.headRef; // unused here; reference keeps TS happy
     void target;
     const needle = repoNameFromPrInfo(info).toLowerCase();
@@ -387,10 +421,14 @@
     return parsed?.repo ?? "";
   }
 
-  function parsePastedPrUrl(input: string): { owner: string; repo: string; number: number } | null {
+  function parsePastedPrUrl(
+    input: string,
+  ): { owner: string; repo: string; number: number } | null {
     const t = input.trim();
     // full URL
-    const m = t.match(/^https?:\/\/(?:www\.)?github\.com\/([^\/]+)\/([^\/]+)\/pull\/(\d+)/);
+    const m = t.match(
+      /^https?:\/\/(?:www\.)?github\.com\/([^\/]+)\/([^\/]+)\/pull\/(\d+)/,
+    );
     if (m) return { owner: m[1], repo: m[2], number: Number(m[3]) };
     // shortform
     const s = t.match(/^([^\/\s]+)\/([^#\s]+)#(\d+)$/);
@@ -423,7 +461,9 @@
       await cloneRepo(parsed.owner, parsed.repo, target);
       if (seq !== prLookupSeq) return;
       repoPath = target;
-      rootRepoPaths = rootRepoPaths.includes(target) ? rootRepoPaths : [...rootRepoPaths, target];
+      rootRepoPaths = rootRepoPaths.includes(target)
+        ? rootRepoPaths
+        : [...rootRepoPaths, target];
       await detectGitRepo(target);
       if (seq !== prLookupSeq) return;
       await runFetchPrBranch(prInfo, target, seq);
@@ -435,7 +475,10 @@
   }
 
   async function pickCloneTarget() {
-    const selected = await open({ directory: true, title: "Select Parent Directory" });
+    const selected = await open({
+      directory: true,
+      title: "Select Parent Directory",
+    });
     if (!selected || !prInfo) return;
     const parsed = parsePastedPrUrl(prUrl);
     const repoName = parsed?.repo ?? prInfo.headRef;
@@ -489,7 +532,9 @@
 
   async function autofocusOnOpen() {
     await tick();
-    const quickPickEl = document.getElementById("new-session-repo-picker") as HTMLInputElement | null;
+    const quickPickEl = document.getElementById(
+      "new-session-repo-picker",
+    ) as HTMLInputElement | null;
     if (quickPickEl) {
       quickPickEl.focus();
       quickPickEl.select();
@@ -523,7 +568,8 @@
       worktrees = await listWorktrees(repoPath);
       worktreePickOpen = true;
       worktreeActiveIndex = 0;
-      selectedWorktree = worktrees.find((w) => w.isMain) ?? worktrees[0] ?? null;
+      selectedWorktree =
+        worktrees.find((w) => w.isMain) ?? worktrees[0] ?? null;
     } catch {
       worktrees = [];
     }
@@ -536,7 +582,11 @@
     try {
       worktrunkDetection = await commands.cmdDetectWorktrunk(repoPath || null);
     } catch {
-      worktrunkDetection = { binaryPath: null, version: null, hasConfig: false };
+      worktrunkDetection = {
+        binaryPath: null,
+        version: null,
+        hasConfig: false,
+      };
     }
   }
 
@@ -554,7 +604,9 @@
   }
 
   function focusDirectoryInput() {
-    const inputEl = document.getElementById("new-session-repo-picker") as HTMLInputElement | null;
+    const inputEl = document.getElementById(
+      "new-session-repo-picker",
+    ) as HTMLInputElement | null;
     inputEl?.focus();
     inputEl?.select();
   }
@@ -614,7 +666,10 @@
 
   function moveWorktreeActive(delta: number) {
     if (filteredWorktrees.length === 0) return;
-    const next = Math.max(0, Math.min(filteredWorktrees.length - 1, worktreeActiveIndex + delta));
+    const next = Math.max(
+      0,
+      Math.min(filteredWorktrees.length - 1, worktreeActiveIndex + delta),
+    );
     worktreeActiveIndex = next;
     selectedWorktree = filteredWorktrees[next] ?? null;
   }
@@ -636,7 +691,11 @@
       worktrees.find((wt) => wt.path === query || wt.branch === query) ??
       (query.length === 0 ? selectedWorktree : null);
     if (exact) {
-      return { worktreePathArg: exact.path, branchArg: null, label: exact.branch };
+      return {
+        worktreePathArg: exact.path,
+        branchArg: null,
+        label: exact.branch,
+      };
     }
     if (!query) {
       return { worktreePathArg: null, branchArg: null, label: "main" };
@@ -684,7 +743,7 @@
         sessionName ||
         (isGitRepo
           ? `${repoPath.split("/").pop() ?? "session"}-${gitTarget?.label ?? "main"}`
-          : repoPath.split("/").pop() ?? "session");
+          : (repoPath.split("/").pop() ?? "session"));
 
       const worktreePathArg = gitTarget?.worktreePathArg ?? null;
       const branchArg = gitTarget?.branchArg ?? null;
@@ -720,15 +779,24 @@
         log(`Session created via layout: ${session.id}`);
         addSession(session);
 
-        const layoutResult = await applyLayoutToSession(session, selectedLayout);
+        const layoutResult = await applyLayoutToSession(
+          session,
+          selectedLayout,
+        );
         if (!layoutResult.ok) {
-          try { await killSession(session.id); } catch { /* best-effort */ }
+          try {
+            await killSession(session.id);
+          } catch {
+            /* best-effort */
+          }
           removeSession(session.id);
           error = renderLayoutError(layoutResult.error);
           return;
         }
         if (layoutResult.warnings.length > 0) {
-          log(`Layout applied with ${layoutResult.warnings.length} warning(s): ${layoutResult.warnings.join("; ")}`);
+          log(
+            `Layout applied with ${layoutResult.warnings.length} warning(s): ${layoutResult.warnings.join("; ")}`,
+          );
         }
         resetAndClose();
         return;
@@ -817,7 +885,8 @@
   }
 
   function handleProfileSelect(value: string) {
-    if (isWorkItemStart && (value === "__custom__" || value === "__inline__")) return;
+    if (isWorkItemStart && (value === "__custom__" || value === "__inline__"))
+      return;
     if (value === "__custom__") {
       showCustomEditor = true;
       return;
@@ -871,7 +940,9 @@
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     class="fixed inset-0 z-50 flex items-center justify-center bg-black/65 backdrop-blur-md"
-    onclick={(e) => { if (e.target === e.currentTarget) resetAndClose(); }}
+    onclick={(e) => {
+      if (e.target === e.currentTarget) resetAndClose();
+    }}
     transition:fade={{ duration: 150 }}
   >
     <div
@@ -880,7 +951,9 @@
     >
       <!-- Header -->
       <div class="border-b border-hairline bg-bg-surface/30 px-6 pt-5 pb-4">
-        <h2 class="mb-1 text-base font-semibold tracking-tight text-text-primary">
+        <h2
+          class="mb-1 text-base font-semibold tracking-tight text-text-primary"
+        >
           {isWorkItemStart ? "Start Task" : "New Session"}
         </h2>
         <p class="text-xs text-text-muted">
@@ -898,7 +971,9 @@
               for="new-session-pr-url"
               class="text-[11px] font-semibold uppercase tracking-wider text-text-muted"
             >
-              PR URL <span class="font-normal normal-case text-text-muted">(optional)</span>
+              PR URL <span class="font-normal normal-case text-text-muted"
+                >(optional)</span
+              >
             </label>
             <input
               id="new-session-pr-url"
@@ -915,19 +990,30 @@
                 <span class="text-accent">PR #{prInfo.number}</span>
                 <span class="text-text-secondary">"{prInfo.title}"</span>
                 {#if prInfo.isCrossRepository}
-                  <span class="ml-1 text-[10px] text-orange">(fork: {prInfo.headOwner}:{prInfo.headRef} → {prResolvedBranch})</span>
+                  <span class="ml-1 text-[10px] text-orange"
+                    >(fork: {prInfo.headOwner}:{prInfo.headRef} → {prResolvedBranch})</span
+                  >
                 {:else}
-                  <span class="ml-1 text-[10px] text-text-muted">(same-repo: {prResolvedBranch})</span>
+                  <span class="ml-1 text-[10px] text-text-muted"
+                    >(same-repo: {prResolvedBranch})</span
+                  >
                 {/if}
               </p>
             {:else if prLookup === "ambiguous" && prInfo}
               <p class="text-[11px] text-text-muted">
-                Multiple local clones of <span class="text-accent">{repoNameFromPrInfo(prInfo)}</span> found. Pick one in Repository below.
+                Multiple local clones of <span class="text-accent"
+                  >{repoNameFromPrInfo(prInfo)}</span
+                > found. Pick one in Repository below.
               </p>
             {:else if prLookup === "needsClone" && prInfo}
-              <div class="flex flex-col gap-1.5 rounded-md border border-border-subtle bg-bg-deep/60 px-2.5 py-2">
+              <div
+                class="flex flex-col gap-1.5 rounded-md border border-border-subtle bg-bg-deep/60 px-2.5 py-2"
+              >
                 <p class="text-[11px] text-text-muted">
-                  No local clone of <span class="text-accent">{parsePastedPrUrl(prUrl)?.owner}/{parsePastedPrUrl(prUrl)?.repo}</span>.
+                  No local clone of <span class="text-accent"
+                    >{parsePastedPrUrl(prUrl)?.owner}/{parsePastedPrUrl(prUrl)
+                      ?.repo}</span
+                  >.
                 </p>
                 <div class="flex items-center gap-1.5">
                   <input
@@ -952,7 +1038,11 @@
                 </div>
               </div>
             {:else if prLookup === "cloning"}
-              <p class="text-[11px] text-text-muted">Cloning {parsePastedPrUrl(prUrl)?.owner}/{parsePastedPrUrl(prUrl)?.repo}…</p>
+              <p class="text-[11px] text-text-muted">
+                Cloning {parsePastedPrUrl(prUrl)?.owner}/{parsePastedPrUrl(
+                  prUrl,
+                )?.repo}…
+              </p>
             {:else if prLookup === "error"}
               <p class="text-[11px] text-red">{prError}</p>
             {/if}
@@ -973,8 +1063,12 @@
 
         <!-- Non-git directory notice -->
         {#if repoPath && !isGitRepo}
-          <div class="flex items-center gap-2 rounded-md border border-border-subtle bg-bg-deep/60 px-3 py-2">
-            <span class="text-xs text-text-muted flex-1">Not a git repository</span>
+          <div
+            class="flex items-center gap-2 rounded-md border border-border-subtle bg-bg-deep/60 px-3 py-2"
+          >
+            <span class="text-xs text-text-muted flex-1"
+              >Not a git repository</span
+            >
             <button
               class="cursor-pointer rounded-md border border-accent-dim/20 bg-accent-dim/15 px-3 py-1.5 text-[11px] font-medium text-accent hover:bg-accent-dim/24"
               onclick={async () => {
@@ -993,7 +1087,9 @@
 
         {#if isGitRepo}
           <fieldset class="flex flex-col gap-1.5">
-            <legend class="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-text-muted">
+            <legend
+              class="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-text-muted"
+            >
               <span>Worktree / Branch</span>
               {#if effectiveProvider === "worktrunk"}
                 <span
@@ -1006,7 +1102,10 @@
                 >
               {/if}
             </legend>
-            <p class="text-[11px] text-text-muted">Pick an existing worktree, or type a new branch name to create one.</p>
+            <p class="text-[11px] text-text-muted">
+              Pick an existing worktree, or type a new branch name to create
+              one.
+            </p>
             <div
               class={pickerShellClass}
               onfocusin={cancelWorktreePickerDeferredClose}
@@ -1022,8 +1121,13 @@
                   bind:value={worktreeFilterInput}
                   placeholder="e.g. feat/my-branch"
                   class={pickerInputClass}
-                  onfocus={() => { worktreePickOpen = true; }}
-                  oninput={() => { worktreePickOpen = true; userEditedBranch = true; }}
+                  onfocus={() => {
+                    worktreePickOpen = true;
+                  }}
+                  oninput={() => {
+                    worktreePickOpen = true;
+                    userEditedBranch = true;
+                  }}
                   onkeydown={(e) => {
                     if (e.key === "ArrowDown") {
                       e.preventDefault();
@@ -1046,9 +1150,13 @@
               {#if worktreePickOpen}
                 <div class={`${pickerListClass} max-h-30`}>
                   {#if worktrees.length === 0}
-                    <p class="px-3 py-2 text-[11px] text-text-muted">No worktrees found.</p>
+                    <p class="px-3 py-2 text-[11px] text-text-muted">
+                      No worktrees found.
+                    </p>
                   {:else if filteredWorktrees.length === 0}
-                    <p class="px-3 py-2 text-[11px] text-text-muted">No matching worktrees.</p>
+                    <p class="px-3 py-2 text-[11px] text-text-muted">
+                      No matching worktrees.
+                    </p>
                   {:else}
                     {#each filteredWorktrees as wt, idx (wt.path)}
                       <button
@@ -1077,7 +1185,10 @@
                 for="new-session-start-point"
                 class="text-[10px] font-semibold uppercase tracking-wider text-text-muted"
               >
-                Start from <span class="font-normal normal-case text-text-muted/70">(optional)</span>
+                Start from <span
+                  class="font-normal normal-case text-text-muted/70"
+                  >(optional)</span
+                >
               </label>
               <input
                 id="new-session-start-point"
@@ -1086,7 +1197,8 @@
                 class={pickerInputClass}
               />
               <p class="text-[10px] text-text-muted/80">
-                Only used when creating a new branch. <code>origin/</code> refs trigger a fetch first.
+                Only used when creating a new branch. <code>origin/</code> refs trigger
+                a fetch first.
               </p>
             </div>
           </fieldset>
@@ -1115,16 +1227,26 @@
                   id="new-session-layout"
                   type="button"
                   class="flex w-full items-center justify-between bg-transparent px-1 py-1 text-left text-[12px] text-text-primary outline-none"
-                  onclick={() => { layoutPickOpen = !layoutPickOpen; }}
+                  onclick={() => {
+                    layoutPickOpen = !layoutPickOpen;
+                  }}
                   aria-expanded={layoutPickOpen}
                   aria-haspopup="listbox"
                 >
-                  <span class="truncate">{selectedLayout?.name ?? "None (single pane)"}</span>
-                  <span class="ml-2 text-[10px] text-text-muted">{layoutPickOpen ? "▲" : "▼"}</span>
+                  <span class="truncate"
+                    >{selectedLayout?.name ?? "None (single pane)"}</span
+                  >
+                  <span class="ml-2 text-[10px] text-text-muted"
+                    >{layoutPickOpen ? "▲" : "▼"}</span
+                  >
                 </button>
               </div>
               {#if layoutPickOpen}
-                <div class={`${pickerListClass} max-h-32`} role="listbox" aria-labelledby="new-session-layout">
+                <div
+                  class={`${pickerListClass} max-h-32`}
+                  role="listbox"
+                  aria-labelledby="new-session-layout"
+                >
                   {#each layoutOptions as option (option.value)}
                     <button
                       type="button"
@@ -1133,9 +1255,13 @@
                       class={`${pickerItemClass} w-full justify-between py-1.5 ${selectedLayoutId === option.value ? "bg-bg-active" : ""}`}
                       onclick={() => selectLayoutOption(option.value)}
                     >
-                      <span class="truncate text-[12px] text-text-primary">{option.label}</span>
+                      <span class="truncate text-[12px] text-text-primary"
+                        >{option.label}</span
+                      >
                       {#if selectedLayoutId === option.value}
-                        <span class="ml-2 text-[10px] text-accent">selected</span>
+                        <span class="ml-2 text-[10px] text-accent"
+                          >selected</span
+                        >
                       {/if}
                     </button>
                   {/each}
@@ -1143,7 +1269,9 @@
               {/if}
             </div>
             {#if selectedLayout?.description}
-              <p class="text-[11px] text-text-muted">{selectedLayout.description}</p>
+              <p class="text-[11px] text-text-muted">
+                {selectedLayout.description}
+              </p>
             {/if}
           </div>
         {/if}
@@ -1177,10 +1305,15 @@
                       openProfilePicker(true);
                       (e.currentTarget as HTMLInputElement).select();
                     }}
-                    oninput={() => { profilePickOpen = true; }}
+                    oninput={() => {
+                      profilePickOpen = true;
+                    }}
                     onkeydown={(e) => {
                       if (e.key !== "Enter") return;
-                      const match = findOptionMatch(profilePickInput, profileOptions);
+                      const match = findOptionMatch(
+                        profilePickInput,
+                        profileOptions,
+                      );
                       if (!match) return;
                       e.preventDefault();
                       selectProfileOption(match.value, match.label);
@@ -1192,12 +1325,16 @@
                     onclick={() => openProfilePicker(true)}
                     aria-label="Open spawn profile options"
                   >
-                    <span class="text-[10px] text-text-muted">{profilePickOpen ? "▲" : "▼"}</span>
+                    <span class="text-[10px] text-text-muted"
+                      >{profilePickOpen ? "▲" : "▼"}</span
+                    >
                   </button>
                 </div>
                 {#if profilePickOpen}
                   <Command.List class={profileListClass}>
-                    <Command.Empty class="px-3 py-2 text-[11px] text-text-muted">
+                    <Command.Empty
+                      class="px-3 py-2 text-[11px] text-text-muted"
+                    >
                       No matching profiles
                     </Command.Empty>
                     <Command.Group>
@@ -1206,12 +1343,17 @@
                           <Command.Item
                             value={option.label}
                             keywords={[option.value]}
-                            onSelect={() => selectProfileOption(option.value, option.label)}
+                            onSelect={() =>
+                              selectProfileOption(option.value, option.label)}
                             class={`${pickerItemClass} justify-between py-1.5 data-[selected]:bg-bg-active`}
                           >
-                            <span class="truncate text-[12px] text-text-primary">{option.label}</span>
+                            <span class="truncate text-[12px] text-text-primary"
+                              >{option.label}</span
+                            >
                             {#if selectedProfileId === option.value}
-                              <span class="ml-2 text-[10px] text-accent">selected</span>
+                              <span class="ml-2 text-[10px] text-accent"
+                                >selected</span
+                              >
                             {/if}
                           </Command.Item>
                         {/each}
@@ -1227,7 +1369,6 @@
               </p>
             {/if}
           </div>
-
         {/if}
 
         <!-- Session name -->
@@ -1236,14 +1377,18 @@
             for="new-session-name"
             class="text-[11px] font-semibold uppercase tracking-wider text-text-muted"
           >
-            Session name <span class="font-normal normal-case tracking-normal">(optional)</span>
+            Session name <span class="font-normal normal-case tracking-normal"
+              >(optional)</span
+            >
           </label>
           <input
             id="new-session-name"
             class="rounded-md border border-border-subtle bg-bg-deep px-3 py-2 text-[13px] text-text-primary outline-none focus:border-accent-dim"
             bind:value={sessionName}
             placeholder="roux-my-feature"
-            oninput={() => { userEditedName = true; }}
+            oninput={() => {
+              userEditedName = true;
+            }}
           />
         </div>
 
@@ -1255,7 +1400,9 @@
       <!-- Footer -->
       <div class="flex justify-end gap-2 border-t border-hairline px-6 py-4">
         <div class="mr-auto self-center text-[11px] text-text-muted">
-          Esc to close • Cmd/Ctrl+Enter to {isWorkItemStart ? "start" : "create"}
+          Esc to close • Cmd/Ctrl+Enter to {isWorkItemStart
+            ? "start"
+            : "create"}
         </div>
         <button
           class="cursor-pointer rounded-xl border border-border-subtle bg-bg-surface px-5 py-2 text-[13px] font-medium text-text-secondary hover:bg-bg-hover hover:text-text-primary"
@@ -1269,8 +1416,12 @@
           disabled={creating}
         >
           {creating
-            ? (isWorkItemStart ? "Starting..." : "Creating...")
-            : (isWorkItemStart ? "Start Task" : "Create Session")}
+            ? isWorkItemStart
+              ? "Starting..."
+              : "Creating..."
+            : isWorkItemStart
+              ? "Start Task"
+              : "Create Session"}
         </button>
       </div>
     </div>

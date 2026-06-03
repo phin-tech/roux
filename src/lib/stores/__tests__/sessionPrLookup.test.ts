@@ -86,7 +86,9 @@ describe("sessionPrLookup", () => {
   });
 
   it("returns null without calling backend for non-git or empty branch", async () => {
-    expect(await lookupPrForSession({ ...session, isGitRepo: false })).toBeNull();
+    expect(
+      await lookupPrForSession({ ...session, isGitRepo: false }),
+    ).toBeNull();
     expect(await lookupPrForSession({ ...session, branch: "" })).toBeNull();
     expect(await lookupPrForSession({ ...session, repoRoot: "" })).toBeNull();
     expect(lookupCalls).toEqual([]);
@@ -156,12 +158,16 @@ describe("sessionPrLookup", () => {
   });
 
   it("getPrLookupSnapshot reflects cached value", async () => {
-    expect(getPrLookupSnapshot(session.repoRoot, session.branch)).toBeUndefined();
+    expect(
+      getPrLookupSnapshot(session.repoRoot, session.branch),
+    ).toBeUndefined();
 
     nextLookupResult = makePr();
     await lookupPrForSession(session);
 
-    expect(getPrLookupSnapshot(session.repoRoot, session.branch)).toEqual(makePr());
+    expect(getPrLookupSnapshot(session.repoRoot, session.branch)).toEqual(
+      makePr(),
+    );
   });
 
   it("prLookupFor derived store yields undefined → PrInfo as the lookup runs", async () => {
@@ -185,7 +191,7 @@ describe("sessionPrLookup", () => {
           branch: session.branch,
           isGitRepo: true,
           // Other Session fields not exercised by the effect.
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
         } as any,
       ],
       activeSessionId: "s1",
@@ -262,7 +268,10 @@ describe("sessionPrLookup", () => {
   });
 
   it("pinnedPrUrl uses lookupPr and skips branch-based lookup", async () => {
-    nextLookupResult = makePr({ number: 7, url: "https://github.com/o/r/pull/7" });
+    nextLookupResult = makePr({
+      number: 7,
+      url: "https://github.com/o/r/pull/7",
+    });
     const pinnedSession = {
       ...session,
       pinnedPrUrl: "https://github.com/o/r/pull/7",
@@ -270,7 +279,9 @@ describe("sessionPrLookup", () => {
 
     const result = await lookupPrForSession(pinnedSession);
     expect(result?.number).toBe(7);
-    expect(pinnedLookupCalls).toEqual([["/tmp/repo", "https://github.com/o/r/pull/7"]]);
+    expect(pinnedLookupCalls).toEqual([
+      ["/tmp/repo", "https://github.com/o/r/pull/7"],
+    ]);
     expect(lookupCalls).toEqual([]);
   });
 

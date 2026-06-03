@@ -20,11 +20,13 @@ export async function renderLibraryReadForSend(
   });
   if (!variables) return null;
 
-  return (await renderLibraryPrompt({
-    itemId: read.item.id,
-    sessionId,
-    variables,
-  })).content;
+  return (
+    await renderLibraryPrompt({
+      itemId: read.item.id,
+      sessionId,
+      variables,
+    })
+  ).content;
 }
 
 export async function sendLibraryItemToPty(

@@ -9,14 +9,20 @@ describe("resizeScheduler", () => {
   beforeEach(() => {
     nextFrameId = 1;
     scheduled = new Map();
-    vi.stubGlobal("requestAnimationFrame", vi.fn((cb: FrameRequestCallback) => {
-      const id = nextFrameId++;
-      scheduled.set(id, cb);
-      return id;
-    }));
-    vi.stubGlobal("cancelAnimationFrame", vi.fn((id: number) => {
-      scheduled.delete(id);
-    }));
+    vi.stubGlobal(
+      "requestAnimationFrame",
+      vi.fn((cb: FrameRequestCallback) => {
+        const id = nextFrameId++;
+        scheduled.set(id, cb);
+        return id;
+      }),
+    );
+    vi.stubGlobal(
+      "cancelAnimationFrame",
+      vi.fn((id: number) => {
+        scheduled.delete(id);
+      }),
+    );
   });
 
   function flushAnimationFrame() {

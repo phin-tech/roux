@@ -59,7 +59,9 @@ describe("sendDroppedLibraryPromptToPty", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(readLibraryItem).mockResolvedValue(promptRead);
-    vi.mocked(requestLibraryVariables).mockResolvedValue({ feature: "drag and drop" });
+    vi.mocked(requestLibraryVariables).mockResolvedValue({
+      feature: "drag and drop",
+    });
     vi.mocked(renderLibraryPrompt).mockResolvedValue({
       itemId: "fixture.release-note",
       content: "Release drag and drop",
@@ -68,9 +70,14 @@ describe("sendDroppedLibraryPromptToPty", () => {
   });
 
   it("renders dropped prompts and submits them into the target pty", async () => {
-    await expect(sendDroppedLibraryPromptToPty(transfer(), "pty-2", "session-1")).resolves.toBe(true);
+    await expect(
+      sendDroppedLibraryPromptToPty(transfer(), "pty-2", "session-1"),
+    ).resolves.toBe(true);
 
-    expect(readLibraryItem).toHaveBeenCalledWith("fixture.release-note", "session-1");
+    expect(readLibraryItem).toHaveBeenCalledWith(
+      "fixture.release-note",
+      "session-1",
+    );
     expect(requestLibraryVariables).toHaveBeenCalledWith({
       title: "Draft Release Note",
       variables: promptRead.item.variables,
@@ -81,11 +88,16 @@ describe("sendDroppedLibraryPromptToPty", () => {
       sessionId: "session-1",
       variables: { feature: "drag and drop" },
     });
-    expect(writeToSession).toHaveBeenCalledWith("pty-2", "Release drag and drop\r");
+    expect(writeToSession).toHaveBeenCalledWith(
+      "pty-2",
+      "Release drag and drop\r",
+    );
   });
 
   it("does not write when the drop has no target pty", async () => {
-    await expect(sendDroppedLibraryPromptToPty(transfer(), null, "session-1")).resolves.toBe(false);
+    await expect(
+      sendDroppedLibraryPromptToPty(transfer(), null, "session-1"),
+    ).resolves.toBe(false);
 
     expect(writeToSession).not.toHaveBeenCalled();
   });

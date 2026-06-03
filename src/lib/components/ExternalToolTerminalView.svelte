@@ -99,7 +99,10 @@
         payload.generation ?? runtimeGeneration,
       );
     }).then((unlisten) => {
-      if (exitRegistrationToken !== registrationToken || run.runtimeId !== ptyId) {
+      if (
+        exitRegistrationToken !== registrationToken ||
+        run.runtimeId !== ptyId
+      ) {
         unlisten();
         return;
       }
@@ -130,7 +133,9 @@
 
 <div class="relative h-full min-h-0 bg-bg-base">
   {#if run.status === "launching" || !run.runtimeId}
-    <div class="absolute inset-0 flex items-center justify-center text-sm text-text-muted">
+    <div
+      class="absolute inset-0 flex items-center justify-center text-sm text-text-muted"
+    >
       Launching {run.toolName}...
     </div>
   {/if}

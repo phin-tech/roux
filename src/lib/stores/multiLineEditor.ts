@@ -76,7 +76,10 @@ export function requestMultiLineEditorFocus(paneId: string): void {
  * The submit Enter is intentionally written as a separate PTY write by the
  * component so shells handle it like a real keypress after paste completes.
  */
-export function buildSubmitPayload(text: string, target: MultiLineTarget): string {
+export function buildSubmitPayload(
+  text: string,
+  target: MultiLineTarget,
+): string {
   const clear = target === "shell" ? "\x05\x15" : "";
   const normalizedText = text.replace(/[\r\n]+$/g, "");
   return `${clear}\x1b[200~${normalizedText}\x1b[201~`;

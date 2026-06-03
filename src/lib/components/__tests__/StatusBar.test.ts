@@ -54,7 +54,9 @@ function makeSession(overrides: Partial<Session> = {}): Session {
   };
 }
 
-function makeMeta(overrides: Partial<WorktrunkMetadata> = {}): WorktrunkMetadata {
+function makeMeta(
+  overrides: Partial<WorktrunkMetadata> = {},
+): WorktrunkMetadata {
   return {
     dirty: false,
     ahead: 0,
@@ -161,9 +163,7 @@ describe("StatusBar worktrunk integration", () => {
     const a = getByTestId("status-bar-pr-link") as HTMLAnchorElement;
     expect(a.textContent).toContain("PR #42");
     expect(a.querySelector("svg")).not.toBeNull();
-    expect(a.getAttribute("href")).toBe(
-      "https://github.com/org/repo/pull/42",
-    );
+    expect(a.getAttribute("href")).toBe("https://github.com/org/repo/pull/42");
     expect(a.className).toContain("text-green");
   });
 
@@ -202,10 +202,7 @@ describe("StatusBar worktrunk integration", () => {
   it("falls back to a non-link ci chip when ciStatus is set but ciUrl is null", () => {
     const s = makeSession({ worktreePath: "/wt/feat-c" });
     sessionState.set({ sessions: [s], activeSessionId: s.id });
-    seed(
-      "/wt/feat-c",
-      makeMeta({ ciStatus: "running", ciUrl: null }),
-    );
+    seed("/wt/feat-c", makeMeta({ ciStatus: "running", ciUrl: null }));
     const { getByTestId, queryByTestId } = render(StatusBar);
     expect(queryByTestId("status-bar-pr-link")).toBeNull();
     const chip = getByTestId("status-bar-ci-chip");

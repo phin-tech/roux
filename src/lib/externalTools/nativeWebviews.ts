@@ -10,7 +10,9 @@ export interface RetainedExternalToolWebview {
 
 const retainedWebviews = new Map<string, RetainedExternalToolWebview>();
 
-export function retainExternalToolWebview(entry: RetainedExternalToolWebview): void {
+export function retainExternalToolWebview(
+  entry: RetainedExternalToolWebview,
+): void {
   closeRetainedExternalToolWebview(entry.runId);
   retainedWebviews.set(entry.runId, entry);
   hideNativeWebview(entry.webview);

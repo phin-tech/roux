@@ -134,11 +134,7 @@ pub enum KeymapParseError {
 
 impl KeymapParseError {
     fn schema(loc: (u32, u32), msg: impl Into<String>) -> Self {
-        Self::Schema {
-            line: loc.0,
-            column: loc.1,
-            message: msg.into(),
-        }
+        Self::Schema { line: loc.0, column: loc.1, message: msg.into() }
     }
 }
 
@@ -157,18 +153,10 @@ pub fn parse_keymap_kdl(src: &str) -> Result<ParsedKeymap, KeymapParseError> {
             .first()
             .map(|d| {
                 let (l, c) = offset_to_line_col(src, d.span.offset());
-                (
-                    l,
-                    c,
-                    d.message.clone().unwrap_or_else(|| "invalid KDL syntax".into()),
-                )
+                (l, c, d.message.clone().unwrap_or_else(|| "invalid KDL syntax".into()))
             })
             .unwrap_or_else(|| (0, 0, "invalid KDL syntax".into()));
-        KeymapParseError::Syntax {
-            line,
-            column,
-            message,
-        }
+        KeymapParseError::Syntax { line, column, message }
     })?;
 
     let mut km = ParsedKeymap::default();
@@ -182,10 +170,7 @@ pub fn parse_keymap_kdl(src: &str) -> Result<ParsedKeymap, KeymapParseError> {
         match name {
             "preset" => {
                 if km.preset_ref.is_some() {
-                    return Err(KeymapParseError::schema(
-                        loc,
-                        "duplicate `preset` declaration",
-                    ));
+                    return Err(KeymapParseError::schema(loc, "duplicate `preset` declaration"));
                 }
                 km.preset_ref = Some(single_string_arg(src, node, "preset")?);
             }
@@ -239,10 +224,7 @@ pub fn parse_keymap_kdl(src: &str) -> Result<ParsedKeymap, KeymapParseError> {
                     continue;
                 }
                 seen_prefix_triggers.push((key.clone(), loc.0, loc.1));
-                km.prefixes.push(Prefix {
-                    key,
-                    tree: tree_name,
-                });
+                km.prefixes.push(Prefix { key, tree: tree_name });
             }
             other => {
                 return Err(KeymapParseError::schema(
@@ -354,24 +336,17 @@ enum BindContext {
 }
 
 fn parse_tree(src: &str, node: &kdl::KdlNode) -> Result<KeymapTree, KeymapParseError> {
-    let name_entry = node
-        .entries()
-        .iter()
-        .find(|e| e.name().is_none())
-        .ok_or_else(|| {
-            KeymapParseError::schema(
-                node_loc(src, node),
-                "`tree` requires a name argument, e.g. `tree \"leader\"`",
-            )
-        })?;
+    let name_entry = node.entries().iter().find(|e| e.name().is_none()).ok_or_else(|| {
+        KeymapParseError::schema(
+            node_loc(src, node),
+            "`tree` requires a name argument, e.g. `tree \"leader\"`",
+        )
+    })?;
     let name = name_entry
         .value()
         .as_string()
         .ok_or_else(|| {
-            KeymapParseError::schema(
-                entry_loc(src, name_entry),
-                "tree name must be a string",
-            )
+            KeymapParseError::schema(entry_loc(src, name_entry), "tree name must be a string")
         })?
         .to_string();
 
@@ -415,13 +390,7 @@ fn parse_tree(src: &str, node: &kdl::KdlNode) -> Result<KeymapTree, KeymapParseE
         }
     }
 
-    Ok(KeymapTree {
-        name,
-        sticky,
-        passthrough,
-        hud,
-        binds,
-    })
+    Ok(KeymapTree { name, sticky, passthrough, hud, binds })
 }
 
 fn parse_top_level_bind(
@@ -506,36 +475,34 @@ fn parse_tree_bind(
 }
 
 fn parse_prefix(src: &str, node: &kdl::KdlNode) -> Result<(KeyRef, String), KeymapParseError> {
-    let key_entry = node
-        .entries()
-        .iter()
-        .find(|e| e.name().is_none())
-        .ok_or_else(|| {
-            KeymapParseError::schema(
-                node_loc(src, node),
-                "`prefix` requires a key, e.g. `prefix \"Ctrl+KeyB\" tree=\"tmux\"`",
-            )
-        })?;
+    let key_entry = node.entries().iter().find(|e| e.name().is_none()).ok_or_else(|| {
+        KeymapParseError::schema(
+            node_loc(src, node),
+            "`prefix` requires a key, e.g. `prefix \"Ctrl+KeyB\" tree=\"tmux\"`",
+        )
+    })?;
     let key_str = key_entry.value().as_string().ok_or_else(|| {
         KeymapParseError::schema(entry_loc(src, key_entry), "prefix key must be a string")
     })?;
     let key = parse_key_string(entry_loc(src, key_entry), key_str, BindContext::TopLevel)?;
 
-    let tree_entry = node
-        .entries()
-        .iter()
-        .find(|e| e.name().map(|n| n.value()) == Some("tree"))
-        .ok_or_else(|| {
-            KeymapParseError::schema(
-                node_loc(src, node),
-                "`prefix` requires a `tree=\"<name>\"` attribute",
-            )
-        })?;
+    let tree_entry =
+        node.entries().iter().find(|e| e.name().map(|n| n.value()) == Some("tree")).ok_or_else(
+            || {
+                KeymapParseError::schema(
+                    node_loc(src, node),
+                    "`prefix` requires a `tree=\"<name>\"` attribute",
+                )
+            },
+        )?;
     let tree_name = tree_entry
         .value()
         .as_string()
         .ok_or_else(|| {
-            KeymapParseError::schema(entry_loc(src, tree_entry), "`tree` attribute must be a string")
+            KeymapParseError::schema(
+                entry_loc(src, tree_entry),
+                "`tree` attribute must be a string",
+            )
         })?
         .to_string();
 
@@ -547,33 +514,26 @@ fn parse_key_arg(
     node: &kdl::KdlNode,
     context: BindContext,
 ) -> Result<KeyRef, KeymapParseError> {
-    let entry = node
-        .entries()
-        .iter()
-        .find(|e| e.name().is_none())
-        .ok_or_else(|| {
-            KeymapParseError::schema(
-                node_loc(src, node),
-                format!("`{}` requires a key argument", node.name().value()),
-            )
-        })?;
-    let s = entry.value().as_string().ok_or_else(|| {
-        KeymapParseError::schema(entry_loc(src, entry), "key must be a string")
+    let entry = node.entries().iter().find(|e| e.name().is_none()).ok_or_else(|| {
+        KeymapParseError::schema(
+            node_loc(src, node),
+            format!("`{}` requires a key argument", node.name().value()),
+        )
     })?;
+    let s = entry
+        .value()
+        .as_string()
+        .ok_or_else(|| KeymapParseError::schema(entry_loc(src, entry), "key must be a string"))?;
     parse_key_string(entry_loc(src, entry), s, context)
 }
 
 fn parse_hud_mode(src: &str, node: &kdl::KdlNode) -> Result<HudMode, KeymapParseError> {
-    let entry = node
-        .entries()
-        .iter()
-        .find(|e| e.name().is_none())
-        .ok_or_else(|| {
-            KeymapParseError::schema(
-                node_loc(src, node),
-                "`hud` requires a mode string, e.g. `hud \"always\"`",
-            )
-        })?;
+    let entry = node.entries().iter().find(|e| e.name().is_none()).ok_or_else(|| {
+        KeymapParseError::schema(
+            node_loc(src, node),
+            "`hud` requires a mode string, e.g. `hud \"always\"`",
+        )
+    })?;
     let s = entry.value().as_string().ok_or_else(|| {
         KeymapParseError::schema(entry_loc(src, entry), "`hud` value must be a string")
     })?;
@@ -605,26 +565,18 @@ fn single_string_arg(
     node: &kdl::KdlNode,
     label: &str,
 ) -> Result<String, KeymapParseError> {
-    let entry = node
-        .entries()
-        .iter()
-        .find(|e| e.name().is_none())
-        .ok_or_else(|| {
-            KeymapParseError::schema(
-                node_loc(src, node),
-                format!("`{label}` requires a string argument"),
-            )
-        })?;
-    entry
-        .value()
-        .as_string()
-        .map(|s| s.to_string())
-        .ok_or_else(|| {
-            KeymapParseError::schema(
-                entry_loc(src, entry),
-                format!("`{label}` argument must be a string"),
-            )
-        })
+    let entry = node.entries().iter().find(|e| e.name().is_none()).ok_or_else(|| {
+        KeymapParseError::schema(
+            node_loc(src, node),
+            format!("`{label}` requires a string argument"),
+        )
+    })?;
+    entry.value().as_string().map(|s| s.to_string()).ok_or_else(|| {
+        KeymapParseError::schema(
+            entry_loc(src, entry),
+            format!("`{label}` argument must be a string"),
+        )
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -661,10 +613,7 @@ fn parse_key_string(
     let normalized = normalize_aliases(input);
     let tokens: Vec<&str> = normalized.split('+').map(|t| t.trim()).collect();
     if tokens.is_empty() || tokens.iter().any(|t| t.is_empty()) {
-        return Err(KeymapParseError::schema(
-            loc,
-            format!("invalid key string `{input}`"),
-        ));
+        return Err(KeymapParseError::schema(loc, format!("invalid key string `{input}`")));
     }
     let (mod_tokens, key_token) = tokens.split_at(tokens.len() - 1);
     let key_token = key_token[0];
@@ -677,10 +626,7 @@ fn parse_key_string(
             "Alt" => Modifier::Alt,
             "Shift" => Modifier::Shift,
             other => {
-                return Err(KeymapParseError::schema(
-                    loc,
-                    format!("unknown modifier `{other}`"),
-                ))
+                return Err(KeymapParseError::schema(loc, format!("unknown modifier `{other}`")))
             }
         };
         if !mods.contains(&m) {
@@ -697,24 +643,15 @@ fn parse_key_string(
     // Character-notation: bare character with no modifiers.
     if !has_mods && !is_physical_token {
         if key_token.chars().count() == 1 {
-            return Ok(KeyRef::Character {
-                mods,
-                key: key_token.to_string(),
-            });
+            return Ok(KeyRef::Character { mods, key: key_token.to_string() });
         }
         // Named keys like "Escape", "Tab", "Space" act as physical codes
         // on both e.code and e.key — store as Physical with the canonical
         // name; the resolver compares against e.code OR e.key.
         if is_named_key(key_token) {
-            return Ok(KeyRef::Physical {
-                mods,
-                code: key_token.to_string(),
-            });
+            return Ok(KeyRef::Physical { mods, code: key_token.to_string() });
         }
-        return Err(KeymapParseError::schema(
-            loc,
-            format!("unrecognized key `{key_token}`"),
-        ));
+        return Err(KeymapParseError::schema(loc, format!("unrecognized key `{key_token}`")));
     }
 
     // With modifiers or explicit physical code → physical notation.
@@ -954,16 +891,11 @@ mod tests {
         assert_eq!(km.direct_binds.len(), 1);
         assert_eq!(
             km.direct_binds[0].key,
-            KeyRef::Physical {
-                mods: vec![Modifier::Cmd],
-                code: "KeyK".into(),
-            }
+            KeyRef::Physical { mods: vec![Modifier::Cmd], code: "KeyK".into() }
         );
         assert_eq!(
             km.direct_binds[0].action,
-            KeymapAction::Command {
-                id: "app.command-palette".into(),
-            }
+            KeymapAction::Command { id: "app.command-palette".into() }
         );
     }
 
@@ -972,10 +904,7 @@ mod tests {
         let km = parse(r#"bind "Alt+h" "pane.focus-left""#);
         assert_eq!(
             km.direct_binds[0].key,
-            KeyRef::Physical {
-                mods: vec![Modifier::Alt],
-                code: "KeyH".into(),
-            }
+            KeyRef::Physical { mods: vec![Modifier::Alt], code: "KeyH".into() }
         );
     }
 
@@ -996,18 +925,12 @@ mod tests {
         let km = parse(r#"bind "C-b" "app.quit""#);
         assert_eq!(
             km.direct_binds[0].key,
-            KeyRef::Physical {
-                mods: vec![Modifier::Ctrl],
-                code: "KeyB".into(),
-            }
+            KeyRef::Physical { mods: vec![Modifier::Ctrl], code: "KeyB".into() }
         );
         let km = parse(r#"bind "M-Left" "pane.focus-left""#);
         assert_eq!(
             km.direct_binds[0].key,
-            KeyRef::Physical {
-                mods: vec![Modifier::Alt],
-                code: "ArrowLeft".into(),
-            }
+            KeyRef::Physical { mods: vec![Modifier::Alt], code: "ArrowLeft".into() }
         );
     }
 
@@ -1024,20 +947,8 @@ mod tests {
         assert_eq!(km.trees.len(), 1);
         let tree = &km.trees[0];
         assert_eq!(tree.name, "leader");
-        assert_eq!(
-            tree.binds[0].key,
-            KeyRef::Character {
-                mods: vec![],
-                key: "h".into(),
-            }
-        );
-        assert_eq!(
-            tree.binds[1].key,
-            KeyRef::Character {
-                mods: vec![],
-                key: "%".into(),
-            }
-        );
+        assert_eq!(tree.binds[0].key, KeyRef::Character { mods: vec![], key: "h".into() });
+        assert_eq!(tree.binds[1].key, KeyRef::Character { mods: vec![], key: "%".into() });
     }
 
     #[test]
@@ -1051,10 +962,7 @@ mod tests {
         );
         assert_eq!(
             km.trees[0].binds[0].key,
-            KeyRef::Physical {
-                mods: vec![Modifier::Ctrl],
-                code: "KeyC".into(),
-            }
+            KeyRef::Physical { mods: vec![Modifier::Ctrl], code: "KeyC".into() }
         );
     }
 
@@ -1067,12 +975,7 @@ mod tests {
             }
             "#,
         );
-        assert_eq!(
-            km.trees[0].binds[0].action,
-            KeymapAction::EnterTree {
-                tree: "panes".into(),
-            }
-        );
+        assert_eq!(km.trees[0].binds[0].action, KeymapAction::EnterTree { tree: "panes".into() });
     }
 
     #[test]
@@ -1110,10 +1013,7 @@ mod tests {
         assert_eq!(km.prefixes[0].tree, "leader");
         assert_eq!(
             km.prefixes[0].key,
-            KeyRef::Physical {
-                mods: vec![Modifier::Cmd],
-                code: "Semicolon".into(),
-            }
+            KeyRef::Physical { mods: vec![Modifier::Cmd], code: "Semicolon".into() }
         );
     }
 
@@ -1121,10 +1021,7 @@ mod tests {
     fn hud_modes() {
         assert_eq!(parse(r#"hud "always""#).hud_default, Some(HudMode::Always));
         assert_eq!(parse(r#"hud "never""#).hud_default, Some(HudMode::Never));
-        assert_eq!(
-            parse(r#"hud "delayed 1000""#).hud_default,
-            Some(HudMode::Delayed { ms: 1000 })
-        );
+        assert_eq!(parse(r#"hud "delayed 1000""#).hud_default, Some(HudMode::Delayed { ms: 1000 }));
     }
 
     #[test]
@@ -1178,10 +1075,7 @@ mod tests {
             "#,
         );
         assert_eq!(km.direct_binds.len(), 1);
-        assert_eq!(
-            km.direct_binds[0].action,
-            KeymapAction::Command { id: "app.quit".into() }
-        );
+        assert_eq!(km.direct_binds[0].action, KeymapAction::Command { id: "app.quit".into() });
         assert_eq!(km.warnings.len(), 1);
     }
 
@@ -1207,10 +1101,7 @@ mod tests {
             "#,
         );
         assert_eq!(km.trees.len(), 1);
-        assert_eq!(
-            km.trees[0].binds[0].key,
-            KeyRef::Character { mods: vec![], key: "j".into() }
-        );
+        assert_eq!(km.trees[0].binds[0].key, KeyRef::Character { mods: vec![], key: "j".into() });
     }
 
     #[test]
@@ -1219,10 +1110,7 @@ mod tests {
         let overlay = parse(r#"bind "Cmd+KeyK" "app.quit""#);
         let merged = merge_keymaps(base, overlay);
         assert_eq!(merged.direct_binds.len(), 1);
-        assert_eq!(
-            merged.direct_binds[0].action,
-            KeymapAction::Command { id: "app.quit".into() }
-        );
+        assert_eq!(merged.direct_binds[0].action, KeymapAction::Command { id: "app.quit".into() });
     }
 
     #[test]

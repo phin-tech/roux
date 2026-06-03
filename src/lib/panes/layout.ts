@@ -45,7 +45,7 @@ export function insertLeaf(
   node: LayoutNode,
   targetId: string,
   direction: SplitDirection,
-  newPaneId: string
+  newPaneId: string,
 ): LayoutNode {
   if (node.kind === "leaf") {
     if (node.paneId !== targetId) return node;
@@ -62,7 +62,7 @@ export function insertLeaf(
 
   // node is a split — recurse into children
   const newChildren = node.children.map((child) =>
-    insertLeaf(child, targetId, direction, newPaneId)
+    insertLeaf(child, targetId, direction, newPaneId),
   );
 
   // Check if any child was transformed into a same-direction split that
@@ -102,7 +102,7 @@ export function insertLeaf(
  */
 export function removeLeaf(
   node: LayoutNode,
-  paneId: string
+  paneId: string,
 ): LayoutNode | null {
   if (node.kind === "leaf") {
     return node.paneId === paneId ? null : node;
@@ -110,7 +110,7 @@ export function removeLeaf(
 
   // Find the index of the child that contains paneId (or is paneId)
   const targetChildIndex = node.children.findIndex((c) =>
-    containsPaneId(c, paneId)
+    containsPaneId(c, paneId),
   );
 
   if (targetChildIndex === -1) return node; // not in this subtree
@@ -127,7 +127,7 @@ export function removeLeaf(
     removedIndex = targetChildIndex;
   } else {
     newChildren = node.children.map((c, i) =>
-      i === targetChildIndex ? updatedChild : c
+      i === targetChildIndex ? updatedChild : c,
     );
     removedIndex = -1; // no slot removed at this level
   }
@@ -241,11 +241,16 @@ export type DropSide = "left" | "right" | "top" | "bottom";
 type PathEntry = { parent: LayoutNode & { kind: "split" }; childIndex: number };
 
 const directionAxis: Record<Direction, SplitDirection> = {
-  left: "h", right: "h",
-  up: "v", down: "v",
+  left: "h",
+  right: "h",
+  up: "v",
+  down: "v",
 };
 const directionStep: Record<Direction, number> = {
-  left: -1, right: 1, up: -1, down: 1,
+  left: -1,
+  right: 1,
+  up: -1,
+  down: 1,
 };
 
 const dropSideToDirection: Record<DropSide, SplitDirection> = {
@@ -260,10 +265,17 @@ const MIN_PANE_FRACTION = 0.05;
 // ── Internal tree helpers ────────────────────────────────────────────────────
 
 /** Builds the path of { parent, childIndex } entries from root to target leaf. */
-function buildPath(node: LayoutNode, targetId: string, path: PathEntry[]): boolean {
+function buildPath(
+  node: LayoutNode,
+  targetId: string,
+  path: PathEntry[],
+): boolean {
   if (node.kind === "leaf") return node.paneId === targetId;
   for (let i = 0; i < node.children.length; i++) {
-    path.push({ parent: node as LayoutNode & { kind: "split" }, childIndex: i });
+    path.push({
+      parent: node as LayoutNode & { kind: "split" },
+      childIndex: i,
+    });
     if (buildPath(node.children[i], targetId, path)) return true;
     path.pop();
   }
@@ -274,13 +286,15 @@ function buildPath(node: LayoutNode, targetId: string, path: PathEntry[]): boole
 function updateSplitByRef(
   node: LayoutNode,
   target: LayoutNode & { kind: "split" },
-  patch: Partial<LayoutNode & { kind: "split" }>
+  patch: Partial<LayoutNode & { kind: "split" }>,
 ): LayoutNode {
   if (node === target) {
     return { ...node, ...patch } as LayoutNode;
   }
   if (node.kind === "leaf") return node;
-  const newChildren = node.children.map((c) => updateSplitByRef(c, target, patch));
+  const newChildren = node.children.map((c) =>
+    updateSplitByRef(c, target, patch),
+  );
   if (newChildren.every((c, i) => c === node.children[i])) return node;
   return { ...node, children: newChildren };
 }
@@ -289,17 +303,22 @@ function updateSplitByRef(
 function replaceSplitInTree(
   root: LayoutNode,
   target: LayoutNode & { kind: "split" },
-  replacement: LayoutNode
+  replacement: LayoutNode,
 ): LayoutNode {
   if (root === target) return replacement;
   if (root.kind === "leaf") return root;
-  const mapped = root.children.map((c) => replaceSplitInTree(c, target, replacement));
+  const mapped = root.children.map((c) =>
+    replaceSplitInTree(c, target, replacement),
+  );
   if (mapped.every((c, i) => c === root.children[i])) return root;
   return { ...root, children: mapped };
 }
 
 /** Remove a leaf from a subtree (mirrors removeLeaf but avoids size/activeIndex adjustments). */
-function removeLeafFromSubtree(node: LayoutNode, paneId: string): LayoutNode | null {
+function removeLeafFromSubtree(
+  node: LayoutNode,
+  paneId: string,
+): LayoutNode | null {
   if (node.kind === "leaf") {
     return node.paneId === paneId ? null : node;
   }
@@ -316,7 +335,7 @@ function insertLeafAtTarget(
   targetId: string,
   direction: SplitDirection,
   newLeaf: LayoutNode,
-  insertBefore: boolean
+  insertBefore: boolean,
 ): LayoutNode {
   if (node.kind === "leaf") {
     if (node.paneId === targetId) {
@@ -328,7 +347,7 @@ function insertLeafAtTarget(
   return {
     ...node,
     children: node.children.map((child) =>
-      insertLeafAtTarget(child, targetId, direction, newLeaf, insertBefore)
+      insertLeafAtTarget(child, targetId, direction, newLeaf, insertBefore),
     ),
   };
 }
@@ -336,7 +355,11 @@ function insertLeafAtTarget(
 // ── Stacked panes helpers ────────────────────────────────────────────────────
 
 /** Build the path of child indices from root to the split containing targetId. */
-function buildSplitPath(node: LayoutNode, targetId: string, path: number[]): boolean {
+function buildSplitPath(
+  node: LayoutNode,
+  targetId: string,
+  path: number[],
+): boolean {
   if (node.kind === "leaf") return node.paneId === targetId;
   for (let i = 0; i < node.children.length; i++) {
     path.push(i);
@@ -350,7 +373,7 @@ function buildSplitPath(node: LayoutNode, targetId: string, path: number[]): boo
 function splitAtPath(
   root: LayoutNode,
   path: number[],
-  depth: number
+  depth: number,
 ): LayoutNode & { kind: "split" } {
   let node = root;
   for (let i = 0; i < depth; i++) {
@@ -364,12 +387,13 @@ function splitAtPath(
 /** Safely resolve a split node at the given path; returns null if path is invalid or target is not a split. */
 function splitAtExactPath(
   root: LayoutNode,
-  path: readonly number[]
+  path: readonly number[],
 ): (LayoutNode & { kind: "split" }) | null {
   let node = root;
   for (const index of path) {
     if (node.kind !== "split") return null;
-    if (!Number.isInteger(index) || index < 0 || index >= node.children.length) return null;
+    if (!Number.isInteger(index) || index < 0 || index >= node.children.length)
+      return null;
     node = node.children[index];
   }
   return node.kind === "split" ? node : null;
@@ -380,14 +404,16 @@ function replaceSplitAtPath(
   root: LayoutNode,
   path: readonly number[],
   replacement: LayoutNode & { kind: "split" },
-  depth = 0
+  depth = 0,
 ): LayoutNode {
   if (depth === path.length) return replacement;
   if (root.kind === "leaf") return root;
 
   const childIdx = path[depth];
   const newChildren = root.children.map((child, i) =>
-    i === childIdx ? replaceSplitAtPath(child, path, replacement, depth + 1) : child
+    i === childIdx
+      ? replaceSplitAtPath(child, path, replacement, depth + 1)
+      : child,
   );
   if (newChildren.every((c, i) => c === root.children[i])) return root;
   return { ...root, children: newChildren };
@@ -424,7 +450,10 @@ function ancestorSplitDepths(root: LayoutNode, path: number[]): number[] {
 }
 
 /** Find which child index of a split contains the given pane ID. */
-function childIndexContaining(split: LayoutNode & { kind: "split" }, paneId: string): number {
+function childIndexContaining(
+  split: LayoutNode & { kind: "split" },
+  paneId: string,
+): number {
   for (let i = 0; i < split.children.length; i++) {
     if (containsPaneId(split.children[i], paneId)) return i;
   }
@@ -438,7 +467,7 @@ function setStackedAtDepth(
   targetDepth: number,
   currentDepth: number,
   stacked: boolean,
-  activeIndex: number | undefined
+  activeIndex: number | undefined,
 ): LayoutNode {
   if (node.kind === "leaf") return node;
   if (currentDepth === targetDepth) {
@@ -451,8 +480,15 @@ function setStackedAtDepth(
   const childIdx = path[currentDepth];
   const newChildren = node.children.map((c, i) =>
     i === childIdx
-      ? setStackedAtDepth(c, path, targetDepth, currentDepth + 1, stacked, activeIndex)
-      : c
+      ? setStackedAtDepth(
+          c,
+          path,
+          targetDepth,
+          currentDepth + 1,
+          stacked,
+          activeIndex,
+        )
+      : c,
   );
   if (newChildren.every((c, i) => c === node.children[i])) return node;
   return { ...node, children: newChildren };
@@ -478,7 +514,14 @@ function toggleStackInTree(root: LayoutNode, focusedId: string): LayoutNode {
   if (lowestStackedDepthIdx === -1) {
     const depth = splitDepths[splitDepths.length - 1];
     const split = splitAtPath(root, path, depth);
-    return setStackedAtDepth(root, path, depth, 0, true, childIndexContaining(split, focusedId));
+    return setStackedAtDepth(
+      root,
+      path,
+      depth,
+      0,
+      true,
+      childIndexContaining(split, focusedId),
+    );
   } else {
     return setStackedAtDepth(
       root,
@@ -486,7 +529,7 @@ function toggleStackInTree(root: LayoutNode, focusedId: string): LayoutNode {
       splitDepths[lowestStackedDepthIdx],
       0,
       false,
-      undefined
+      undefined,
     );
   }
 }
@@ -533,7 +576,10 @@ export function navigatePane(sessionId: string, direction: Direction): void {
       const root = m.get(sessionId);
       if (!root) return m;
       const next = new Map(m);
-      next.set(sessionId, updateSplitByRef(root, parent, { activeIndex: nextIndex }));
+      next.set(
+        sessionId,
+        updateSplitByRef(root, parent, { activeIndex: nextIndex }),
+      );
       return next;
     });
     const target = parent.children[nextIndex];
@@ -586,7 +632,7 @@ export function canToggleStack(sessionId: string): boolean {
 export function setActiveStackIndex(
   sessionId: string,
   index: number,
-  stackPath?: readonly number[]
+  stackPath?: readonly number[],
 ): void {
   const layouts = get(sessionLayouts);
   const tree = layouts.get(sessionId);
@@ -602,7 +648,11 @@ export function setActiveStackIndex(
     const clamped = Math.max(0, Math.min(index, split.children.length - 1));
     newFocusTarget = split.children[clamped];
     if ((split.activeIndex ?? 0) !== clamped) {
-      nextTree = replaceSplitAtPath(tree, stackPath, { ...split, stacked: true, activeIndex: clamped });
+      nextTree = replaceSplitAtPath(tree, stackPath, {
+        ...split,
+        stacked: true,
+        activeIndex: clamped,
+      });
     }
   } else {
     const focused = get(focusedPaneId);
@@ -645,7 +695,10 @@ export function setActiveStackIndex(
 }
 
 /** Move the focused pane in a direction (swap / enter / extract). */
-export function movePaneInDirection(sessionId: string, direction: Direction): void {
+export function movePaneInDirection(
+  sessionId: string,
+  direction: Direction,
+): void {
   const tree = get(sessionLayouts).get(sessionId);
   if (!tree) return;
   const focused = get(focusedPaneId);
@@ -666,7 +719,7 @@ export function movePaneInDirection(sessionId: string, direction: Direction): vo
 function movePaneInTree(
   root: LayoutNode,
   paneId: string,
-  direction: Direction
+  direction: Direction,
 ): LayoutNode | null {
   const path: PathEntry[] = [];
   if (!buildPath(root, paneId, path)) return null;
@@ -691,7 +744,10 @@ function movePaneInTree(
       const newChildren = [...parent.children];
       newChildren[childIndex] = parent.children[targetIndex];
       newChildren[targetIndex] = parent.children[childIndex];
-      return replaceSplitInTree(root, parent, { ...parent, children: newChildren });
+      return replaceSplitInTree(root, parent, {
+        ...parent,
+        children: newChildren,
+      });
     }
 
     if (isDirectChild && targetSibling.kind === "split") {
@@ -700,7 +756,10 @@ function movePaneInTree(
       const insertIdx = step > 0 ? 0 : targetSibling.children.length;
       const newTargetChildren = [...targetSibling.children];
       newTargetChildren.splice(insertIdx, 0, focusedNode);
-      const updatedTarget: LayoutNode = { ...targetSibling, children: newTargetChildren };
+      const updatedTarget: LayoutNode = {
+        ...targetSibling,
+        children: newTargetChildren,
+      };
 
       const newChildren = parent.children
         .map((c, j) => {
@@ -713,7 +772,10 @@ function movePaneInTree(
       if (newChildren.length === 1) {
         return replaceSplitInTree(root, parent, newChildren[0]);
       }
-      return replaceSplitInTree(root, parent, { ...parent, children: newChildren });
+      return replaceSplitInTree(root, parent, {
+        ...parent,
+        children: newChildren,
+      });
     }
 
     if (!isDirectChild) {
@@ -736,11 +798,16 @@ function movePaneInTree(
 
       const insertPos =
         step > 0
-          ? subtreeAfterRemove ? subtreePos + 1 : subtreePos
+          ? subtreeAfterRemove
+            ? subtreePos + 1
+            : subtreePos
           : subtreePos;
       newChildren.splice(insertPos, 0, paneLeaf);
 
-      return replaceSplitInTree(root, parent, { ...parent, children: newChildren });
+      return replaceSplitInTree(root, parent, {
+        ...parent,
+        children: newChildren,
+      });
     }
   }
 
@@ -752,7 +819,7 @@ export function movePane(
   sessionId: string,
   paneId: string,
   targetPaneId: string,
-  side: DropSide
+  side: DropSide,
 ): void {
   if (paneId === targetPaneId) return;
 
@@ -772,7 +839,13 @@ export function movePane(
     const insertBefore = side === "left" || side === "top";
     const newLeaf: LayoutNode = { kind: "leaf", paneId };
 
-    const afterInsert = insertLeafAtTarget(afterRemove, targetPaneId, direction, newLeaf, insertBefore);
+    const afterInsert = insertLeafAtTarget(
+      afterRemove,
+      targetPaneId,
+      direction,
+      newLeaf,
+      insertBefore,
+    );
     const next = new Map(m);
     next.set(sessionId, afterInsert);
     return next;
@@ -782,7 +855,11 @@ export function movePane(
 }
 
 /** Resize the focused pane in the given direction by a step fraction. */
-export function resizePane(sessionId: string, direction: Direction, step: number): void {
+export function resizePane(
+  sessionId: string,
+  direction: Direction,
+  step: number,
+): void {
   const tree = get(sessionLayouts).get(sessionId);
   if (!tree) return;
   const focused = get(focusedPaneId);
@@ -809,9 +886,12 @@ export function resizePane(sessionId: string, direction: Direction, step: number
 
     newSizes[childIndex] = Math.min(
       1 - MIN_PANE_FRACTION * (count - 1),
-      newSizes[childIndex] + delta
+      newSizes[childIndex] + delta,
     );
-    newSizes[neighborIndex] = Math.max(MIN_PANE_FRACTION, newSizes[neighborIndex] - delta);
+    newSizes[neighborIndex] = Math.max(
+      MIN_PANE_FRACTION,
+      newSizes[neighborIndex] - delta,
+    );
 
     const total = newSizes.reduce((a, b) => a + b, 0);
     for (let j = 0; j < newSizes.length; j++) newSizes[j] /= total;
@@ -833,7 +913,7 @@ export function resizeSplitDivider(
   splitPath: readonly number[],
   dividerIndex: number,
   deltaPx: number,
-  containerPx: number
+  containerPx: number,
 ): void {
   if (
     !Number.isInteger(dividerIndex) ||
@@ -862,7 +942,7 @@ export function resizeSplitDivider(
     const delta = deltaPx / containerPx;
     const nextLeft = Math.max(
       minSize,
-      Math.min(pairTotal - minSize, sizes[leftIndex] + delta)
+      Math.min(pairTotal - minSize, sizes[leftIndex] + delta),
     );
 
     const newSizes = [...sizes];
@@ -870,10 +950,14 @@ export function resizeSplitDivider(
     newSizes[rightIndex] = pairTotal - nextLeft;
 
     const total = newSizes.reduce((sum, size) => sum + size, 0);
-    const normalized = total > 0 ? newSizes.map((size) => size / total) : newSizes;
+    const normalized =
+      total > 0 ? newSizes.map((size) => size / total) : newSizes;
 
     const next = new Map(m);
-    next.set(sessionId, replaceSplitAtPath(root, splitPath, { ...split, sizes: normalized }));
+    next.set(
+      sessionId,
+      replaceSplitAtPath(root, splitPath, { ...split, sizes: normalized }),
+    );
     return next;
   });
 }

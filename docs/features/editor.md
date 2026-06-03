@@ -14,12 +14,12 @@ The editor is intentionally a plain textarea, not CodeMirror. That keeps focus, 
 
 ## Open And Close
 
-| Action | Default shortcut |
-|---|---|
-| Toggle editor for the focused terminal pane | ++ctrl+g++ |
-| Toggle editor from anywhere in the app | ++cmd+shift+e++ |
-| Open editor with clipboard contents | ++cmd+shift+v++ |
-| Close editor without sending | ++escape++ or ++ctrl+g++ while the editor has focus |
+| Action                                      | Default shortcut                                    |
+| ------------------------------------------- | --------------------------------------------------- |
+| Toggle editor for the focused terminal pane | ++ctrl+g++                                          |
+| Toggle editor from anywhere in the app      | ++cmd+shift+e++                                     |
+| Open editor with clipboard contents         | ++cmd+shift+v++                                     |
+| Close editor without sending                | ++escape++ or ++ctrl+g++ while the editor has focus |
 
 The editor is available for shell and command panes with an attached terminal. It is scoped to one pane at a time and docks inside that pane, above the status bar.
 
@@ -35,10 +35,10 @@ Roux can open the editor with useful starting text:
 
 ## Send Behavior
 
-| Action | Default shortcut |
-|---|---|
-| Send editor text to the terminal and keep the editor open | ++cmd+enter++ |
-| Insert a newline inside the editor | ++shift+enter++, ++ctrl+enter++, or ++alt+enter++ |
+| Action                                                    | Default shortcut                                  |
+| --------------------------------------------------------- | ------------------------------------------------- |
+| Send editor text to the terminal and keep the editor open | ++cmd+enter++                                     |
+| Insert a newline inside the editor                        | ++shift+enter++, ++ctrl+enter++, or ++alt+enter++ |
 
 When you send:
 
@@ -66,16 +66,16 @@ In shell mode, Roux checks the first command line for a small set of common mist
 
 Current first-pass corrections include:
 
-| Input | Suggested correction |
-|---|---|
-| `gti status` | `git status` |
-| `git statsu` | `git status` |
-| `git comit` | `git commit` |
-| `git chekout` | `git checkout` |
-| `npm dev` | `npm run dev` |
-| `npm build` | `npm run build` |
-| `npm check` | `npm run check` |
-| `npm lint` | `npm run lint` |
+| Input         | Suggested correction |
+| ------------- | -------------------- |
+| `gti status`  | `git status`         |
+| `git statsu`  | `git status`         |
+| `git comit`   | `git commit`         |
+| `git chekout` | `git checkout`       |
+| `npm dev`     | `npm run dev`        |
+| `npm build`   | `npm run build`      |
+| `npm check`   | `npm run check`      |
+| `npm lint`    | `npm run lint`       |
 
 Valid npm lifecycle shortcuts such as `npm test` and `npm start` are left alone.
 
@@ -83,22 +83,22 @@ Valid npm lifecycle shortcuts such as `npm test` and `npm start` are left alone.
 
 These shortcuts work while focus is inside the multiline editor:
 
-| Shortcut | Action |
-|---|---|
-| ++cmd+enter++ | Send text to the target terminal and keep editor open |
-| ++shift+enter++ | Insert newline |
-| ++ctrl+enter++ | Insert newline |
-| ++alt+enter++ | Insert newline |
-| ++ctrl+c++ | Clear the editor when there is no selected text |
-| ++ctrl+u++ | Copy and clear the current line |
-| ++cmd+shift+k++ | Clear selected lines, or the current line when no text is selected |
-| ++alt+backspace++ | Delete word left |
-| ++ctrl+w++ | Delete word left |
-| ++ctrl+k++ | Delete to line end |
-| ++cmd+backspace++ | Delete to line start |
-| ++cmd+delete++ | Delete to line end |
-| ++escape++ | Close without sending |
-| ++ctrl+g++ | Close without sending |
+| Shortcut          | Action                                                             |
+| ----------------- | ------------------------------------------------------------------ |
+| ++cmd+enter++     | Send text to the target terminal and keep editor open              |
+| ++shift+enter++   | Insert newline                                                     |
+| ++ctrl+enter++    | Insert newline                                                     |
+| ++alt+enter++     | Insert newline                                                     |
+| ++ctrl+c++        | Clear the editor when there is no selected text                    |
+| ++ctrl+u++        | Copy and clear the current line                                    |
+| ++cmd+shift+k++   | Clear selected lines, or the current line when no text is selected |
+| ++alt+backspace++ | Delete word left                                                   |
+| ++ctrl+w++        | Delete word left                                                   |
+| ++ctrl+k++        | Delete to line end                                                 |
+| ++cmd+backspace++ | Delete to line start                                               |
+| ++cmd+delete++    | Delete to line end                                                 |
+| ++escape++        | Close without sending                                              |
+| ++ctrl+g++        | Close without sending                                              |
 
 Normal textarea behavior still applies for ordinary typing, paste, selection, undo/redo, copy, and select-all.
 

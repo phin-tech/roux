@@ -176,10 +176,7 @@ mod tests {
 
         metadata.mark_exited(Some(7), 222);
 
-        assert!(matches!(
-            metadata.status,
-            PtyStatus::Exited { code: Some(7), at_ms: 222 }
-        ));
+        assert!(matches!(metadata.status, PtyStatus::Exited { code: Some(7), at_ms: 222 }));
         assert_eq!(
             metadata.exit_info,
             Some(PtyExitInfo { code: Some(7), at_ms: 222, was_attached: true })

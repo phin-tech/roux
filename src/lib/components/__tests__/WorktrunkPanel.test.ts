@@ -474,9 +474,9 @@ describe("WorktrunkPanel Worktrees tab", () => {
     await tick();
 
     expect(queryAllByTestId("worktrunk-worktree-row").length).toBe(0);
-    expect((await findByTestId("worktrunk-filter-empty")).textContent).toContain(
-      'No worktrees match "does-not-exist"',
-    );
+    expect(
+      (await findByTestId("worktrunk-filter-empty")).textContent,
+    ).toContain('No worktrees match "does-not-exist"');
   });
 
   it("selects and clears removable worktrees from row checkboxes", async () => {
@@ -501,9 +501,9 @@ describe("WorktrunkPanel Worktrees tab", () => {
     )) as HTMLInputElement;
 
     await fireEvent.click(checkbox);
-    expect((await findByTestId("worktrunk-bulk-toolbar")).textContent).toContain(
-      "1 selected",
-    );
+    expect(
+      (await findByTestId("worktrunk-bulk-toolbar")).textContent,
+    ).toContain("1 selected");
 
     await fireEvent.click(await findByTestId("worktrunk-bulk-clear"));
     await tick();
@@ -543,9 +543,9 @@ describe("WorktrunkPanel Worktrees tab", () => {
     await findAllByTestId("worktrunk-worktree-row");
     await fireEvent.click(await findByTestId("worktrunk-select-all"));
 
-    expect((await findByTestId("worktrunk-bulk-toolbar")).textContent).toContain(
-      "1 selected",
-    );
+    expect(
+      (await findByTestId("worktrunk-bulk-toolbar")).textContent,
+    ).toContain("1 selected");
   });
 
   it("labels select-all by removable visible worktrees", async () => {
@@ -579,18 +579,18 @@ describe("WorktrunkPanel Worktrees tab", () => {
     });
     await findAllByTestId("worktrunk-worktree-row");
 
-    expect((await findByTestId("worktrunk-select-all")).parentElement?.textContent).toContain(
-      "Select removable",
-    );
+    expect(
+      (await findByTestId("worktrunk-select-all")).parentElement?.textContent,
+    ).toContain("Select removable");
 
     await fireEvent.input(await findByTestId("worktrunk-filter-input"), {
       target: { value: "project" },
     });
     await tick();
 
-    expect((await findByTestId("worktrunk-select-all")).parentElement?.textContent).toContain(
-      "Select 1 removable match",
-    );
+    expect(
+      (await findByTestId("worktrunk-select-all")).parentElement?.textContent,
+    ).toContain("Select 1 removable match");
   });
 
   it("quick-selects visible merged and prunable worktrees from the header menu", async () => {
@@ -626,17 +626,21 @@ describe("WorktrunkPanel Worktrees tab", () => {
     });
     await findAllByTestId("worktrunk-worktree-row");
 
-    await fireEvent.click(await findByTestId("worktrunk-worktrees-header-menu"));
+    await fireEvent.click(
+      await findByTestId("worktrunk-worktrees-header-menu"),
+    );
     await fireEvent.click(await findByTestId("worktrunk-select-merged"));
-    expect((await findByTestId("worktrunk-bulk-toolbar")).textContent).toContain(
-      "1 selected",
-    );
+    expect(
+      (await findByTestId("worktrunk-bulk-toolbar")).textContent,
+    ).toContain("1 selected");
 
-    await fireEvent.click(await findByTestId("worktrunk-worktrees-header-menu"));
-    await fireEvent.click(await findByTestId("worktrunk-select-prunable"));
-    expect((await findByTestId("worktrunk-bulk-toolbar")).textContent).toContain(
-      "2 selected",
+    await fireEvent.click(
+      await findByTestId("worktrunk-worktrees-header-menu"),
     );
+    await fireEvent.click(await findByTestId("worktrunk-select-prunable"));
+    expect(
+      (await findByTestId("worktrunk-bulk-toolbar")).textContent,
+    ).toContain("2 selected");
   });
 
   it("bulk removes selected worktrees without deleting branches", async () => {
@@ -707,7 +711,9 @@ describe("WorktrunkPanel Worktrees tab", () => {
       props: { visible: true, onclose: () => {} },
     });
     await fireEvent.click(await findByTestId("worktrunk-row-checkbox"));
-    await fireEvent.click(await findByTestId("worktrunk-bulk-remove-and-branch"));
+    await fireEvent.click(
+      await findByTestId("worktrunk-bulk-remove-and-branch"),
+    );
 
     await waitFor(() => expect(removeWorktree).toHaveBeenCalledTimes(1));
     expect(removeWorktree).toHaveBeenCalledWith(
@@ -978,7 +984,10 @@ describe("WorktrunkPanel Worktrees tab", () => {
       worktreePath: "/other",
       isWorktree: false,
     });
-    sessionState.set({ sessions: [project, other], activeSessionId: project.id });
+    sessionState.set({
+      sessions: [project, other],
+      activeSessionId: project.id,
+    });
     vi.mocked(commands.cmdWorktrunkDiagnostics).mockResolvedValue(
       okDiagnostics(makeDiagnostics()),
     );
@@ -998,7 +1007,10 @@ describe("WorktrunkPanel Worktrees tab", () => {
       return [];
     });
     vi.mocked(removeWorktree).mockImplementation(async () => {
-      sessionState.set({ sessions: [project, other], activeSessionId: other.id });
+      sessionState.set({
+        sessions: [project, other],
+        activeSessionId: other.id,
+      });
     });
 
     const { findByTestId } = render(WorktrunkPanel, {
@@ -1554,7 +1566,9 @@ describe("WorktrunkPanel — New worktree form", () => {
       "worktrunk-new-worktree-branch",
     )) as HTMLInputElement;
     await fireEvent.input(input, { target: { value: "feat-y" } });
-    await fireEvent.click(getByTestId("worktrunk-new-worktree-base-originMain"));
+    await fireEvent.click(
+      getByTestId("worktrunk-new-worktree-base-originMain"),
+    );
     await fireEvent.click(getByTestId("worktrunk-new-worktree-submit"));
 
     expect(createWorktree).toHaveBeenCalledWith("/project", "feat-y", {
@@ -1796,7 +1810,10 @@ describe("WorktrunkPanel — no-session repo picker", () => {
     expect(await findByTestId("worktrunk-repo-picker")).toBeDefined();
     // The picker should have triggered a scan of configured roots.
     await waitFor(() => {
-      expect(invokeMock).toHaveBeenCalledWith("list_git_repos_in_roots", expect.any(Object));
+      expect(invokeMock).toHaveBeenCalledWith(
+        "list_git_repos_in_roots",
+        expect.any(Object),
+      );
     });
   });
 
@@ -1817,8 +1834,12 @@ describe("WorktrunkPanel — no-session repo picker", () => {
     const pickerContainer = await findByTestId("worktrunk-repo-picker");
 
     // RepoAutoComplete renders a Command.Input (<input role="combobox">)
-    const pickerInput = within(pickerContainer).getByRole("combobox") as HTMLInputElement;
-    await fireEvent.input(pickerInput, { target: { value: "/workspace/roux" } });
+    const pickerInput = within(pickerContainer).getByRole(
+      "combobox",
+    ) as HTMLInputElement;
+    await fireEvent.input(pickerInput, {
+      target: { value: "/workspace/roux" },
+    });
     // Simulate Enter to trigger onenter (raw text path when no dropdown match).
     await fireEvent.keyDown(pickerInput, { key: "Enter" });
     await tick();
@@ -1845,21 +1866,33 @@ describe("WorktrunkPanel — no-session repo picker", () => {
     });
     const pickerContainer = await findByTestId("worktrunk-repo-picker");
 
-    const pickerInput = within(pickerContainer).getByRole("combobox") as HTMLInputElement;
-    await fireEvent.input(pickerInput, { target: { value: "/workspace/roux" } });
+    const pickerInput = within(pickerContainer).getByRole(
+      "combobox",
+    ) as HTMLInputElement;
+    await fireEvent.input(pickerInput, {
+      target: { value: "/workspace/roux" },
+    });
     await fireEvent.keyDown(pickerInput, { key: "Enter" });
     await tick();
 
     // Wait for worktrees to load (which signals repo is selected)
-    await waitFor(() => expect(listWorktrees).toHaveBeenCalledWith("/workspace/roux"));
+    await waitFor(() =>
+      expect(listWorktrees).toHaveBeenCalledWith("/workspace/roux"),
+    );
 
     await fireEvent.click(await findByTestId("worktrunk-new-worktree-open"));
-    const branchInput = (await findByTestId("worktrunk-new-worktree-branch")) as HTMLInputElement;
+    const branchInput = (await findByTestId(
+      "worktrunk-new-worktree-branch",
+    )) as HTMLInputElement;
     await fireEvent.input(branchInput, { target: { value: "feat-z" } });
     await fireEvent.click(getByTestId("worktrunk-new-worktree-submit"));
 
     await waitFor(() =>
-      expect(createWorktree).toHaveBeenCalledWith("/workspace/roux", "feat-z", expect.any(Object)),
+      expect(createWorktree).toHaveBeenCalledWith(
+        "/workspace/roux",
+        "feat-z",
+        expect.any(Object),
+      ),
     );
   });
 
@@ -1919,7 +1952,12 @@ describe("WorktrunkPanel — open-session-after-create", () => {
       ])
       .mockResolvedValueOnce([
         { path: "/project", branch: "main", isMain: true, worktrunk: null },
-        { path: "/project-feat-new", branch: "feat-new", isMain: false, worktrunk: null },
+        {
+          path: "/project-feat-new",
+          branch: "feat-new",
+          isMain: false,
+          worktrunk: null,
+        },
       ]);
     vi.mocked(createWorktree).mockResolvedValueOnce("/project-feat-new");
 
@@ -1928,12 +1966,16 @@ describe("WorktrunkPanel — open-session-after-create", () => {
     });
 
     await fireEvent.click(await findByTestId("worktrunk-new-worktree-open"));
-    const branchInput = (await findByTestId("worktrunk-new-worktree-branch")) as HTMLInputElement;
+    const branchInput = (await findByTestId(
+      "worktrunk-new-worktree-branch",
+    )) as HTMLInputElement;
     await fireEvent.input(branchInput, { target: { value: "feat-new" } });
     await fireEvent.click(getByTestId("worktrunk-new-worktree-submit"));
 
     // After create, an "Open session" button should appear
-    expect(await findByTestId("worktrunk-open-session-after-create-btn")).toBeDefined();
+    expect(
+      await findByTestId("worktrunk-open-session-after-create-btn"),
+    ).toBeDefined();
   });
 
   it("clicking open-session-after-create calls createSessionShell with the new worktree", async () => {
@@ -1948,11 +1990,22 @@ describe("WorktrunkPanel — open-session-after-create", () => {
       ])
       .mockResolvedValueOnce([
         { path: "/project", branch: "main", isMain: true, worktrunk: null },
-        { path: "/project-feat-new", branch: "feat-new", isMain: false, worktrunk: null },
+        {
+          path: "/project-feat-new",
+          branch: "feat-new",
+          isMain: false,
+          worktrunk: null,
+        },
       ]);
     vi.mocked(createWorktree).mockResolvedValueOnce("/project-feat-new");
     vi.mocked(createSessionShell).mockResolvedValueOnce(
-      makeSession({ id: "new-sess", repoRoot: "/project", worktreePath: "/project-feat-new", branch: "feat-new", isWorktree: true }),
+      makeSession({
+        id: "new-sess",
+        repoRoot: "/project",
+        worktreePath: "/project-feat-new",
+        branch: "feat-new",
+        isWorktree: true,
+      }),
     );
 
     const { findByTestId, getByTestId } = render(WorktrunkPanel, {
@@ -1960,11 +2013,15 @@ describe("WorktrunkPanel — open-session-after-create", () => {
     });
 
     await fireEvent.click(await findByTestId("worktrunk-new-worktree-open"));
-    const branchInput = (await findByTestId("worktrunk-new-worktree-branch")) as HTMLInputElement;
+    const branchInput = (await findByTestId(
+      "worktrunk-new-worktree-branch",
+    )) as HTMLInputElement;
     await fireEvent.input(branchInput, { target: { value: "feat-new" } });
     await fireEvent.click(getByTestId("worktrunk-new-worktree-submit"));
 
-    const openBtn = await findByTestId("worktrunk-open-session-after-create-btn");
+    const openBtn = await findByTestId(
+      "worktrunk-open-session-after-create-btn",
+    );
     await fireEvent.click(openBtn);
 
     await waitFor(() => {

@@ -32,7 +32,9 @@ function makeSession(overrides: Partial<Session> = {}): Session {
   };
 }
 
-function makeMetadata(overrides: Partial<WorktrunkMetadata> = {}): WorktrunkMetadata {
+function makeMetadata(
+  overrides: Partial<WorktrunkMetadata> = {},
+): WorktrunkMetadata {
   return {
     dirty: false,
     ahead: 0,
@@ -65,7 +67,10 @@ describe("buildMultiLineEditorContextChips", () => {
     ).toEqual([
       expect.objectContaining({ kind: "target", label: "shell" }),
       expect.objectContaining({ kind: "cwd", label: "roux" }),
-      expect.objectContaining({ kind: "branch", label: "feature/context-chips" }),
+      expect.objectContaining({
+        kind: "branch",
+        label: "feature/context-chips",
+      }),
       expect.objectContaining({ kind: "profile", label: "Plain shell" }),
     ]);
   });
@@ -100,7 +105,12 @@ describe("buildMultiLineEditorContextChips", () => {
       pane: makePane(),
       session: makeSession(),
       target: "shell",
-      metadata: makeMetadata({ dirty: true, ahead: 2, behind: 1, locked: true }),
+      metadata: makeMetadata({
+        dirty: true,
+        ahead: 2,
+        behind: 1,
+        locked: true,
+      }),
       profileName: null,
     });
 

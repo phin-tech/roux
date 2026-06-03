@@ -1,7 +1,11 @@
 <script lang="ts">
   import CircleStop from "@lucide/svelte/icons/circle-stop";
   import { fade, scale } from "svelte/transition";
-  import { editingWorkItemId, newWorkItemEditor, closeWorkItemEditor } from "$lib/stores/ui";
+  import {
+    editingWorkItemId,
+    newWorkItemEditor,
+    closeWorkItemEditor,
+  } from "$lib/stores/ui";
   import {
     workItems,
     createWorkItem,
@@ -67,7 +71,9 @@
     projectId ? ($projects.find((p) => p.id === projectId) ?? null) : null,
   );
   const projectRepoPath = $derived(selectedProject?.repoRoots?.[0] ?? null);
-  const showRepoPicker = $derived(!projectId || repoOverride || !projectRepoPath);
+  const showRepoPicker = $derived(
+    !projectId || repoOverride || !projectRepoPath,
+  );
   const effectiveRepoPath = $derived.by(() => {
     if (projectId && !repoOverride && projectRepoPath) return projectRepoPath;
     return repoPath.trim();
@@ -100,13 +106,18 @@
       status = item.status;
       projectId = item.projectId;
       const projectRoot = item.projectId
-        ? ($projects.find((p) => p.id === item.projectId)?.repoRoots?.[0] ?? null)
+        ? ($projects.find((p) => p.id === item.projectId)?.repoRoots?.[0] ??
+          null)
         : null;
       repoOverride = !item.projectId || !!item.repoPath;
-      repoPath = item.repoPath ?? projectRoot ?? $settings.defaultProjectPath ?? "";
+      repoPath =
+        item.repoPath ?? projectRoot ?? $settings.defaultProjectPath ?? "";
       profileId = item.agentProfile ?? defaultAgentProfileId();
       worktreeTarget = item.worktreePath ?? item.branch ?? "";
-      branchBase = item.fetchFirst || item.baseBranch === "origin/main" ? "originMain" : "main";
+      branchBase =
+        item.fetchFirst || item.baseBranch === "origin/main"
+          ? "originMain"
+          : "main";
       resetTransientState();
     } else if (createRequest && loadedKey !== `new:${createRequest.status}`) {
       loadedKey = `new:${createRequest.status}`;
@@ -179,7 +190,9 @@
     payload.repoPath = repoPathForSave();
     payload.agentProfile = profileId || defaultAgentProfileId();
     const target = worktreeTarget.trim();
-    const exactWorktree = worktrees.find((wt) => wt.path === target || wt.branch === target);
+    const exactWorktree = worktrees.find(
+      (wt) => wt.path === target || wt.branch === target,
+    );
     if (!target) {
       payload.worktreePath = null;
       payload.branch = null;
@@ -277,7 +290,12 @@
   }
 
   function isStoppableRun(status: string): boolean {
-    return status === "queued" || status === "starting" || status === "running" || status === "blocked";
+    return (
+      status === "queued" ||
+      status === "starting" ||
+      status === "running" ||
+      status === "blocked"
+    );
   }
 
   function runLabel(createdAt: number): string {
@@ -323,7 +341,9 @@
       transition:scale={{ duration: 150, start: 0.96 }}
     >
       <div class="border-b border-hairline bg-bg-surface/30 px-6 pb-4 pt-5">
-        <h2 class="mb-1 text-base font-semibold tracking-tight text-text-primary">
+        <h2
+          class="mb-1 text-base font-semibold tracking-tight text-text-primary"
+        >
           {isCreating ? "New card" : "Edit card"}
         </h2>
         <p class="text-xs text-text-muted">
@@ -336,7 +356,12 @@
           <section class="flex flex-col gap-4">
             <div class="flex flex-col gap-1.5">
               <label for="wi-title" class={sectionLabel}>Title</label>
-              <input id="wi-title" class={inputClass} bind:value={title} autocomplete="off" />
+              <input
+                id="wi-title"
+                class={inputClass}
+                bind:value={title}
+                autocomplete="off"
+              />
             </div>
 
             <div class="flex flex-col gap-1.5">
@@ -360,7 +385,11 @@
               </label>
               <label class="flex flex-col gap-1.5">
                 <span class={sectionLabel}>Project</span>
-                <select class={inputClass} bind:value={projectId} onchange={handleProjectChange}>
+                <select
+                  class={inputClass}
+                  bind:value={projectId}
+                  onchange={handleProjectChange}
+                >
                   <option value={null}>No project</option>
                   {#each $projects as p (p.id)}
                     <option value={p.id}>{p.name}</option>
@@ -402,7 +431,9 @@
                   }}
                 />
               {:else if projectRepoPath}
-                <p class="truncate rounded-md border border-border-subtle bg-bg-deep px-3 py-2 font-mono text-[12px] text-text-secondary">
+                <p
+                  class="truncate rounded-md border border-border-subtle bg-bg-deep px-3 py-2 font-mono text-[12px] text-text-secondary"
+                >
                   {projectRepoPath}
                 </p>
               {/if}
@@ -411,14 +442,17 @@
             <fieldset class="flex flex-col gap-1.5">
               <legend class={sectionLabel}>Worktree / Branch</legend>
               <p class="text-[11px] text-text-muted">
-                Pick an existing worktree, or type a new branch name to create one. Leave empty to use the repo root.
+                Pick an existing worktree, or type a new branch name to create
+                one. Leave empty to use the repo root.
               </p>
               <input
                 id="wi-worktree-target"
                 class={inputClass + " font-mono"}
                 bind:value={worktreeTarget}
                 list="wi-worktree-options"
-                placeholder={worktreesLoading ? "Loading worktrees..." : "main, feat/my-branch, or existing path"}
+                placeholder={worktreesLoading
+                  ? "Loading worktrees..."
+                  : "main, feat/my-branch, or existing path"}
                 autocomplete="off"
                 disabled={!effectiveRepoPath || worktreesLoading}
               />
@@ -447,7 +481,8 @@
                 <option value="originMain">origin/main (fetch first)</option>
               </select>
               <p class="text-[10px] text-text-muted/80">
-                Only used when creating a new branch from the branch field above.
+                Only used when creating a new branch from the branch field
+                above.
               </p>
             </div>
 
@@ -477,10 +512,16 @@
                         onclick={() => handleResolveDecision(option.value)}
                         disabled={resolvingDecision !== null}
                       >
-                        <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-amber/20 text-[10px] font-semibold text-amber">
+                        <span
+                          class="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-amber/20 text-[10px] font-semibold text-amber"
+                        >
                           {index + 1}
                         </span>
-                        <span>{resolvingDecision === option.value ? "Resolving..." : option.label}</span>
+                        <span
+                          >{resolvingDecision === option.value
+                            ? "Resolving..."
+                            : option.label}</span
+                        >
                       </button>
                     {/each}
                   </div>
@@ -490,12 +531,18 @@
               {#if itemRuns.length > 0}
                 <section class="flex flex-col gap-2">
                   <p class={sectionLabel}>Run History</p>
-                  <div class="flex flex-col overflow-hidden rounded-md border border-border-subtle">
+                  <div
+                    class="flex flex-col overflow-hidden rounded-md border border-border-subtle"
+                  >
                     {#each itemRuns as run (run.id)}
-                      <div class="flex items-start gap-3 border-b border-hairline px-3 py-2 last:border-b-0">
+                      <div
+                        class="flex items-start gap-3 border-b border-hairline px-3 py-2 last:border-b-0"
+                      >
                         <div class="min-w-0 flex-1">
                           <div class="flex flex-wrap items-center gap-2">
-                            <span class="text-[12px] font-semibold capitalize text-text-primary">
+                            <span
+                              class="text-[12px] font-semibold capitalize text-text-primary"
+                            >
                               {run.status}
                             </span>
                             {#if run.provider || run.profileId}
@@ -504,12 +551,20 @@
                               </span>
                             {/if}
                           </div>
-                          <p class="mt-0.5 truncate text-[11px] text-text-muted">
-                            {run.branch ?? run.worktreePath ?? run.sessionId ?? run.id}
+                          <p
+                            class="mt-0.5 truncate text-[11px] text-text-muted"
+                          >
+                            {run.branch ??
+                              run.worktreePath ??
+                              run.sessionId ??
+                              run.id}
                           </p>
                         </div>
                         <div class="flex shrink-0 items-center gap-2">
-                          <time class="text-[11px] text-text-muted" datetime={String(run.createdAt)}>
+                          <time
+                            class="text-[11px] text-text-muted"
+                            datetime={String(run.createdAt)}
+                          >
                             {runLabel(run.createdAt)}
                           </time>
                           {#if isStoppableRun(run.status)}
@@ -521,7 +576,11 @@
                               aria-label={`Stop run ${run.id}`}
                             >
                               <CircleStop size={12} strokeWidth={2.1} />
-                              <span>{stoppingRunId === run.id ? "Stopping" : "Stop"}</span>
+                              <span
+                                >{stoppingRunId === run.id
+                                  ? "Stopping"
+                                  : "Stop"}</span
+                              >
                             </button>
                           {/if}
                         </div>
@@ -576,7 +635,7 @@
 
   <WorkItemDeleteDialog
     item={deleteDialogOpen ? item : null}
-    deleting={deleting}
+    {deleting}
     error={deleteError}
     onCancel={() => {
       if (!deleting) deleteDialogOpen = false;

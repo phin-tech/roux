@@ -53,20 +53,31 @@ function makeArchived(id: string, overrides: Partial<Session> = {}): Session {
 
 describe("archivedSessions store", () => {
   beforeEach(() => {
-    archivedSessionsState.set({ sessions: [], loaded: false, worktreeExists: new Map() });
+    archivedSessionsState.set({
+      sessions: [],
+      loaded: false,
+      worktreeExists: new Map(),
+    });
     sessionState.set({ sessions: [], activeSessionId: null });
     vi.mocked(listArchivedSessions).mockReset();
     vi.mocked(listSessions).mockReset().mockResolvedValue([]);
     vi.mocked(restoreSession).mockReset().mockResolvedValue(undefined);
-    vi.mocked(deleteSessionPermanently).mockReset().mockResolvedValue(undefined);
+    vi.mocked(deleteSessionPermanently)
+      .mockReset()
+      .mockResolvedValue(undefined);
     vi.mocked(sessionWorktreeExists).mockReset().mockResolvedValue(true);
     vi.mocked(removeWorktree).mockReset().mockResolvedValue(undefined);
   });
 
   it("loadArchivedSessions hydrates the list and per-session worktree existence", async () => {
-    const sessions = [makeArchived("a"), makeArchived("b", { worktreePath: "/gone" })];
+    const sessions = [
+      makeArchived("a"),
+      makeArchived("b", { worktreePath: "/gone" }),
+    ];
     vi.mocked(listArchivedSessions).mockResolvedValueOnce(sessions);
-    vi.mocked(sessionWorktreeExists).mockImplementation(async (id) => id !== "b");
+    vi.mocked(sessionWorktreeExists).mockImplementation(
+      async (id) => id !== "b",
+    );
 
     await loadArchivedSessions();
 
@@ -81,9 +92,16 @@ describe("archivedSessions store", () => {
     archivedSessionsState.set({
       sessions: [makeArchived("a"), makeArchived("b")],
       loaded: true,
-      worktreeExists: new Map([["a", true], ["b", false]]),
+      worktreeExists: new Map([
+        ["a", true],
+        ["b", false],
+      ]),
     });
-    const restoredActive: Session = { ...makeArchived("a"), archived: false, endedAt: null };
+    const restoredActive: Session = {
+      ...makeArchived("a"),
+      archived: false,
+      endedAt: null,
+    };
     vi.mocked(listSessions).mockResolvedValueOnce([restoredActive]);
 
     await restoreArchivedSession("a");
@@ -116,7 +134,10 @@ describe("archivedSessions store", () => {
     archivedSessionsState.set({
       sessions: [makeArchived("a"), makeArchived("b")],
       loaded: true,
-      worktreeExists: new Map([["a", true], ["b", false]]),
+      worktreeExists: new Map([
+        ["a", true],
+        ["b", false],
+      ]),
     });
 
     await removeArchivedSessionForever("b");
@@ -129,7 +150,9 @@ describe("archivedSessions store", () => {
 
   it("cleanArchivedWorktree removes the worktree and flips worktreeExists to false", async () => {
     archivedSessionsState.set({
-      sessions: [makeArchived("a", { isWorktree: true, worktreePath: "/wt/a" })],
+      sessions: [
+        makeArchived("a", { isWorktree: true, worktreePath: "/wt/a" }),
+      ],
       loaded: true,
       worktreeExists: new Map([["a", true]]),
     });
@@ -151,7 +174,10 @@ describe("archivedSessions store", () => {
 
     addArchivedSessionFromEvent(makeArchived("new"));
 
-    expect(get(archivedSessionsState).sessions.map((s) => s.id)).toEqual(["new", "existing"]);
+    expect(get(archivedSessionsState).sessions.map((s) => s.id)).toEqual([
+      "new",
+      "existing",
+    ]);
     expect(get(archivedSessionsState).worktreeExists.get("new")).toBe(true);
   });
 
@@ -184,7 +210,11 @@ describe("archivedSessions store", () => {
     vi.mocked(restoreSession).mockImplementation(async (id) => {
       if (id === "b") throw new Error("boom");
     });
-    const restoredA: Session = { ...makeArchived("a"), archived: false, endedAt: null };
+    const restoredA: Session = {
+      ...makeArchived("a"),
+      archived: false,
+      endedAt: null,
+    };
     vi.mocked(listSessions).mockResolvedValueOnce([restoredA]);
 
     const result = await bulkRestoreArchivedSessions(["a", "b", "c"]);
@@ -245,7 +275,12 @@ describe("archivedSessions store", () => {
 
   it("bulk failures normalize Error and non-Error rejections to readable strings", async () => {
     archivedSessionsState.set({
-      sessions: [makeArchived("a"), makeArchived("b"), makeArchived("c"), makeArchived("d")],
+      sessions: [
+        makeArchived("a"),
+        makeArchived("b"),
+        makeArchived("c"),
+        makeArchived("d"),
+      ],
       loaded: true,
       worktreeExists: new Map([
         ["a", true],
@@ -261,7 +296,12 @@ describe("archivedSessions store", () => {
       if (id === "d") throw undefined;
     });
 
-    const result = await bulkDeleteArchivedSessionsForever(["a", "b", "c", "d"]);
+    const result = await bulkDeleteArchivedSessionsForever([
+      "a",
+      "b",
+      "c",
+      "d",
+    ]);
 
     expect(result.failures).toHaveLength(4);
     const byId = new Map(result.failures.map((f) => [f.id, f.error]));

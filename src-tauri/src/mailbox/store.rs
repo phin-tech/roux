@@ -91,9 +91,7 @@ impl EventStore {
             store.events.push_back(e);
         }
         for s in read_state {
-            store
-                .read_state
-                .insert((s.recipient.clone(), s.event_id.clone()), s);
+            store.read_state.insert((s.recipient.clone(), s.event_id.clone()), s);
         }
         store.evict_overflow();
         store
@@ -278,10 +276,7 @@ impl EventStore {
             }
             let state = match recipient_filter {
                 Some(r) => self.read_state(&e.id, r).cloned(),
-                None => e
-                    .to
-                    .as_deref()
-                    .and_then(|t| self.read_state(&e.id, t).cloned()),
+                None => e.to.as_deref().and_then(|t| self.read_state(&e.id, t).cloned()),
             };
             out.push((e.clone(), state));
             if let Some(n) = limit {
@@ -450,10 +445,8 @@ impl EventStore {
     ) -> Result<Event, RetractError> {
         // Look up the event first; emit a precise error before any
         // mutation so the manager can persist or skip cleanly.
-        let any_acked = self
-            .read_state
-            .iter()
-            .any(|((_, eid), s)| eid == event_id && s.acked_at.is_some());
+        let any_acked =
+            self.read_state.iter().any(|((_, eid), s)| eid == event_id && s.acked_at.is_some());
         let event = self
             .events
             .iter_mut()
@@ -589,9 +582,7 @@ mod tests {
     #[test]
     fn post_validates_addressing() {
         let mut store = EventStore::new();
-        let err = store
-            .post(EventBuilder::new("hi"), "evt-1".into(), 0)
-            .unwrap_err();
+        let err = store.post(EventBuilder::new("hi"), "evt-1".into(), 0).unwrap_err();
         assert!(matches!(err, PostError::Validation(_)));
         assert_eq!(store.len(), 0);
     }
@@ -603,7 +594,8 @@ mod tests {
         post_to(&mut store, "e2", "builder", "b", None, None);
         post_to(&mut store, "e3", "reviewer", "c", None, None);
 
-        let mine = store.list_for_recipient("reviewer", NO_SUBSCRIPTIONS, false, ProjectFilter::Any);
+        let mine =
+            store.list_for_recipient("reviewer", NO_SUBSCRIPTIONS, false, ProjectFilter::Any);
         let ids: Vec<_> = mine.iter().map(|e| e.id.clone()).collect();
         assert_eq!(ids, vec!["e1", "e3"]);
     }
@@ -615,7 +607,8 @@ mod tests {
         post_to(&mut store, "e2", "reviewer", "b", None, None);
         store.mark_read("e1", "reviewer", NO_SUBSCRIPTIONS, 2000);
 
-        let unread = store.list_for_recipient("reviewer", NO_SUBSCRIPTIONS, true, ProjectFilter::Any);
+        let unread =
+            store.list_for_recipient("reviewer", NO_SUBSCRIPTIONS, true, ProjectFilter::Any);
         assert_eq!(unread.len(), 1);
         assert_eq!(unread[0].id, "e2");
     }
@@ -636,7 +629,12 @@ mod tests {
         assert_eq!(only_a.len(), 1);
         assert_eq!(only_a[0].id, "a");
 
-        let global_only = store.list_for_recipient("reviewer", NO_SUBSCRIPTIONS, false, ProjectFilter::Exact(None));
+        let global_only = store.list_for_recipient(
+            "reviewer",
+            NO_SUBSCRIPTIONS,
+            false,
+            ProjectFilter::Exact(None),
+        );
         assert_eq!(global_only.len(), 1);
         assert_eq!(global_only[0].id, "g");
     }
@@ -685,7 +683,10 @@ mod tests {
         let mut store = EventStore::new();
         post_to(&mut store, "e1", "reviewer", "x", None, None);
         assert!(store.mark_read("e1", "reviewer", NO_SUBSCRIPTIONS, 1000));
-        assert!(!store.mark_read("e1", "reviewer", NO_SUBSCRIPTIONS, 2000), "second call should report no change");
+        assert!(
+            !store.mark_read("e1", "reviewer", NO_SUBSCRIPTIONS, 2000),
+            "second call should report no change"
+        );
         let state = store.read_state("e1", "reviewer").unwrap();
         assert_eq!(state.read_at, Some(1000), "first read_at should be preserved");
     }
@@ -726,7 +727,10 @@ mod tests {
         let mut store = EventStore::new();
         post_to(&mut store, "e1", "reviewer", "x", None, None);
         store.ack("e1", "reviewer", NO_SUBSCRIPTIONS, Some("first".into()), 1000);
-        assert!(!store.ack("e1", "reviewer", NO_SUBSCRIPTIONS, None, 2000), "redundant ack returns false");
+        assert!(
+            !store.ack("e1", "reviewer", NO_SUBSCRIPTIONS, None, 2000),
+            "redundant ack returns false"
+        );
         // Updating the result is allowed.
         assert!(store.ack("e1", "reviewer", NO_SUBSCRIPTIONS, Some("better".into()), 3000));
         let state = store.read_state("e1", "reviewer").unwrap();
@@ -861,16 +865,8 @@ mod tests {
         store.post(b, id.to_string(), 1000).unwrap()
     }
 
-    fn post_topic_to(
-        store: &mut EventStore,
-        id: &str,
-        topic: &str,
-        addressed: &str,
-    ) -> Event {
-        let b = EventBuilder::new("body")
-            .to(addressed)
-            .topic(topic)
-            .kind(EventKind::Task);
+    fn post_topic_to(store: &mut EventStore, id: &str, topic: &str, addressed: &str) -> Event {
+        let b = EventBuilder::new("body").to(addressed).topic(topic).kind(EventKind::Task);
         store.post(b, id.to_string(), 1000).unwrap()
     }
 
@@ -882,8 +878,7 @@ mod tests {
         post_topic(&mut store, "e3", "repo-a.build.failed");
 
         let patterns = vec!["**.completed".to_string()];
-        let events =
-            store.list_for_recipient("auditor", &patterns, false, ProjectFilter::Any);
+        let events = store.list_for_recipient("auditor", &patterns, false, ProjectFilter::Any);
         let ids: Vec<_> = events.iter().map(|e| e.id.clone()).collect();
         // e1 is direct mail, e2 matches the pattern, e3 doesn't.
         assert_eq!(ids, vec!["e1", "e2"]);
@@ -965,8 +960,7 @@ mod tests {
         assert!(store.read_state("e1", "auditor").unwrap().is_cleared());
 
         // Cleared topic event drops out of list_for_recipient.
-        let events =
-            store.list_for_recipient("auditor", &patterns, false, ProjectFilter::Any);
+        let events = store.list_for_recipient("auditor", &patterns, false, ProjectFilter::Any);
         assert!(events.is_empty());
     }
 
@@ -1023,7 +1017,8 @@ mod tests {
         post_to(&mut store, "e1", "reviewer", "live", Some("me"), None);
         post_to(&mut store, "e2", "reviewer", "to-retract", Some("me"), None);
         store.retract("e2", "me", 5000).unwrap();
-        let inbox = store.list_for_recipient("reviewer", NO_SUBSCRIPTIONS, false, ProjectFilter::Any);
+        let inbox =
+            store.list_for_recipient("reviewer", NO_SUBSCRIPTIONS, false, ProjectFilter::Any);
         let ids: Vec<_> = inbox.iter().map(|e| e.id.clone()).collect();
         assert_eq!(ids, vec!["e1"]);
     }

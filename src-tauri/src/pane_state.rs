@@ -161,17 +161,11 @@ fn latest_provider_sessions_by_pane(
         let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&content) else {
             continue;
         };
-        if parsed
-            .get("roux_session_id")
-            .and_then(|v| v.as_str())
-            != Some(session_id)
-        {
+        if parsed.get("roux_session_id").and_then(|v| v.as_str()) != Some(session_id) {
             continue;
         }
-        let Some(pane_id) = parsed
-            .get("roux_pane_id")
-            .and_then(|v| v.as_str())
-            .filter(|v| !v.is_empty())
+        let Some(pane_id) =
+            parsed.get("roux_pane_id").and_then(|v| v.as_str()).filter(|v| !v.is_empty())
         else {
             continue;
         };
@@ -190,9 +184,8 @@ fn latest_provider_sessions_by_pane(
             .and_then(|v| v.as_str())
             .filter(|v| !v.is_empty())
             .map(str::to_string);
-        let Some(provider_session_id) = generic_session_id
-            .clone()
-            .or_else(|| legacy_claude_session_id.clone())
+        let Some(provider_session_id) =
+            generic_session_id.clone().or_else(|| legacy_claude_session_id.clone())
         else {
             continue;
         };
@@ -456,10 +449,7 @@ mod tests {
 
         let loaded = load_from(dir.path(), "sess1").unwrap();
 
-        assert_eq!(
-            loaded["descriptors"][0]["providerSessionId"],
-            json!("agent-xyz"),
-        );
+        assert_eq!(loaded["descriptors"][0]["providerSessionId"], json!("agent-xyz"),);
         // Provider must remain absent — not silently coerced to "claude".
         assert!(loaded["descriptors"][0].get("provider").is_none());
     }
@@ -484,10 +474,7 @@ mod tests {
 
         let loaded = load_from(dir.path(), "sess1").unwrap();
 
-        assert_eq!(
-            loaded["descriptors"][0]["providerSessionId"],
-            json!("claude-legacy-1"),
-        );
+        assert_eq!(loaded["descriptors"][0]["providerSessionId"], json!("claude-legacy-1"),);
         assert_eq!(loaded["descriptors"][0]["provider"], json!("claude"));
     }
 
@@ -495,31 +482,12 @@ mod tests {
     fn load_enriches_descriptors_with_latest_provider_session_status() {
         let dir = tempfile::tempdir().unwrap();
         save_to(dir.path(), "sess1", minimal_payload()).unwrap();
-        write_status(
-            dir.path(),
-            "old.json",
-            "sess1",
-            "sess1-main",
-            "claude",
-            "claude-old",
-            10,
-        );
-        write_status(
-            dir.path(),
-            "new.json",
-            "sess1",
-            "sess1-main",
-            "claude",
-            "claude-new",
-            20,
-        );
+        write_status(dir.path(), "old.json", "sess1", "sess1-main", "claude", "claude-old", 10);
+        write_status(dir.path(), "new.json", "sess1", "sess1-main", "claude", "claude-new", 20);
 
         let loaded = load_from(dir.path(), "sess1").unwrap();
 
-        assert_eq!(
-            loaded["descriptors"][0]["providerSessionId"],
-            json!("claude-new"),
-        );
+        assert_eq!(loaded["descriptors"][0]["providerSessionId"], json!("claude-new"),);
         assert_eq!(loaded["descriptors"][0]["provider"], json!("claude"));
     }
 
@@ -552,10 +520,7 @@ mod tests {
 
         let loaded = load_from(dir.path(), "sess1").unwrap();
 
-        assert_eq!(
-            loaded["descriptors"][0]["providerSessionId"],
-            json!("explicit-current"),
-        );
+        assert_eq!(loaded["descriptors"][0]["providerSessionId"], json!("explicit-current"),);
     }
 
     #[test]

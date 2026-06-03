@@ -105,8 +105,14 @@ describe("notifications store", () => {
     });
 
     it("cleared with null sessionId clears everything", () => {
-      applyNotificationEvent({ type: "added", notification: makeNotification() });
-      applyNotificationEvent({ type: "added", notification: makeNotification() });
+      applyNotificationEvent({
+        type: "added",
+        notification: makeNotification(),
+      });
+      applyNotificationEvent({
+        type: "added",
+        notification: makeNotification(),
+      });
       applyNotificationEvent({ type: "cleared", sessionId: null });
       expect(get(notifications)).toHaveLength(0);
     });

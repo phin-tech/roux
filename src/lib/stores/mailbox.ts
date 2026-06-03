@@ -115,7 +115,9 @@ export async function refreshUnreadCount(
       await refreshUnreadCount(alias, null);
       return;
     }
-    await Promise.all(matching.map((a) => refreshUnreadCount(alias, a.projectId)));
+    await Promise.all(
+      matching.map((a) => refreshUnreadCount(alias, a.projectId)),
+    );
     return;
   }
   try {
@@ -241,7 +243,10 @@ export async function postMailboxMessage(
   return tauriMailboxPost(input);
 }
 
-export async function markRead(eventId: string, recipient: string): Promise<boolean> {
+export async function markRead(
+  eventId: string,
+  recipient: string,
+): Promise<boolean> {
   return tauriMailboxMarkRead(eventId, recipient);
 }
 

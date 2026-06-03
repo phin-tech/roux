@@ -1,5 +1,5 @@
-use std::fs;
 use std::fmt;
+use std::fs;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -263,8 +263,11 @@ mod tests {
     fn preview_handles_tui_header_with_inline_comment() {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("config.toml");
-        fs::write(&path, "[tui] # interface settings\ntheme = \"dark\"\n[model]\nname = \"gpt-5\"\n")
-            .unwrap();
+        fs::write(
+            &path,
+            "[tui] # interface settings\ntheme = \"dark\"\n[model]\nname = \"gpt-5\"\n",
+        )
+        .unwrap();
 
         let preview = preview_codex_notification_config_at(&path).unwrap();
 
@@ -297,10 +300,7 @@ mod tests {
 
         assert!(preview.configured);
         assert_eq!(preview.current_value.as_deref(), Some("always"));
-        assert_eq!(
-            preview.next_content,
-            "[tui]\nnotification_condition = 'always' # literal\n",
-        );
+        assert_eq!(preview.next_content, "[tui]\nnotification_condition = 'always' # literal\n",);
     }
 
     #[test]

@@ -54,6 +54,25 @@ jobs:
             );
             core.setOutput('docs_only', String(docsOnly));
 
+  # Formatting is enforced for all changes (including docs-only), since
+  # Prettier also formats Markdown/JSON/YAML/HTML. Not gated on docs_only.
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: npm ci
+      - name: Prettier
+        run: npm run format:check
+      - name: Rust fmt
+        run: cargo fmt --all --manifest-path src-tauri/Cargo.toml -- --check
+
   frontend:
     runs-on: ubuntu-latest
     needs: changes

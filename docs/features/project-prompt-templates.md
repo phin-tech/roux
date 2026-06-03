@@ -4,10 +4,10 @@ Project prompts support [Minijinja](https://github.com/mitsuhiko/minijinja)-styl
 
 Rendered prompts are appended automatically for:
 
-| Provider | Startup injection |
-|---|---|
-| Claude | `--append-system-prompt` |
-| Codex | `-c instructions=...` |
+| Provider | Startup injection        |
+| -------- | ------------------------ |
+| Claude   | `--append-system-prompt` |
+| Codex    | `-c instructions=...`    |
 
 Other profiles are not modified automatically. They can still read `ROUX_PROJECT_PROMPT`, which contains the saved project prompt text.
 
@@ -17,37 +17,37 @@ The New/Edit Project dialog has a manual **Preview** button under the project pr
 
 Preview uses these fallback values before a real session exists:
 
-| Value | Preview fallback |
-|---|---|
-| `session.id` | `preview` |
+| Value                   | Preview fallback                                         |
+| ----------------------- | -------------------------------------------------------- |
+| `session.id`            | `preview`                                                |
 | `session.worktree_path` | blueprint `worktreePath`, otherwise blueprint `repoRoot` |
-| `session.worktree_name` | last path segment of `session.worktree_path` |
-| `session.branch` | blueprint `branch`, otherwise `null` |
-| `other_sessions` | current live sessions in the same project |
+| `session.worktree_name` | last path segment of `session.worktree_path`             |
+| `session.branch`        | blueprint `branch`, otherwise `null`                     |
+| `other_sessions`        | current live sessions in the same project                |
 
 ## Variables
 
-| Variable | Description |
-|---|---|
-| `project.id` | Project id, or `null` in a new unsaved project preview |
-| `project.name` | Project name |
-| `project.repo_roots` | Repository roots configured on the project |
-| `project.context_paths` | Project context paths |
-| `session.id` | Roux session id |
-| `session.name` | Session name |
-| `session.repo_root` | Repository root for the session |
-| `session.worktree_path` | Directory where the agent starts |
-| `session.worktree_name` | Last path segment of `session.worktree_path` |
-| `session.branch` | Branch or worktree name when known |
-| `session.is_worktree` | `true` when the session uses a worktree |
-| `session.blueprint_id` | Project blueprint id when spawned from a blueprint |
-| `profile.id` | Spawn profile id |
-| `profile.name` | Spawn profile display name |
-| `profile.provider` | `claude`, `codex`, or `null` |
-| `model.name` | Roux's configured default model, or `null` |
-| `model.family` | Same provider family as `profile.provider` |
-| `paths.sessions_folder` | Current session worktree directory |
-| `other_sessions` | Live sessions in the same project, excluding the current session |
+| Variable                | Description                                                      |
+| ----------------------- | ---------------------------------------------------------------- |
+| `project.id`            | Project id, or `null` in a new unsaved project preview           |
+| `project.name`          | Project name                                                     |
+| `project.repo_roots`    | Repository roots configured on the project                       |
+| `project.context_paths` | Project context paths                                            |
+| `session.id`            | Roux session id                                                  |
+| `session.name`          | Session name                                                     |
+| `session.repo_root`     | Repository root for the session                                  |
+| `session.worktree_path` | Directory where the agent starts                                 |
+| `session.worktree_name` | Last path segment of `session.worktree_path`                     |
+| `session.branch`        | Branch or worktree name when known                               |
+| `session.is_worktree`   | `true` when the session uses a worktree                          |
+| `session.blueprint_id`  | Project blueprint id when spawned from a blueprint               |
+| `profile.id`            | Spawn profile id                                                 |
+| `profile.name`          | Spawn profile display name                                       |
+| `profile.provider`      | `claude`, `codex`, or `null`                                     |
+| `model.name`            | Roux's configured default model, or `null`                       |
+| `model.family`          | Same provider family as `profile.provider`                       |
+| `paths.sessions_folder` | Current session worktree directory                               |
+| `other_sessions`        | Live sessions in the same project, excluding the current session |
 
 Each item in `other_sessions` has the same fields as `session`.
 

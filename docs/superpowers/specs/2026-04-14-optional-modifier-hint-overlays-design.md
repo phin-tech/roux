@@ -42,8 +42,9 @@ The settings store already mirrors `RouxSettings`. No shape work beyond picking 
 `handleKeyDown` currently calls `armSessionHints()` on Meta/Control down (line 207) and `armPaneHints()` on Alt down (line 212). Guard each with the corresponding setting:
 
 ```ts
-if (settings.showSessionHintsOnCommand && isPrimaryModifierKey(e)) armSessionHints();
-if (settings.showPaneHintsOnOption && e.key === "Alt")             armPaneHints();
+if (settings.showSessionHintsOnCommand && isPrimaryModifierKey(e))
+  armSessionHints();
+if (settings.showPaneHintsOnOption && e.key === "Alt") armPaneHints();
 ```
 
 The `handleKeyUp` side (lines 364, 367) that calls `hideSessionHints()` / `hidePaneHints()` is left unconditional so a toggle flipped off mid-hold still cleans up any visible overlay.

@@ -8,10 +8,10 @@ They are inspired by [Worktrunk hooks](https://worktrunk.dev/hook/), but they ar
 
 Roux loads hooks from:
 
-| Scope | Path | Trust |
-|---|---|---|
-| User | `~/.config/roux/hooks.toml` | trusted by default |
-| Project | `<repo>/.config/roux/hooks.toml` | requires approval |
+| Scope   | Path                             | Trust              |
+| ------- | -------------------------------- | ------------------ |
+| User    | `~/.config/roux/hooks.toml`      | trusted by default |
+| Project | `<repo>/.config/roux/hooks.toml` | requires approval  |
 
 Project approvals are keyed by config path, event, command name, and command text. If a project command changes, Roux treats it as a new command and requires approval again.
 
@@ -50,36 +50,36 @@ test = "npm test -- --watch"
 
 ### Watches
 
-| Event | When it runs |
-|---|---|
-| `pre-watch-run` | Before executing a watch check. Failure skips the check and records a failed watch result. |
-| `post-watch-run` | After every completed watch check. |
-| `post-watch-change` | Only when the watch outcome changes. |
-| `post-watch-failure` | Only when the outcome transitions into failure. |
-| `post-watch-success` | Only when the outcome transitions into success. |
+| Event                | When it runs                                                                               |
+| -------------------- | ------------------------------------------------------------------------------------------ |
+| `pre-watch-run`      | Before executing a watch check. Failure skips the check and records a failed watch result. |
+| `post-watch-run`     | After every completed watch check.                                                         |
+| `post-watch-change`  | Only when the watch outcome changes.                                                       |
+| `post-watch-failure` | Only when the outcome transitions into failure.                                            |
+| `post-watch-success` | Only when the outcome transitions into success.                                            |
 
 ### Worktrees
 
-| Event | When it runs |
-|---|---|
-| `pre-worktree-create` | Before Roux invokes the selected provider. |
-| `post-worktree-create` | After a worktree is created. |
-| `pre-worktree-remove` | Before Roux removes a worktree. |
-| `post-worktree-remove` | After removal completes. |
+| Event                  | When it runs                               |
+| ---------------------- | ------------------------------------------ |
+| `pre-worktree-create`  | Before Roux invokes the selected provider. |
+| `post-worktree-create` | After a worktree is created.               |
+| `pre-worktree-remove`  | Before Roux removes a worktree.            |
+| `post-worktree-remove` | After removal completes.                   |
 
 When the effective provider is Worktrunk, Roux marks Worktrunk's provider-owned hooks as already handled in the hook context. Roux does not try to rerun Worktrunk's `pre-start`, `post-start`, `pre-remove`, or `post-remove`.
 
 ### Sessions and tasks
 
-| Event | When it runs |
-|---|---|
-| `post-session-create` | After Roux creates a session record and primary PTY. |
-| `pre-session-close` | Before Roux archives a session and kills its PTYs. |
-| `post-session-close` | After session close cleanup completes. |
-| `pre-task-run` | Before Roux spawns a task command. |
-| `post-task-run` | After Roux successfully spawns a task command. |
-| `post-task-success` | When a task PTY exits with code `0`. |
-| `post-task-failure` | When a task PTY exits with any non-zero or unknown code. |
+| Event                 | When it runs                                             |
+| --------------------- | -------------------------------------------------------- |
+| `post-session-create` | After Roux creates a session record and primary PTY.     |
+| `pre-session-close`   | Before Roux archives a session and kills its PTYs.       |
+| `post-session-close`  | After session close cleanup completes.                   |
+| `pre-task-run`        | Before Roux spawns a task command.                       |
+| `post-task-run`       | After Roux successfully spawns a task command.           |
+| `post-task-success`   | When a task PTY exits with code `0`.                     |
+| `post-task-failure`   | When a task PTY exits with any non-zero or unknown code. |
 
 ## Conditions
 
@@ -97,11 +97,11 @@ install = "npm ci"
 
 Supported conditions:
 
-| Condition | Values |
-|---|---|
-| `when.provider` | `"git"`, `"worktrunk"`, or `"auto"` context values |
-| `when.worktrunk` | `true` or `false` |
-| `when.scope` | `"global"`, `"project"`, or `"session"` |
+| Condition        | Values                                             |
+| ---------------- | -------------------------------------------------- |
+| `when.provider`  | `"git"`, `"worktrunk"`, or `"auto"` context values |
+| `when.worktrunk` | `true` or `false`                                  |
+| `when.scope`     | `"global"`, `"project"`, or `"session"`            |
 
 For conditions, `when.provider = "git"` and `when.provider = "worktrunk"` match the effective provider Roux intends to use for the operation. `when.provider = "auto"` matches when the user's configured provider is `auto`. The rendered context includes both `provider` and `configured_provider` when you need to distinguish those values in a template or stdin JSON.
 
@@ -123,38 +123,38 @@ post-worktree-create = "createdb {{ branch | sanitize_db }}"
 
 Common variables:
 
-| Variable | Meaning |
-|---|---|
-| `hook_type` | Event name, such as `post-watch-success`. |
-| `hook_name` | Named command key, such as `notify`. |
-| `provider` | Effective provider, usually `git` or `worktrunk`. |
-| `configured_provider` | User setting: `auto`, `git`, or `worktrunk`. |
-| `worktrunk` | Boolean convenience flag. |
-| `repo_path` | Repository root when known. |
-| `worktree_path` | Worktree path when known. |
-| `branch` | Branch name when known. |
-| `cwd` | Directory where Roux runs the hook command. |
-| `session_id` | Roux session id when known. |
-| `project_id` | Roux project id when known. |
-| `task_id` | Task PTY id for task hooks. |
-| `watch.id` | Watch id for watch hooks. |
-| `watch.name` | Watch name for watch hooks. |
-| `outcome` | Current watch outcome when known. |
-| `previous_outcome` | Previous watch outcome when known. |
-| `args` | Extra tokens passed by `roux hook run ... -- ...`. |
+| Variable              | Meaning                                            |
+| --------------------- | -------------------------------------------------- |
+| `hook_type`           | Event name, such as `post-watch-success`.          |
+| `hook_name`           | Named command key, such as `notify`.               |
+| `provider`            | Effective provider, usually `git` or `worktrunk`.  |
+| `configured_provider` | User setting: `auto`, `git`, or `worktrunk`.       |
+| `worktrunk`           | Boolean convenience flag.                          |
+| `repo_path`           | Repository root when known.                        |
+| `worktree_path`       | Worktree path when known.                          |
+| `branch`              | Branch name when known.                            |
+| `cwd`                 | Directory where Roux runs the hook command.        |
+| `session_id`          | Roux session id when known.                        |
+| `project_id`          | Roux project id when known.                        |
+| `task_id`             | Task PTY id for task hooks.                        |
+| `watch.id`            | Watch id for watch hooks.                          |
+| `watch.name`          | Watch name for watch hooks.                        |
+| `outcome`             | Current watch outcome when known.                  |
+| `previous_outcome`    | Previous watch outcome when known.                 |
+| `args`                | Extra tokens passed by `roux hook run ... -- ...`. |
 
 Roux also provides Worktrunk-inspired helper filters and functions:
 
-| Helper | Example | Meaning |
-|---|---|---|
-| `sanitize` | `{{ branch | sanitize }}` | Lowercase path/shell-friendly token. |
-| `sanitize_hash` | `{{ branch | sanitize_hash }}` | Sanitized token with a short stable hash when the original needed rewriting or was long. |
-| `sanitize_db` | `{{ branch | sanitize_db }}` | Lowercase database-safe identifier, capped at 63 characters. |
-| `hash_port` | `{{ branch | hash_port }}` | Stable port in the `10000..49999` range. |
+| Helper                    | Example                                 | Meaning                                                                    |
+| ------------------------- | --------------------------------------- | -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `sanitize`                | `{{ branch                              | sanitize }}`                                                               | Lowercase path/shell-friendly token.                                                     |
+| `sanitize_hash`           | `{{ branch                              | sanitize_hash }}`                                                          | Sanitized token with a short stable hash when the original needed rewriting or was long. |
+| `sanitize_db`             | `{{ branch                              | sanitize_db }}`                                                            | Lowercase database-safe identifier, capped at 63 characters.                             |
+| `hash_port`               | `{{ branch                              | hash_port }}`                                                              | Stable port in the `10000..49999` range.                                                 |
 | `worktree_path_of_branch` | `{{ worktree_path_of_branch("main") }}` | Looks up a local git worktree path for a branch when `repo_path` is known. |
 
 !!! note "Shell escaping"
-    MiniJinja renders text; it does not automatically shell-escape values. Quote variables in commands when paths, branch names, or watch names can contain spaces or shell metacharacters.
+MiniJinja renders text; it does not automatically shell-escape values. Quote variables in commands when paths, branch names, or watch names can contain spaces or shell metacharacters.
 
 ## JSON context on stdin
 

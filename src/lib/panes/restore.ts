@@ -5,7 +5,11 @@ import { sessionLayouts, type LayoutNode } from "./layout";
 import { initSessionWithProfile } from "./actions";
 import { setLogicalFocus } from "./focus";
 import { log } from "$lib/logging";
-import { resolveProfileRef, type SpawnProfile, type SpawnProfileRef } from "./profiles";
+import {
+  resolveProfileRef,
+  type SpawnProfile,
+  type SpawnProfileRef,
+} from "./profiles";
 import { runProfileInPane } from "./profileRunner";
 import { spawnShell } from "$lib/tauri";
 import { renderProjectPromptForSession } from "$lib/projectPromptTemplates";
@@ -36,14 +40,20 @@ export async function restoreSessionPanes(
 
   const restored = stripKnownStaleCommandPanes(persisted, opts.livePtyIds);
   if (!restored.layout) {
-    log(`restoreSessionPanes(${session.id}): persisted state has only stale command panes; falling back to primary-only restore`);
+    log(
+      `restoreSessionPanes(${session.id}): persisted state has only stale command panes; falling back to primary-only restore`,
+    );
     await restorePrimaryOnly(session, undefined, opts);
     return;
   }
 
-  const primaryDescriptor = restored.descriptors.find((d) => d.ptyId === session.id);
+  const primaryDescriptor = restored.descriptors.find(
+    (d) => d.ptyId === session.id,
+  );
   if (!primaryDescriptor) {
-    log(`restoreSessionPanes(${session.id}): persisted state has no primary pane; falling back to primary-only restore`);
+    log(
+      `restoreSessionPanes(${session.id}): persisted state has no primary pane; falling back to primary-only restore`,
+    );
     await restorePrimaryOnly(session, undefined, opts);
     return;
   }
@@ -62,7 +72,10 @@ export async function restoreSessionPanes(
   // to replay the spawn profile so agents come back live without user
   // intervention — closing the cold-start gap for headless callers (MCP,
   // CLI) that resolve panes by id and expect a live PTY.
-  const respawnedPanes = new Map<string, { ptyId: string; profile: SpawnProfile | null }>();
+  const respawnedPanes = new Map<
+    string,
+    { ptyId: string; profile: SpawnProfile | null }
+  >();
 
   for (const d of restored.descriptors) {
     if (d.id === primaryDescriptor.id) {
@@ -83,9 +96,14 @@ export async function restoreSessionPanes(
           provider: d.provider,
           providerSessionId: d.providerSessionId,
         });
-        respawnedPanes.set(d.id, { ptyId: result.ptyId, profile: result.profile });
+        respawnedPanes.set(d.id, {
+          ptyId: result.ptyId,
+          profile: result.profile,
+        });
       } else {
-        log(`restoreSessionPanes(${session.id}): respawn failed for ${d.id} — ${result.message}`);
+        log(
+          `restoreSessionPanes(${session.id}): respawn failed for ${d.id} — ${result.message}`,
+        );
         createPane({
           id: d.id,
           type: "shell",
@@ -126,7 +144,9 @@ export async function restoreSessionPanes(
         opts.initTerminal(d.id);
         await opts.attachPtyListeners(d.id);
       } catch (e) {
-        log(`restoreSessionPanes(${session.id}): failed to attach respawned pane ${d.id}: ${e}`);
+        log(
+          `restoreSessionPanes(${session.id}): failed to attach respawned pane ${d.id}: ${e}`,
+        );
         continue;
       }
       if (respawn.profile) {
@@ -139,7 +159,9 @@ export async function restoreSessionPanes(
             ...(appendSystemPrompt.trim() ? { appendSystemPrompt } : {}),
           });
         } catch (e) {
-          log(`restoreSessionPanes(${session.id}): profile replay failed for ${d.id}: ${e}`);
+          log(
+            `restoreSessionPanes(${session.id}): profile replay failed for ${d.id}: ${e}`,
+          );
         }
       }
       continue;
@@ -155,7 +177,9 @@ export async function restoreSessionPanes(
         await opts.attachPtyListeners(d.id);
       }
     } catch (e) {
-      log(`restoreSessionPanes(${session.id}): failed to attach pane ${d.id}: ${e}`);
+      log(
+        `restoreSessionPanes(${session.id}): failed to attach pane ${d.id}: ${e}`,
+      );
     }
   }
 
@@ -169,7 +193,11 @@ async function restorePrimaryOnly(
   descriptor: PaneStatePayload["descriptors"][number] | undefined,
   opts: RestoreSessionPanesOptions,
 ): Promise<string> {
-  const mainPaneId = initPrimaryPane(session.id, descriptor?.spawnProfileRef, descriptor);
+  const mainPaneId = initPrimaryPane(
+    session.id,
+    descriptor?.spawnProfileRef,
+    descriptor,
+  );
   if (canAttachPty(session.id, opts.livePtyIds)) {
     opts.initTerminal(mainPaneId);
     if (opts.attachLivePtyToPane && opts.livePtyIds?.has(session.id)) {
@@ -186,8 +214,10 @@ function initPrimaryPane(
   spawnProfileRef: SpawnProfileRef | undefined,
   descriptor?: PaneStatePayload["descriptors"][number],
 ): string {
-  const profileRef: SpawnProfileRef =
-    spawnProfileRef ?? { kind: "registered", id: "claude" };
+  const profileRef: SpawnProfileRef = spawnProfileRef ?? {
+    kind: "registered",
+    id: "claude",
+  };
   const paneId = initSessionWithProfile(sessionId, profileRef, {
     provider: descriptor?.provider,
     providerSessionId: descriptor?.providerSessionId,
@@ -248,7 +278,9 @@ async function respawnStaleShell(
       descriptor.id,
       profileId,
       null,
-      descriptor.spawnProfileRef?.kind === "inline" ? descriptor.spawnProfileRef.profile : null,
+      descriptor.spawnProfileRef?.kind === "inline"
+        ? descriptor.spawnProfileRef.profile
+        : null,
     );
     return { kind: "ok", ptyId: freshPtyId, profile };
   } catch (e) {
@@ -266,7 +298,9 @@ function stripKnownStaleCommandPanes(
 
   const staleCommandIds = new Set(
     persisted.descriptors
-      .filter((d) => d.type === "command" && (!d.ptyId || !livePtyIds.has(d.ptyId)))
+      .filter(
+        (d) => d.type === "command" && (!d.ptyId || !livePtyIds.has(d.ptyId)),
+      )
       .map((d) => d.id),
   );
   if (staleCommandIds.size === 0) {
@@ -275,11 +309,16 @@ function stripKnownStaleCommandPanes(
 
   return {
     layout: stripLeaves(persisted.layout, staleCommandIds),
-    descriptors: persisted.descriptors.filter((d) => !staleCommandIds.has(d.id)),
+    descriptors: persisted.descriptors.filter(
+      (d) => !staleCommandIds.has(d.id),
+    ),
   };
 }
 
-function stripLeaves(node: LayoutNode, paneIds: Set<string>): LayoutNode | null {
+function stripLeaves(
+  node: LayoutNode,
+  paneIds: Set<string>,
+): LayoutNode | null {
   if (node.kind === "leaf") {
     return paneIds.has(node.paneId) ? null : node;
   }

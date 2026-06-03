@@ -2,12 +2,27 @@ import { get } from "svelte/store";
 import { registry } from "./registry";
 import type { CommandItem } from "./registry";
 import { queries } from "$lib/queries";
-import { navigatePane, movePaneInDirection, resizePane, toggleStack } from "$lib/panes/layout";
-import { toggleFullscreen, setLogicalFocus, focusedPaneId } from "$lib/panes/focus";
+import {
+  navigatePane,
+  movePaneInDirection,
+  resizePane,
+  toggleStack,
+} from "$lib/panes/layout";
+import {
+  toggleFullscreen,
+  setLogicalFocus,
+  focusedPaneId,
+} from "$lib/panes/focus";
 import { paneSlotById } from "$lib/stores/ui";
 import { mainViewRoute } from "$lib/stores/mainView";
 import { closeExternalToolRun } from "$lib/stores/externalTools";
-import { paneInstances, updateInstance, getAttachedPtyId, getInstance, type PaneInstance } from "$lib/panes/instances";
+import {
+  paneInstances,
+  updateInstance,
+  getAttachedPtyId,
+  getInstance,
+  type PaneInstance,
+} from "$lib/panes/instances";
 import { splitPane, closeFocusedPane } from "$lib/panes/actions";
 import {
   closeMultiLineEditor,
@@ -26,7 +41,15 @@ import {
 } from "$lib/panes/profiles";
 import { runProfileInPane } from "$lib/panes/profileRunner";
 import { renderProjectPromptForSession } from "$lib/projectPromptTemplates";
-import { spawnShell, spawnTask, listDocs, notificationsPush, listSessionPtys, killPty, setPtyName } from "$lib/tauri";
+import {
+  spawnShell,
+  spawnTask,
+  listDocs,
+  notificationsPush,
+  listSessionPtys,
+  killPty,
+  setPtyName,
+} from "$lib/tauri";
 import { attachPtyToPane } from "$lib/panes/attach";
 import { openCustomProfileEditor } from "$lib/stores/customProfileModal";
 import { log, logError } from "$lib/logging";
@@ -39,7 +62,9 @@ async function spawnPlainShellPane(direction: "h" | "v"): Promise<void> {
   if (!session) return;
   const ptyId = crypto.randomUUID();
   const paneId = crypto.randomUUID();
-  log(`Split ${direction}: pane=${paneId} pty=${ptyId} cwd=${session.worktreePath}`);
+  log(
+    `Split ${direction}: pane=${paneId} pty=${ptyId} cwd=${session.worktreePath}`,
+  );
   try {
     await spawnShell(ptyId, session.worktreePath, session.id, paneId, null);
   } catch (e) {
@@ -48,7 +73,11 @@ async function spawnPlainShellPane(direction: "h" | "v"): Promise<void> {
   }
   const activeId = queries.activeSessionId();
   if (!activeId) return;
-  const newPaneId = splitPane(activeId, direction, { id: paneId, type: "shell", ptyId });
+  const newPaneId = splitPane(activeId, direction, {
+    id: paneId,
+    type: "shell",
+    ptyId,
+  });
   if (newPaneId) {
     const { connectPaneTerminal } = await import("$lib/panes/terminals");
     await connectPaneTerminal(newPaneId, (payload) => {
@@ -60,11 +89,16 @@ async function spawnPlainShellPane(direction: "h" | "v"): Promise<void> {
   }
 }
 
-async function splitWithConfiguredBehavior(direction: "h" | "v"): Promise<void> {
-  const behavior = get(settings).terminalDefaults?.splitProfileBehavior ?? "plainShell";
+async function splitWithConfiguredBehavior(
+  direction: "h" | "v",
+): Promise<void> {
+  const behavior =
+    get(settings).terminalDefaults?.splitProfileBehavior ?? "plainShell";
   if (behavior === "askEveryTime") {
     openCommandPaletteWithCommand(
-      direction === "h" ? "pane.split-horizontal-with-profile" : "pane.split-vertical-with-profile",
+      direction === "h"
+        ? "pane.split-horizontal-with-profile"
+        : "pane.split-vertical-with-profile",
     );
     return;
   }
@@ -156,7 +190,10 @@ async function spawnShellPaneWithProfile(
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    logError(`runProfileInPane failed for split-with-profile "${profile.id}"`, e);
+    logError(
+      `runProfileInPane failed for split-with-profile "${profile.id}"`,
+      e,
+    );
     void notificationsPush({
       level: "warning",
       source: { type: "internal" },
@@ -267,15 +304,18 @@ function canOpenMultiLineEditor(): boolean {
   return !!getAttachedPtyId(pane);
 }
 
-async function openMultiLineEditorForFocusedPane(initialText: string | null): Promise<void> {
+async function openMultiLineEditorForFocusedPane(
+  initialText: string | null,
+): Promise<void> {
   const paneId = queries.focusedPaneId();
   if (!paneId) return;
   const pane = getInstance(paneId);
   if (!pane) return;
   const target = resolveMultiLineTarget(pane);
-  const selectedText = initialText === null
-    ? getTerminalController(paneId)?.getSelection() ?? ""
-    : "";
+  const selectedText =
+    initialText === null
+      ? (getTerminalController(paneId)?.getSelection() ?? "")
+      : "";
   const seed = resolveMultiLineEditorSeed(initialText, selectedText);
 
   openMultiLineEditor({
@@ -511,7 +551,8 @@ export function registerPaneCommands() {
     id: "pane.close",
     label: "Close Pane",
     category: "Panes",
-    available: () => activeExternalToolRunId() !== null || queries.canClosePane(),
+    available: () =>
+      activeExternalToolRunId() !== null || queries.canClosePane(),
     execute: async () => {
       const externalToolRunId = activeExternalToolRunId();
       if (externalToolRunId) {
@@ -581,7 +622,10 @@ export function registerPaneCommands() {
       try {
         clipboardText = await navigator.clipboard.readText();
       } catch (e) {
-        logError("pane.open-multiline-editor-with-clipboard: clipboard read failed", e);
+        logError(
+          "pane.open-multiline-editor-with-clipboard: clipboard read failed",
+          e,
+        );
       }
       await openMultiLineEditorForFocusedPane(clipboardText);
     },
@@ -628,7 +672,14 @@ export function registerPaneCommands() {
       if (!session || !activeId) return;
       const paneId = `cmd-${crypto.randomUUID()}`;
       const ptyId = `${paneId}-${Date.now()}`;
-      await spawnTask(ptyId, command, session.worktreePath, session.id, paneId, "command");
+      await spawnTask(
+        ptyId,
+        command,
+        session.worktreePath,
+        session.id,
+        paneId,
+        "command",
+      );
       const newPaneId = splitPane(activeId, "h", {
         id: paneId,
         type: "command",
@@ -685,12 +736,13 @@ export function registerPaneCommands() {
       const slots = get(paneSlotById);
       if (slots.size === 0) return;
       const focused = get(focusedPaneId);
-      const currentSlot = focused ? slots.get(focused) ?? null : null;
+      const currentSlot = focused ? (slots.get(focused) ?? null) : null;
       const ordered = [...slots.entries()].sort((a, b) => a[1] - b[1]);
       const nextIndex =
         currentSlot === null
           ? 0
-          : (ordered.findIndex(([, s]) => s === currentSlot) + 1) % ordered.length;
+          : (ordered.findIndex(([, s]) => s === currentSlot) + 1) %
+            ordered.length;
       const next = ordered[nextIndex];
       if (next) setLogicalFocus(next[0]);
     },
@@ -827,7 +879,9 @@ export function registerPaneCommands() {
       const inst = get(paneInstances).get(paneId);
       if (inst?.type !== "notes") return;
       const current = inst.notesViewMode ?? "edit";
-      updateInstance(paneId, { notesViewMode: current === "edit" ? "read" : "edit" });
+      updateInstance(paneId, {
+        notesViewMode: current === "edit" ? "read" : "edit",
+      });
     },
   });
 
@@ -864,7 +918,10 @@ export function registerPaneCommands() {
       const instances = get(paneInstances);
 
       for (const pty of attached) {
-        const attachedStatus = pty.status as Extract<typeof pty.status, { type: "RunningAttached" }>;
+        const attachedStatus = pty.status as Extract<
+          typeof pty.status,
+          { type: "RunningAttached" }
+        >;
         const paneInst = instances.get(attachedStatus.pane_id);
         const paneName = paneInst?.name;
         const label = paneName || pty.name || pty.profile || "Shell";
@@ -879,13 +936,19 @@ export function registerPaneCommands() {
           description: description.trim(),
           action: async () => {
             if (!currentPaneId) return;
-            await attachPtyToPane(currentPaneId, pty.id, { profile: pty.profile, name: pty.name });
+            await attachPtyToPane(currentPaneId, pty.id, {
+              profile: pty.profile,
+              name: pty.name,
+            });
           },
         });
       }
 
       for (const pty of detached) {
-        const detachedStatus = pty.status as Extract<typeof pty.status, { type: "RunningDetached" }>;
+        const detachedStatus = pty.status as Extract<
+          typeof pty.status,
+          { type: "RunningDetached" }
+        >;
         const ago = formatTimeAgo(detachedStatus.since_ms);
         const label = pty.name || pty.profile || "Shell";
         const icon = pty.profile === "claude" ? "bot" : "terminal";
@@ -896,7 +959,10 @@ export function registerPaneCommands() {
           description: `detached ${ago} · ${pty.working_dir || ""}`.trim(),
           action: async () => {
             if (!currentPaneId) return;
-            await attachPtyToPane(currentPaneId, pty.id, { profile: pty.profile, name: pty.name });
+            await attachPtyToPane(currentPaneId, pty.id, {
+              profile: pty.profile,
+              name: pty.name,
+            });
           },
         });
       }
@@ -915,7 +981,8 @@ export function registerPaneCommands() {
       const paneId = get(focusedPaneId);
       if (!paneId) return false;
       const inst = get(paneInstances).get(paneId);
-      if (!inst || (inst.type !== "shell" && inst.type !== "command")) return false;
+      if (!inst || (inst.type !== "shell" && inst.type !== "command"))
+        return false;
       return !!getAttachedPtyId(inst);
     },
     execute: async () => {

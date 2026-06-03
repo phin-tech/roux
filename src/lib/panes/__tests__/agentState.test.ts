@@ -91,7 +91,9 @@ describe("agentState store", () => {
         permissionInfo: { toolName: "Bash" },
         source: "hook",
       });
-      expect(get(agentStates).get("pane-1")?.permissionInfo?.toolName).toBe("Bash");
+      expect(get(agentStates).get("pane-1")?.permissionInfo?.toolName).toBe(
+        "Bash",
+      );
     });
 
     it("does not carry a stale completionSummary into later events", () => {
@@ -101,7 +103,9 @@ describe("agentState store", () => {
         completionSummary: { query: "old prompt", response: "old response" },
         source: "hook",
       });
-      expect(get(agentStates).get("pane-1")?.completionSummary?.query).toBe("old prompt");
+      expect(get(agentStates).get("pane-1")?.completionSummary?.query).toBe(
+        "old prompt",
+      );
 
       updateAgentState("pane-1", {
         provider: "claude",
@@ -124,10 +128,15 @@ describe("agentState store", () => {
       updateAgentState("pane-1", {
         provider: "claude",
         status: "generating",
-        permissionInfo: { toolName: "Bash", toolInput: { command: "rm -rf /" } },
+        permissionInfo: {
+          toolName: "Bash",
+          toolInput: { command: "rm -rf /" },
+        },
         source: "hook",
       });
-      expect(get(agentStates).get("pane-1")?.permissionInfo?.toolName).toBe("Bash");
+      expect(get(agentStates).get("pane-1")?.permissionInfo?.toolName).toBe(
+        "Bash",
+      );
 
       clearPermissionInfo("pane-1");
       const entry = get(agentStates).get("pane-1");
@@ -205,35 +214,71 @@ describe("agentState store", () => {
 
     it("is idle when the only pane with state is idle", () => {
       setSingleLeafLayout("sess-1", "pane-1");
-      updateAgentState("pane-1", { provider: "claude", status: "idle", source: "hook" });
+      updateAgentState("pane-1", {
+        provider: "claude",
+        status: "idle",
+        source: "hook",
+      });
       expect(getSessionAgentStatus("sess-1")).toBe("idle");
     });
 
     it("is generating when any pane is generating, even alongside idle panes", () => {
       setSplitLayout("sess-1", ["pane-a", "pane-b"]);
-      updateAgentState("pane-a", { provider: "claude", status: "idle", source: "hook" });
-      updateAgentState("pane-b", { provider: "claude", status: "generating", source: "hook" });
+      updateAgentState("pane-a", {
+        provider: "claude",
+        status: "idle",
+        source: "hook",
+      });
+      updateAgentState("pane-b", {
+        provider: "claude",
+        status: "generating",
+        source: "hook",
+      });
       expect(getSessionAgentStatus("sess-1")).toBe("generating");
     });
 
     it("prefers blocked over generating", () => {
       setSplitLayout("sess-1", ["pane-a", "pane-b"]);
-      updateAgentState("pane-a", { provider: "claude", status: "generating", source: "hook" });
-      updateAgentState("pane-b", { provider: "claude", status: "blocked", source: "hook" });
+      updateAgentState("pane-a", {
+        provider: "claude",
+        status: "generating",
+        source: "hook",
+      });
+      updateAgentState("pane-b", {
+        provider: "claude",
+        status: "blocked",
+        source: "hook",
+      });
       expect(getSessionAgentStatus("sess-1")).toBe("blocked");
     });
 
     it("prefers error over blocked and generating", () => {
       setSplitLayout("sess-1", ["pane-a", "pane-b", "pane-c"]);
-      updateAgentState("pane-a", { provider: "claude", status: "generating", source: "hook" });
-      updateAgentState("pane-b", { provider: "claude", status: "blocked", source: "hook" });
-      updateAgentState("pane-c", { provider: "claude", status: "error", source: "hook" });
+      updateAgentState("pane-a", {
+        provider: "claude",
+        status: "generating",
+        source: "hook",
+      });
+      updateAgentState("pane-b", {
+        provider: "claude",
+        status: "blocked",
+        source: "hook",
+      });
+      updateAgentState("pane-c", {
+        provider: "claude",
+        status: "error",
+        source: "hook",
+      });
       expect(getSessionAgentStatus("sess-1")).toBe("error");
     });
 
     it("is idle when at least one pane is idle and none are generating", () => {
       setSplitLayout("sess-1", ["pane-a", "pane-b"]);
-      updateAgentState("pane-a", { provider: "claude", status: "idle", source: "hook" });
+      updateAgentState("pane-a", {
+        provider: "claude",
+        status: "idle",
+        source: "hook",
+      });
       // pane-b has no state — should not count.
       expect(getSessionAgentStatus("sess-1")).toBe("idle");
     });
@@ -241,8 +286,16 @@ describe("agentState store", () => {
     it("the derived store emits the same map as the synchronous snapshot", () => {
       setSplitLayout("sess-1", ["pane-a", "pane-b"]);
       setSingleLeafLayout("sess-2", "pane-c");
-      updateAgentState("pane-a", { provider: "claude", status: "generating", source: "hook" });
-      updateAgentState("pane-c", { provider: "codex", status: "idle", source: "hook" });
+      updateAgentState("pane-a", {
+        provider: "claude",
+        status: "generating",
+        source: "hook",
+      });
+      updateAgentState("pane-c", {
+        provider: "codex",
+        status: "idle",
+        source: "hook",
+      });
 
       const map = get(sessionAgentStatus);
       expect(map.get("sess-1")).toBe("generating");
@@ -266,7 +319,9 @@ describe("agentState store", () => {
     });
 
     it("error session wins over any agent aggregate", () => {
-      expect(computeEffectiveSessionStatus("error", "generating")).toBe("error");
+      expect(computeEffectiveSessionStatus("error", "generating")).toBe(
+        "error",
+      );
       expect(computeEffectiveSessionStatus("error", "idle")).toBe("error");
       expect(computeEffectiveSessionStatus("error", null)).toBe("error");
     });
@@ -282,14 +337,18 @@ describe("agentState store", () => {
         "generating",
       );
       expect(computeEffectiveSessionStatus("generating", "idle")).toBe("idle");
-      expect(computeEffectiveSessionStatus("idle", "blocked")).toBe("attention");
+      expect(computeEffectiveSessionStatus("idle", "blocked")).toBe(
+        "attention",
+      );
       expect(computeEffectiveSessionStatus("idle", "error")).toBe("error");
     });
 
     it("legacy field passes through when no agent aggregate is present", () => {
       expect(computeEffectiveSessionStatus("idle", null)).toBe("idle");
       expect(computeEffectiveSessionStatus("thinking", null)).toBe("thinking");
-      expect(computeEffectiveSessionStatus("attention", null)).toBe("attention");
+      expect(computeEffectiveSessionStatus("attention", null)).toBe(
+        "attention",
+      );
     });
   });
 });

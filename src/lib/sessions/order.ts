@@ -63,7 +63,14 @@ const ALL_KEY = "__all__";
 function groupBySession(sessions: Session[]): SessionGroup[] {
   if (sessions.length === 0) return [];
   const sorted = [...sessions].sort((a, b) => b.createdAt - a.createdAt);
-  return [{ name: "Sessions", key: ALL_KEY, sessions: sorted, latest: sorted[0].createdAt }];
+  return [
+    {
+      name: "Sessions",
+      key: ALL_KEY,
+      sessions: sorted,
+      latest: sorted[0].createdAt,
+    },
+  ];
 }
 
 export function getGroupedSessions(

@@ -31,7 +31,10 @@ export async function spawnBlueprintForProject(
 ): Promise<Session> {
   const { resolveProfileRef } = await import("$lib/panes/profiles");
   const { runProfileInPane } = await import("$lib/panes/profileRunner");
-  const profileRef: SpawnProfileRef = { kind: "registered", id: bp.spawnProfile };
+  const profileRef: SpawnProfileRef = {
+    kind: "registered",
+    id: bp.spawnProfile,
+  };
   const profile = resolveProfileRef(profileRef);
 
   const blueprintId = opts.blueprintId === undefined ? bp.id : opts.blueprintId;

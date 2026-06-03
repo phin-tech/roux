@@ -23,5 +23,8 @@ export function shortcutDisplayPart(part: string): string {
 }
 
 export function formatShortcut(shortcut: string): string {
-  return shortcut.split("+").map(shortcutDisplayPart).join(isMacPlatform() ? "" : "+");
+  return shortcut
+    .split("+")
+    .map(shortcutDisplayPart)
+    .join(isMacPlatform() ? "" : "+");
 }

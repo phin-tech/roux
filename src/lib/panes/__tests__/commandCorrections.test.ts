@@ -11,22 +11,36 @@ describe("suggestCommandCorrection", () => {
   });
 
   it("preserves leading whitespace", () => {
-    expect(suggestCommandCorrection("  gti status")?.replacement).toBe("  git status");
+    expect(suggestCommandCorrection("  gti status")?.replacement).toBe(
+      "  git status",
+    );
   });
 
   it("preserves following lines when correcting the first command", () => {
-    expect(suggestCommandCorrection("gti status\necho done")?.replacement).toBe("git status\necho done");
+    expect(suggestCommandCorrection("gti status\necho done")?.replacement).toBe(
+      "git status\necho done",
+    );
   });
 
   it("corrects common git subcommand typos", () => {
-    expect(suggestCommandCorrection("git statsu --short")?.replacement).toBe("git status --short");
-    expect(suggestCommandCorrection("git comit -m test")?.replacement).toBe("git commit -m test");
-    expect(suggestCommandCorrection("git chekout main")?.replacement).toBe("git checkout main");
+    expect(suggestCommandCorrection("git statsu --short")?.replacement).toBe(
+      "git status --short",
+    );
+    expect(suggestCommandCorrection("git comit -m test")?.replacement).toBe(
+      "git commit -m test",
+    );
+    expect(suggestCommandCorrection("git chekout main")?.replacement).toBe(
+      "git checkout main",
+    );
   });
 
   it("adds npm run for script-like npm invocations", () => {
-    expect(suggestCommandCorrection("npm dev")?.replacement).toBe("npm run dev");
-    expect(suggestCommandCorrection("npm build -- --watch")?.replacement).toBe("npm run build -- --watch");
+    expect(suggestCommandCorrection("npm dev")?.replacement).toBe(
+      "npm run dev",
+    );
+    expect(suggestCommandCorrection("npm build -- --watch")?.replacement).toBe(
+      "npm run build -- --watch",
+    );
   });
 
   it("does not rewrite valid npm lifecycle shortcuts", () => {

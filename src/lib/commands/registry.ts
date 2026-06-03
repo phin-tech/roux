@@ -46,7 +46,7 @@ export class CommandRegistry {
 
   getAvailable(): Command[] {
     return [...this.commands.values()].filter(
-      (c) => !c.available || c.available()
+      (c) => !c.available || c.available(),
     );
   }
 

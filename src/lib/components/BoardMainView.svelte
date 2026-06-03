@@ -29,10 +29,7 @@
     type WorkItemDeleteMode,
   } from "$lib/workItems/deleteFlow";
   import type { WorkItem } from "$lib/bindings";
-  import {
-    hasWorkItemDragData,
-    readWorkItemDragData,
-  } from "$lib/board/drag";
+  import { hasWorkItemDragData, readWorkItemDragData } from "$lib/board/drag";
   import WorkItemCard from "./WorkItemCard.svelte";
   import AddCardInput from "./AddCardInput.svelte";
   import WorkItemDeleteDialog from "./WorkItemDeleteDialog.svelte";
@@ -58,7 +55,10 @@
     await moveWorkItem(id, status, Date.now());
   }
 
-  function withoutKey<T>(record: Record<string, T>, key: string): Record<string, T> {
+  function withoutKey<T>(
+    record: Record<string, T>,
+    key: string,
+  ): Record<string, T> {
     const { [key]: _removed, ...rest } = record;
     return rest;
   }
@@ -106,7 +106,11 @@
     return message ? `Plan failed: ${message}` : "Plan failed.";
   }
 
-  async function handlePlan(id: string, _item: WorkItem, replaceActive = false) {
+  async function handlePlan(
+    id: string,
+    _item: WorkItem,
+    replaceActive = false,
+  ) {
     if (planningItemIds[id]) return;
     planningItemIds = { ...planningItemIds, [id]: true };
     planErrors = withoutKey(planErrors, id);
@@ -191,7 +195,6 @@
     if (payload.fromStatus === col) return;
     await handleMove(payload.itemId, col);
   }
-
 </script>
 
 <div class="flex h-full min-h-0 flex-col bg-bg-deep">
@@ -225,14 +228,18 @@
           {/if}
         </div>
 
-        <div class="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto px-2 pt-1">
+        <div
+          class="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto px-2 pt-1"
+        >
           {#if items.length > 0}
             {#each items as item (item.id)}
               {@const sessionStatus = item.sessionId
                 ? ($sessionStatusMap.get(item.sessionId) ?? null)
                 : null}
-              {@const pendingDecision = $pendingDecisionByItem.get(item.id) ?? null}
-              {@const planningRun = $activePlanningRunByItem.get(item.id) ?? null}
+              {@const pendingDecision =
+                $pendingDecisionByItem.get(item.id) ?? null}
+              {@const planningRun =
+                $activePlanningRunByItem.get(item.id) ?? null}
               {@const itemRuns = $runsByItem.get(item.id) ?? []}
               {@const attachedSessionIds = attachedSessionIdsForItem(
                 item,
@@ -256,7 +263,10 @@
                 startPending={!!startingItemIds[item.id]}
                 planPending={!!planningItemIds[item.id]}
                 acceptPending={!!acceptingItemIds[item.id]}
-                startError={startErrors[item.id] ?? planErrors[item.id] ?? item.startError ?? null}
+                startError={startErrors[item.id] ??
+                  planErrors[item.id] ??
+                  item.startError ??
+                  null}
               />
             {/each}
           {:else}

@@ -55,9 +55,7 @@ pub(crate) fn find_in_path_env(path_env: &OsStr, binary: &str) -> Option<String>
 pub(crate) fn gh_command() -> String {
     let override_path = gh_override_path();
     let extra = login_shell_path_os();
-    roux_gh::resolve_bin(override_path.as_deref(), extra.as_deref())
-        .to_string_lossy()
-        .into_owned()
+    roux_gh::resolve_bin(override_path.as_deref(), extra.as_deref()).to_string_lossy().into_owned()
 }
 
 /// Resolve the `git` binary Roux should invoke for native git operations.

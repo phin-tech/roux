@@ -17,7 +17,9 @@ import {
   worktreeMetadataFor,
 } from "../worktreeMetadata";
 
-function makeMeta(overrides: Partial<WorktrunkMetadata> = {}): WorktrunkMetadata {
+function makeMeta(
+  overrides: Partial<WorktrunkMetadata> = {},
+): WorktrunkMetadata {
   return {
     dirty: false,
     ahead: 0,
@@ -132,7 +134,10 @@ describe("worktreeMetadata store", () => {
     vi.mocked(listWorktrees).mockResolvedValue([]);
     await refreshWorktreeMetadataForRepos(["/a", "/b", "/a", "", "/b"]);
     expect(listWorktrees).toHaveBeenCalledTimes(2);
-    const calls = vi.mocked(listWorktrees).mock.calls.map((c) => c[0]).sort();
+    const calls = vi
+      .mocked(listWorktrees)
+      .mock.calls.map((c) => c[0])
+      .sort();
     expect(calls).toEqual(["/a", "/b"]);
   });
 });
