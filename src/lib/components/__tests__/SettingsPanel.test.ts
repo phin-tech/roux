@@ -244,6 +244,31 @@ describe("SettingsPanel Agents tab", () => {
   });
 });
 
+describe("SettingsPanel sessions settings", () => {
+  beforeEach(() => {
+    settings.set({ ...DEFAULT_SETTINGS });
+    vi.mocked(commands.cmdPreviewWorktreeBase).mockClear();
+  });
+
+  it("debounces the worktree base preview with a platform-neutral fallback path", async () => {
+    vi.useFakeTimers();
+    try {
+      render(SettingsPanel, { visible: true, onclose: vi.fn(), initialCategory: "sessions" });
+
+      expect(commands.cmdPreviewWorktreeBase).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(199);
+      expect(commands.cmdPreviewWorktreeBase).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(1);
+      await waitFor(() => {
+        expect(commands.cmdPreviewWorktreeBase).toHaveBeenCalledWith("", "~/src/my-project");
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("SettingsPanel MCP integration", () => {
   beforeEach(() => {
     settings.set({ ...DEFAULT_SETTINGS, mcpEnabled: true });
@@ -326,6 +351,59 @@ describe("SettingsPanel external tools", () => {
     const lastCall = vi.mocked(updateSettings).mock.calls.at(-1)!;
     expect(lastCall[0].startupExternalToolId).toBe("git-hub");
     expect(lastCall[0].externalTools?.some((tool) => tool.id === "git-hub")).toBe(true);
+  });
+
+  it("falls back to the next eligible startup external tool when disabling the selected tool", async () => {
+    const github = (DEFAULT_SETTINGS.externalTools ?? []).find((tool) => tool.id === "github")!;
+    settings.set({
+      ...DEFAULT_SETTINGS,
+      startupTarget: "externalTool",
+      startupExternalToolId: "github",
+      externalTools: [
+        github,
+        {
+          ...github,
+          id: "docs",
+          name: "Docs",
+          urlTemplate: "https://docs.example.com",
+        },
+      ],
+    });
+    render(SettingsPanel, { visible: true, onclose: vi.fn(), initialCategory: "externalTools" });
+
+    await fireEvent.click(await screen.findByRole("button", { name: "GitHub" }));
+    await fireEvent.click(screen.getAllByLabelText("Enabled")[0]);
+
+    expect(get(settings).startupTarget).toBe("externalTool");
+    expect(get(settings).startupExternalToolId).toBe("docs");
+    await waitFor(() => {
+      expect(updateSettings).toHaveBeenCalled();
+    });
+    const lastCall = vi.mocked(updateSettings).mock.calls.at(-1)!;
+    expect(lastCall[0].startupTarget).toBe("externalTool");
+    expect(lastCall[0].startupExternalToolId).toBe("docs");
+  });
+
+  it("restores startup behavior when the selected external tool is no longer global", async () => {
+    settings.set({
+      ...DEFAULT_SETTINGS,
+      startupTarget: "externalTool",
+      startupExternalToolId: "github",
+      externalTools: (DEFAULT_SETTINGS.externalTools ?? []).filter((tool) => tool.id === "github"),
+    });
+    render(SettingsPanel, { visible: true, onclose: vi.fn(), initialCategory: "externalTools" });
+
+    await fireEvent.click(await screen.findByRole("button", { name: "GitHub" }));
+    await fireEvent.click(screen.getByLabelText("Requires active session"));
+
+    expect(get(settings).startupTarget).toBe("restore");
+    expect(get(settings).startupExternalToolId).toBeNull();
+    await waitFor(() => {
+      expect(updateSettings).toHaveBeenCalled();
+    });
+    const lastCall = vi.mocked(updateSettings).mock.calls.at(-1)!;
+    expect(lastCall[0].startupTarget).toBe("restore");
+    expect(lastCall[0].startupExternalToolId).toBeNull();
   });
 
   it("keeps focus while editing an external tool ID", async () => {

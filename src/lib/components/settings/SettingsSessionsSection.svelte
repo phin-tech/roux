@@ -13,7 +13,8 @@
     { id: "detach", label: "Detach" },
   ] as const;
 
-  const PREVIEW_FALLBACK = "/Users/you/src/my-project";
+  const PREVIEW_DEBOUNCE_MS = 200;
+  const PREVIEW_FALLBACK = "~/src/my-project";
 
   let repoRootDraft = $state("");
   let previewText = $state<string>("");
@@ -62,16 +63,19 @@
     const tpl = $settings.worktreeBasePath ?? "";
     const repo = previewRepoPath();
     let stale = false;
-    commands
-      .cmdPreviewWorktreeBase(tpl, repo)
-      .then((r) => {
-        if (!stale) previewText = r;
-      })
-      .catch(() => {
-        if (!stale) previewText = "";
-      });
+    const timer = setTimeout(() => {
+      commands
+        .cmdPreviewWorktreeBase(tpl, repo)
+        .then((r) => {
+          if (!stale) previewText = r;
+        })
+        .catch(() => {
+          if (!stale) previewText = "";
+        });
+    }, PREVIEW_DEBOUNCE_MS);
     return () => {
       stale = true;
+      clearTimeout(timer);
     };
   });
 

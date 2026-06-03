@@ -63,19 +63,56 @@
     }
   }
 
+  function isStartupEligibleExternalTool(tool: ExternalTool): boolean {
+    return tool.enabled !== false && !(tool.requiresSession ?? false);
+  }
+
+  function nextStartupExternalToolId(
+    tools: ExternalTool[],
+    currentId: string | null,
+    shouldFallback: boolean,
+  ): string | null {
+    if (currentId && tools.some((tool) => tool.id === currentId && isStartupEligibleExternalTool(tool))) {
+      return currentId;
+    }
+    return shouldFallback ? (tools.find(isStartupEligibleExternalTool)?.id ?? null) : null;
+  }
+
+  function createExternalToolId(): string {
+    const existing = new Set(externalTools().map((tool) => tool.id));
+    let id = `tool-${crypto.randomUUID()}`;
+    while (existing.has(id)) {
+      id = `tool-${crypto.randomUUID()}`;
+    }
+    return id;
+  }
+
   function updateExternalTools(
     tools: ExternalTool[],
     startupToolRename: { previousId: string; nextId: string } | null = null,
   ): void {
     pruneExternalToolRowKeys(tools);
-    updateSettingsDraft((current) => ({
-      ...current,
-      externalTools: tools,
-      startupExternalToolId:
+    updateSettingsDraft((current) => {
+      const renamedStartupToolId =
         startupToolRename && current.startupExternalToolId === startupToolRename.previousId
           ? startupToolRename.nextId
-          : current.startupExternalToolId,
-    }));
+          : (current.startupExternalToolId ?? null);
+      const startupExternalToolId = nextStartupExternalToolId(
+        tools,
+        renamedStartupToolId,
+        current.startupTarget === "externalTool",
+      );
+      const startupTarget =
+        current.startupTarget === "externalTool" && startupExternalToolId === null
+          ? "restore"
+          : current.startupTarget;
+      return {
+        ...current,
+        externalTools: tools,
+        startupExternalToolId,
+        startupTarget,
+      };
+    });
   }
 
   function updateExternalTool(id: string, patch: Partial<ExternalTool>): void {
@@ -107,7 +144,7 @@
   }
 
   function addExternalTool(surface: ExternalToolSurface): void {
-    const id = `tool-${Date.now()}`;
+    const id = createExternalToolId();
     const tool: ExternalTool = {
       id,
       name: surface === "web" ? "New Web Tool" : "New Terminal Tool",
