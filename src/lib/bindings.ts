@@ -64,8 +64,8 @@ export const commands = {
 	cmdReadAutomationHookLog: (path: string) => typedError<string, string>(__TAURI_INVOKE("cmd_read_automation_hook_log", { path })),
 	writeToSession: (id: string, data: string) => typedError<null, string>(__TAURI_INVOKE("write_to_session", { id, data })),
 	resizeSession: (id: string, cols: number, rows: number) => typedError<null, string>(__TAURI_INVOKE("resize_session", { id, cols, rows })),
-	spawnShell: (id: string, workingDir: string, sessionId: string | null, paneId: string | null, profile: string | null, initialSize: [number, number] | null) => typedError<null, string>(__TAURI_INVOKE("spawn_shell", { id, workingDir, sessionId, paneId, profile, initialSize })),
-	spawnTask: (id: string, command: string, workingDir: string, sessionId: string | null, paneId: string | null, profile: string | null, initialSize: [number, number] | null) => typedError<null, string>(__TAURI_INVOKE("spawn_task", { id, command, workingDir, sessionId, paneId, profile, initialSize })),
+	spawnShell: (id: string, workingDir: string, sessionId: string | null, paneId: string | null, profile: string | null, opts: SpawnPtyOpts | null) => typedError<null, string>(__TAURI_INVOKE("spawn_shell", { id, workingDir, sessionId, paneId, profile, opts })),
+	spawnTask: (id: string, command: string, workingDir: string, sessionId: string | null, paneId: string | null, profile: string | null, opts: SpawnPtyOpts | null) => typedError<null, string>(__TAURI_INVOKE("spawn_task", { id, command, workingDir, sessionId, paneId, profile, opts })),
 	/**
 	 *  Archive a session (soft-delete). The frontend command name is retained
 	 *  for backward-compat, but the record is kept on disk and shown in the
@@ -158,6 +158,8 @@ export const commands = {
 	 *  blueprint row when the live session is up.
 	 */
 	blueprintId?: string | null,
+	profileData?: SpawnProfile | null,
+	envOverrides?: { [key in string]: TerminalEnvRule } | null,
 } | null) => typedError<Session, string>(__TAURI_INVOKE("create_session_shell", { repoPath, name, worktreePath, branch, opts })),
 	/**
 	 *  Respawns a plain shell in the session's primary PTY. The frontend
@@ -165,7 +167,7 @@ export const commands = {
 	 *  this call returns, so agents come back up the same way they were
 	 *  originally launched via `create_session_shell`.
 	 */
-	reconnectSessionShell: (id: string, profile: string | null, initialSize: [number, number] | null) => typedError<Session, string>(__TAURI_INVOKE("reconnect_session_shell", { id, profile, initialSize })),
+	reconnectSessionShell: (id: string, profile: string | null, initialSize: [number, number] | null, profileData: SpawnProfile | null, envOverrides: { [key in string]: TerminalEnvRule } | null) => typedError<Session, string>(__TAURI_INVOKE("reconnect_session_shell", { id, profile, initialSize, profileData, envOverrides })),
 	/**
 	 *  Active sessions only — archived rows are excluded. The history view
 	 *  uses `list_archived_sessions` for those.
@@ -1055,6 +1057,7 @@ export type RouxSettings = {
 	 *  `"match-gui"` so a future schema addition cannot brick old clients.
 	 */
 	terminalTheme?: string,
+	terminalDefaults?: TerminalDefaults,
 	defaultModel: string | null,
 	claudeBinaryPath?: string | null,
 	/**
@@ -1352,6 +1355,13 @@ export type SetupStatus = {
 export type SkillSyncMode = "off" | "copy" | "symlink";
 
 /**
+ *  Profile policy used by the plain Split Horizontal / Split Vertical
+ *  commands. Profile-picker commands remain explicit regardless of this
+ *  setting.
+ */
+export type SplitProfileBehavior = "plainShell" | "appDefaultProfile" | "activePaneProfile" | "askEveryTime";
+
+/**
  *  A named recipe for launching something inside a shell pane. Orthogonal to
  *  pane type: every launched pane is a shell, and a profile is just optional
  *  metadata attached at creation describing how the shell was seeded.
@@ -1367,11 +1377,18 @@ export type SpawnProfile = {
 	setupCommand?: string | null,
 	startupCommand?: string | null,
 	startupBehavior?: StartupBehavior | null,
-	env?: { [key in string]: string } | null,
+	env?: { [key in string]: TerminalEnvRule } | null,
+	beforeShellStarts?: string | null,
 	cwdOverride?: string | null,
 	icon?: string | null,
 	provider?: Provider | null,
 	source: ProfileSource,
+};
+
+export type SpawnPtyOpts = {
+	profileData?: SpawnProfile | null,
+	envOverrides?: { [key in string]: TerminalEnvRule } | null,
+	initialSize?: [number, number] | null,
 };
 
 /**
@@ -1383,6 +1400,35 @@ export type StartupBehavior = "autoRun" | "typeOnly";
 export type StatusBarPosition = "top" | "bottom";
 
 export type TabPosition = "left" | "right";
+
+export type TerminalDefaults = {
+	env?: { [key in string]: TerminalEnvRule } | null,
+	beforeShellStarts?: string | null,
+	splitProfileBehavior?: SplitProfileBehavior,
+};
+
+/**
+ *  Environment rule value. The string variant is the legacy settings shape
+ *  and is treated as `mode: "value"`.
+ */
+export type TerminalEnvRule = string | TerminalEnvRuleSpec;
+
+/**
+ *  Mode for a structured terminal environment rule.
+ */
+export type TerminalEnvRuleMode = "value" | "inherit" | "unset" | "command";
+
+/**
+ *  Structured terminal environment rule. `value` is used with `mode:
+ *  "value"` and `command` is used with `mode: "command"`. Missing strings
+ *  are validated by the runtime resolver so settings can still deserialize
+ *  and be edited after a bad value is saved.
+ */
+export type TerminalEnvRuleSpec = {
+	mode: TerminalEnvRuleMode,
+	value?: string | null,
+	command?: string | null,
+};
 
 export type TaskDefinition = {
 	id: string,

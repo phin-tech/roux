@@ -36,11 +36,8 @@ pub fn resolve_profile(id: &str, settings: &RouxSettings) -> Option<SpawnProfile
 /// files. Execution runs keep the original profile unchanged.
 pub fn profile_with_planning_constraints(profile: &SpawnProfile) -> SpawnProfile {
     let mut profile = profile.clone();
-    let Some(startup) = profile
-        .startup_command
-        .as_deref()
-        .map(str::trim)
-        .filter(|startup| !startup.is_empty())
+    let Some(startup) =
+        profile.startup_command.as_deref().map(str::trim).filter(|startup| !startup.is_empty())
     else {
         return profile;
     };
@@ -70,6 +67,7 @@ pub fn claude_default_profiles(settings: &RouxSettings) -> Vec<SpawnProfile> {
         startup_command: Some(claude_startup_command(settings)),
         startup_behavior: None,
         env: None,
+        before_shell_starts: None,
         cwd_override: None,
         icon: None,
         provider: Some(Provider::Claude),
@@ -106,6 +104,7 @@ pub fn codex_default_profiles(_settings: &RouxSettings) -> Vec<SpawnProfile> {
         startup_command: Some(shell_quote("codex")),
         startup_behavior: None,
         env: None,
+        before_shell_starts: None,
         cwd_override: None,
         icon: None,
         provider: Some(Provider::Codex),
@@ -114,20 +113,16 @@ pub fn codex_default_profiles(_settings: &RouxSettings) -> Vec<SpawnProfile> {
 }
 
 /// Build the text to type into a freshly-spawned shell to bring `profile` to
-/// life: `cd` override, env exports, setup command, then the startup command
+/// life: `cd` override, setup command, then the startup command
 /// (with `append_system_prompt` folded in per provider). Returns `None` when
 /// the profile has nothing to run (e.g. plain shell), so callers leave the
-/// shell at its prompt. Mirrors the frontend `runProfileInPane` ordering.
+/// shell at its prompt. Profile environment is applied before PTY spawn by
+/// the runtime and is intentionally not exported here.
 pub fn profile_startup_input(
     profile: &SpawnProfile,
     append_system_prompt: Option<&str>,
 ) -> Option<String> {
     let cwd = profile.cwd_override.as_deref().map(str::trim).filter(|s| !s.is_empty());
-    let env: Vec<(&String, &String)> = profile
-        .env
-        .as_ref()
-        .map(|m| m.iter().filter(|(name, _)| is_valid_env_name(name)).collect())
-        .unwrap_or_default();
     let setup = profile.setup_command.as_deref().map(str::trim).filter(|s| !s.is_empty());
     let base_startup = profile.startup_command.as_deref().unwrap_or("");
     let startup = append_agent_system_prompt(
@@ -137,18 +132,13 @@ pub fn profile_startup_input(
     );
     let has_startup = !startup.trim().is_empty();
 
-    if cwd.is_none() && env.is_empty() && setup.is_none() && !has_startup {
+    if cwd.is_none() && setup.is_none() && !has_startup {
         return None;
     }
 
     let mut out = String::new();
     if let Some(cwd) = cwd {
         out.push_str(&format!("cd {}", shell_single_quote(cwd)));
-        out.push(PTY_ENTER);
-    }
-    // env is a BTreeMap, so iteration order is already deterministic (sorted).
-    for (name, value) in env {
-        out.push_str(&format!("export {}={}", name, shell_single_quote(value)));
         out.push(PTY_ENTER);
     }
     if let Some(setup) = setup {
@@ -230,18 +220,9 @@ pub fn profile_startup_command_with_initial_prompt(
     );
     let startup = format!("{startup} {}", shell_single_quote(task));
 
-    let env: Vec<(&String, &String)> = profile
-        .env
-        .as_ref()
-        .map(|m| m.iter().filter(|(name, _)| is_valid_env_name(name)).collect())
-        .unwrap_or_default();
     let setup = profile.setup_command.as_deref().map(str::trim).filter(|s| !s.is_empty());
 
     let mut out = String::new();
-    for (name, value) in env {
-        out.push_str(&format!("export {}={}", name, shell_single_quote(value)));
-        out.push('\n');
-    }
     if let Some(setup) = setup {
         push_shell_command(&mut out, setup);
     }
@@ -290,15 +271,6 @@ fn shell_single_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
-fn is_valid_env_name(name: &str) -> bool {
-    let mut chars = name.chars();
-    match chars.next() {
-        Some(c) if c.is_ascii_alphabetic() || c == '_' => {}
-        _ => return false,
-    }
-    chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
-}
-
 fn plain_shell_profile() -> SpawnProfile {
     SpawnProfile {
         id: "plain-shell".into(),
@@ -307,6 +279,7 @@ fn plain_shell_profile() -> SpawnProfile {
         startup_command: None,
         startup_behavior: None,
         env: None,
+        before_shell_starts: None,
         cwd_override: None,
         icon: None,
         provider: None,
@@ -343,6 +316,8 @@ pub fn shell_quote(token: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use crate::TerminalEnvRule;
+
     use super::*;
 
     #[test]
@@ -444,10 +419,10 @@ mod tests {
     }
 
     #[test]
-    fn startup_input_emits_env_and_setup_before_startup() {
+    fn startup_input_runs_setup_before_startup_without_env_exports() {
         let mut env = std::collections::BTreeMap::new();
-        env.insert("FOO".to_string(), "bar baz".to_string());
-        env.insert("not valid".to_string(), "skip".to_string());
+        env.insert("FOO".to_string(), TerminalEnvRule::value("bar baz"));
+        env.insert("not valid".to_string(), TerminalEnvRule::value("skip"));
         let profile = SpawnProfile {
             id: "custom".into(),
             name: "Custom".into(),
@@ -455,14 +430,14 @@ mod tests {
             startup_command: Some("run".into()),
             startup_behavior: None,
             env: Some(env),
+            before_shell_starts: None,
             cwd_override: None,
             icon: None,
             provider: None,
             source: ProfileSource::User,
         };
         let input = profile_startup_input(&profile, None).unwrap();
-        // Invalid env name dropped; valid one exported (quoted), then setup, then startup.
-        assert_eq!(input, "export FOO='bar baz'\rnpm ci\rrun\r");
+        assert_eq!(input, "npm ci\rrun\r");
     }
 
     #[test]
@@ -474,6 +449,7 @@ mod tests {
             startup_command: Some("claude".into()),
             startup_behavior: Some(StartupBehavior::TypeOnly),
             env: None,
+            before_shell_starts: None,
             cwd_override: None,
             icon: None,
             provider: Some(Provider::Claude),
@@ -510,6 +486,7 @@ mod tests {
             startup_command: Some("claude".into()),
             startup_behavior: Some(StartupBehavior::TypeOnly),
             env: None,
+            before_shell_starts: None,
             cwd_override: None,
             icon: None,
             provider: Some(Provider::Claude),
@@ -530,6 +507,7 @@ mod tests {
             startup_command: Some("run-agent".into()),
             startup_behavior: None,
             env: None,
+            before_shell_starts: None,
             cwd_override: None,
             icon: None,
             provider: None,
@@ -561,8 +539,9 @@ mod tests {
 
     #[test]
     fn planning_constraints_force_claude_plan_permission_mode() {
-        let profile =
-            profile_with_planning_constraints(&claude_default_profiles(&RouxSettings::default())[0]);
+        let profile = profile_with_planning_constraints(
+            &claude_default_profiles(&RouxSettings::default())[0],
+        );
         let command =
             profile_startup_command_with_initial_prompt(&profile, Some("Be terse"), "Plan it")
                 .unwrap();
@@ -598,10 +577,10 @@ mod tests {
     }
 
     #[test]
-    fn initial_prompt_command_preserves_env_and_setup_before_agent() {
+    fn initial_prompt_command_preserves_setup_before_agent() {
         let mut env = std::collections::BTreeMap::new();
-        env.insert("FOO".to_string(), "bar baz".to_string());
-        env.insert("not valid".to_string(), "skip".to_string());
+        env.insert("FOO".to_string(), TerminalEnvRule::value("bar baz"));
+        env.insert("not valid".to_string(), TerminalEnvRule::value("skip"));
         let profile = SpawnProfile {
             id: "custom-claude".into(),
             name: "Custom Claude".into(),
@@ -609,6 +588,7 @@ mod tests {
             startup_command: Some("claude --dangerously-skip-permissions".into()),
             startup_behavior: None,
             env: Some(env),
+            before_shell_starts: None,
             cwd_override: None,
             icon: None,
             provider: Some(Provider::Claude),
@@ -619,7 +599,7 @@ mod tests {
                 .unwrap();
         assert_eq!(
             command,
-            "export FOO='bar baz'\necho setup\nclaude --dangerously-skip-permissions --append-system-prompt 'Be terse' 'Fix it'",
+            "echo setup\nclaude --dangerously-skip-permissions --append-system-prompt 'Be terse' 'Fix it'",
         );
     }
 
@@ -639,6 +619,7 @@ mod tests {
             startup_command: Some("claude".into()),
             startup_behavior: Some(StartupBehavior::TypeOnly),
             env: None,
+            before_shell_starts: None,
             cwd_override: None,
             icon: None,
             provider: Some(Provider::Claude),

@@ -19,6 +19,8 @@ import { resolveMultiLineEditorSeed } from "$lib/panes/multiLineEditorSeed";
 import { getTerminalController } from "$lib/panes/terminalRuntime";
 import {
   profileList,
+  profileRegistry,
+  resolveProfileRef,
   type SpawnProfile,
   type SpawnProfileRef,
 } from "$lib/panes/profiles";
@@ -28,6 +30,61 @@ import { spawnShell, spawnTask, listDocs, notificationsPush, listSessionPtys, ki
 import { attachPtyToPane } from "$lib/panes/attach";
 import { openCustomProfileEditor } from "$lib/stores/customProfileModal";
 import { log, logError } from "$lib/logging";
+import { settings } from "$lib/stores/settings";
+import { openCommandPaletteWithCommand } from "$lib/stores/commandSurface";
+import { resolveAppDefaultSplitProfile } from "$lib/panes/splitProfileBehavior";
+
+async function spawnPlainShellPane(direction: "h" | "v"): Promise<void> {
+  const session = queries.activeSession();
+  if (!session) return;
+  const ptyId = crypto.randomUUID();
+  const paneId = crypto.randomUUID();
+  log(`Split ${direction}: pane=${paneId} pty=${ptyId} cwd=${session.worktreePath}`);
+  try {
+    await spawnShell(ptyId, session.worktreePath, session.id, paneId, null);
+  } catch (e) {
+    logError(`Failed to spawn shell for ${direction} split`, e);
+    return;
+  }
+  const activeId = queries.activeSessionId();
+  if (!activeId) return;
+  const newPaneId = splitPane(activeId, direction, { id: paneId, type: "shell", ptyId });
+  if (newPaneId) {
+    const { connectPaneTerminal } = await import("$lib/panes/terminals");
+    await connectPaneTerminal(newPaneId, (payload) => {
+      log(`Shell pane ${newPaneId} exited (code=${payload.code})`);
+      updateInstance(newPaneId, {
+        terminalState: { kind: "dead", ptyId, exitCode: payload.code ?? null },
+      });
+    });
+  }
+}
+
+async function splitWithConfiguredBehavior(direction: "h" | "v"): Promise<void> {
+  const behavior = get(settings).terminalDefaults?.splitProfileBehavior ?? "plainShell";
+  if (behavior === "askEveryTime") {
+    openCommandPaletteWithCommand(
+      direction === "h" ? "pane.split-horizontal-with-profile" : "pane.split-vertical-with-profile",
+    );
+    return;
+  }
+
+  let profile: SpawnProfile | null = null;
+  if (behavior === "appDefaultProfile") {
+    profile = resolveAppDefaultSplitProfile(
+      get(profileRegistry),
+      get(settings).defaultAgentProfile,
+    );
+  } else if (behavior === "activePaneProfile") {
+    profile = resolveProfileRef(queries.focusedPane()?.spawnProfileRef);
+  }
+
+  if (profile) {
+    await spawnShellPaneWithProfile(direction, profile);
+  } else {
+    await spawnPlainShellPane(direction);
+  }
+}
 
 /**
  * Spawn a new shell pane seeded by a specific profile. Shared by both
@@ -55,6 +112,8 @@ async function spawnShellPaneWithProfile(
       session.id,
       paneId,
       profile.id,
+      null,
+      profile.source === "inline" ? profile : null,
     );
   } catch (e) {
     logError(`Failed to spawn shell for profile "${profile.id}"`, e);
@@ -245,31 +304,7 @@ export function registerPaneCommands() {
     label: "Split Horizontal",
     category: "Panes",
     available: () => queries.canSplitPane(),
-    execute: async () => {
-      const session = queries.activeSession();
-      if (!session) return;
-      const ptyId = crypto.randomUUID();
-      const paneId = crypto.randomUUID();
-      log(`Split horizontal: pane=${paneId} pty=${ptyId} cwd=${session.worktreePath}`);
-      try {
-        await spawnShell(ptyId, session.worktreePath, session.id, paneId, "shell");
-      } catch (e) {
-        logError("Failed to spawn shell for horizontal split", e);
-        return;
-      }
-      const activeId = queries.activeSessionId();
-      if (!activeId) return;
-      const newPaneId = splitPane(activeId, "h", { id: paneId, type: "shell", ptyId });
-      if (newPaneId) {
-        const { connectPaneTerminal } = await import("$lib/panes/terminals");
-        await connectPaneTerminal(newPaneId, (payload) => {
-          log(`Shell pane ${newPaneId} exited (code=${payload.code})`);
-          updateInstance(newPaneId, {
-            terminalState: { kind: "dead", ptyId, exitCode: payload.code ?? null },
-          });
-        });
-      }
-    },
+    execute: () => splitWithConfiguredBehavior("h"),
   });
 
   registry.register({
@@ -277,31 +312,7 @@ export function registerPaneCommands() {
     label: "Split Vertical",
     category: "Panes",
     available: () => queries.canSplitPane(),
-    execute: async () => {
-      const session = queries.activeSession();
-      if (!session) return;
-      const ptyId = crypto.randomUUID();
-      const paneId = crypto.randomUUID();
-      log(`Split vertical: pane=${paneId} pty=${ptyId} cwd=${session.worktreePath}`);
-      try {
-        await spawnShell(ptyId, session.worktreePath, session.id, paneId, "shell");
-      } catch (e) {
-        logError("Failed to spawn shell for vertical split", e);
-        return;
-      }
-      const activeId = queries.activeSessionId();
-      if (!activeId) return;
-      const newPaneId = splitPane(activeId, "v", { id: paneId, type: "shell", ptyId });
-      if (newPaneId) {
-        const { connectPaneTerminal } = await import("$lib/panes/terminals");
-        await connectPaneTerminal(newPaneId, (payload) => {
-          log(`Shell pane ${newPaneId} exited (code=${payload.code})`);
-          updateInstance(newPaneId, {
-            terminalState: { kind: "dead", ptyId, exitCode: payload.code ?? null },
-          });
-        });
-      }
-    },
+    execute: () => splitWithConfiguredBehavior("v"),
   });
 
   registry.register({

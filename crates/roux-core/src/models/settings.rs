@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
-use super::profile::{ProfileSource, SpawnProfile};
+use super::profile::{ProfileSource, SpawnProfile, TerminalEnvRule};
 
 const DEFAULT_THEME: &str = "deep-blue";
 const DEFAULT_TERMINAL_THEME: &str = "match-gui";
@@ -304,6 +304,40 @@ pub enum StartupTarget {
     None,
 }
 
+/// Profile policy used by the plain Split Horizontal / Split Vertical
+/// commands. Profile-picker commands remain explicit regardless of this
+/// setting.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum SplitProfileBehavior {
+    #[default]
+    PlainShell,
+    AppDefaultProfile,
+    ActivePaneProfile,
+    AskEveryTime,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase", default)]
+pub struct TerminalDefaults {
+    #[serde(default)]
+    pub env: Option<std::collections::BTreeMap<String, TerminalEnvRule>>,
+    #[serde(default)]
+    pub before_shell_starts: Option<String>,
+    #[serde(default)]
+    pub split_profile_behavior: SplitProfileBehavior,
+}
+
+impl Default for TerminalDefaults {
+    fn default() -> Self {
+        Self {
+            env: None,
+            before_shell_starts: None,
+            split_profile_behavior: SplitProfileBehavior::PlainShell,
+        }
+    }
+}
+
 fn default_agent_profile() -> String {
     "claude".to_string()
 }
@@ -465,6 +499,10 @@ pub struct RouxSettings {
     /// the file says, so users can't forge a `"builtin"` marker.
     #[serde(default)]
     pub spawn_profiles: Vec<SpawnProfile>,
+    /// Environment and preflight rules applied to all newly-spawned terminal
+    /// shells before profile-specific rules.
+    #[serde(default)]
+    pub terminal_defaults: TerminalDefaults,
     /// Default autonomous agent profile used by agent-starting surfaces.
     /// Card-level/profile-specific overrides still win.
     #[serde(default = "default_agent_profile")]
@@ -610,6 +648,7 @@ impl Default for RouxSettings {
             notes_migrated_v1: false,
             update_channel: UpdateChannel::default(),
             spawn_profiles: Vec::new(),
+            terminal_defaults: TerminalDefaults::default(),
             default_agent_profile: default_agent_profile(),
             startup_target: StartupTarget::Restore,
             startup_external_tool_id: None,
@@ -645,6 +684,12 @@ impl RouxSettings {
         for profile in &mut s.spawn_profiles {
             profile.source = ProfileSource::User;
         }
+        s.terminal_defaults.before_shell_starts = s
+            .terminal_defaults
+            .before_shell_starts
+            .as_ref()
+            .map(|cmd| cmd.trim().to_string())
+            .filter(|cmd| !cmd.is_empty());
         s.default_agent_profile = s.default_agent_profile.trim().to_string();
         s.kanban.default_agent_profile = s.kanban.default_agent_profile.trim().to_string();
         if s.default_agent_profile.is_empty() {
@@ -708,13 +753,11 @@ impl RouxSettings {
         s.startup_external_tool_id =
             s.startup_external_tool_id.as_ref().map(|id| id.trim().to_string()).filter(|id| {
                 !id.is_empty()
-                    && s.external_tools.iter().any(|tool| {
-                        tool.id == *id && tool.enabled && !tool.requires_session
-                    })
+                    && s.external_tools
+                        .iter()
+                        .any(|tool| tool.id == *id && tool.enabled && !tool.requires_session)
             });
-        if s.startup_target == StartupTarget::ExternalTool
-            && s.startup_external_tool_id.is_none()
-        {
+        if s.startup_target == StartupTarget::ExternalTool && s.startup_external_tool_id.is_none() {
             s.startup_target = StartupTarget::Restore;
         }
         s.kanban.startup_sidebar = match s.startup_target {
@@ -1130,10 +1173,8 @@ mod tests {
 
     #[test]
     fn empty_global_default_agent_normalizes_to_claude() {
-        let settings = RouxSettings {
-            default_agent_profile: "   ".to_string(),
-            ..RouxSettings::default()
-        };
+        let settings =
+            RouxSettings { default_agent_profile: "   ".to_string(), ..RouxSettings::default() };
 
         let normalized = settings.normalized();
 
@@ -1384,16 +1425,10 @@ mod tests {
         assert!(normalized.external_tools[1].keep_webview_alive);
         assert_eq!(normalized.external_tools[2].id, "terminal-tool");
         assert_eq!(normalized.external_tools[2].command_template, "lazygit");
-        assert_eq!(
-            normalized.external_tools[2].cwd_template,
-            "{{ session.worktree_path }}"
-        );
+        assert_eq!(normalized.external_tools[2].cwd_template, "{{ session.worktree_path }}");
         assert_eq!(normalized.external_tools[2].url_template, None);
         assert_eq!(normalized.external_tools[2].preferred_port, None);
-        assert_eq!(
-            normalized.external_tools[2].web_embedder,
-            ExternalToolWebEmbedder::Webview
-        );
+        assert_eq!(normalized.external_tools[2].web_embedder, ExternalToolWebEmbedder::Webview);
         assert!(!normalized.external_tools[2].keep_webview_alive);
     }
 

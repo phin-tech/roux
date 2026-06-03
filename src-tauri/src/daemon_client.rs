@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
@@ -73,6 +74,8 @@ pub(crate) struct DaemonCreateSessionShellRequest {
     pub(crate) base: Option<String>,
     pub(crate) fetch_first: bool,
     pub(crate) profile: Option<String>,
+    pub(crate) profile_data: Option<roux_core::SpawnProfile>,
+    pub(crate) env_overrides: Option<BTreeMap<String, roux_core::TerminalEnvRule>>,
     pub(crate) initial_size: Option<(u16, u16)>,
     pub(crate) project_id: Option<String>,
     pub(crate) blueprint_id: Option<String>,
@@ -83,6 +86,8 @@ pub(crate) struct DaemonCreateSessionShellRequest {
 pub(crate) struct DaemonReconnectSessionShellRequest {
     pub(crate) id: String,
     pub(crate) profile: Option<String>,
+    pub(crate) profile_data: Option<roux_core::SpawnProfile>,
+    pub(crate) env_overrides: Option<BTreeMap<String, roux_core::TerminalEnvRule>>,
     pub(crate) initial_size: Option<(u16, u16)>,
     pub(crate) notes: Option<NotesEnvInputs>,
 }
@@ -698,6 +703,8 @@ impl DaemonClient {
                 base: request.base,
                 fetch_first: request.fetch_first,
                 profile: request.profile,
+                profile_data: request.profile_data,
+                env_overrides: request.env_overrides,
                 initial_size: request.initial_size,
                 project_id: request.project_id,
                 blueprint_id: request.blueprint_id,
@@ -715,6 +722,8 @@ impl DaemonClient {
             .reconnect_session_shell(roux_sdk::ReconnectSessionShell {
                 id: request.id,
                 profile: request.profile,
+                profile_data: request.profile_data,
+                env_overrides: request.env_overrides,
                 initial_size: request.initial_size,
                 notes: request.notes.map(sdk_notes_env),
             })
@@ -865,6 +874,8 @@ impl DaemonClient {
         session_id: Option<String>,
         pane_id: Option<String>,
         profile: Option<String>,
+        profile_data: Option<roux_core::SpawnProfile>,
+        env_overrides: Option<BTreeMap<String, roux_core::TerminalEnvRule>>,
         initial_size: Option<(u16, u16)>,
     ) -> DaemonClientResult<PtyRecord> {
         let mut spawn = self.sdk.spawn_shell();
@@ -883,6 +894,12 @@ impl DaemonClient {
         if let Some(profile) = profile {
             spawn = spawn.profile(profile);
         }
+        if let Some(profile_data) = profile_data {
+            spawn = spawn.profile_data(profile_data);
+        }
+        if let Some(env_overrides) = env_overrides {
+            spawn = spawn.env_overrides(env_overrides);
+        }
         if let Some((cols, rows)) = initial_size {
             spawn = spawn.initial_size(cols, rows);
         }
@@ -897,6 +914,8 @@ impl DaemonClient {
         session_id: Option<String>,
         pane_id: Option<String>,
         profile: Option<String>,
+        profile_data: Option<roux_core::SpawnProfile>,
+        env_overrides: Option<BTreeMap<String, roux_core::TerminalEnvRule>>,
         initial_size: Option<(u16, u16)>,
     ) -> DaemonClientResult<PtyRecord> {
         let mut spawn = self.sdk.spawn_task(command);
@@ -914,6 +933,12 @@ impl DaemonClient {
         }
         if let Some(profile) = profile {
             spawn = spawn.profile(profile);
+        }
+        if let Some(profile_data) = profile_data {
+            spawn = spawn.profile_data(profile_data);
+        }
+        if let Some(env_overrides) = env_overrides {
+            spawn = spawn.env_overrides(env_overrides);
         }
         if let Some((cols, rows)) = initial_size {
             spawn = spawn.initial_size(cols, rows);

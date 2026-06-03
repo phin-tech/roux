@@ -712,6 +712,7 @@
           {
             initialSize,
             profile: firstLeafInfo.profileId ?? undefined,
+            profileData: firstLeafInfo.profileData,
             base: defaultBase.base,
             fetchFirst: defaultBase.fetchFirst,
           },
@@ -771,6 +772,7 @@
         {
           initialSize,
           profile: profile.id,
+          profileData: profile.source === "inline" ? profile : null,
           base: defaultBase.base,
           fetchFirst: defaultBase.fetchFirst,
         },

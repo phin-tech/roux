@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use serde_json::Value;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -20,6 +22,8 @@ pub struct CreateSessionShell {
     pub base: Option<String>,
     pub fetch_first: bool,
     pub profile: Option<String>,
+    pub profile_data: Option<roux_core::SpawnProfile>,
+    pub env_overrides: Option<BTreeMap<String, roux_core::TerminalEnvRule>>,
     pub initial_size: Option<(u16, u16)>,
     pub project_id: Option<String>,
     pub blueprint_id: Option<String>,
@@ -30,6 +34,8 @@ pub struct CreateSessionShell {
 pub struct ReconnectSessionShell {
     pub id: String,
     pub profile: Option<String>,
+    pub profile_data: Option<roux_core::SpawnProfile>,
+    pub env_overrides: Option<BTreeMap<String, roux_core::TerminalEnvRule>>,
     pub initial_size: Option<(u16, u16)>,
     pub notes: Option<NotesEnv>,
 }
@@ -60,6 +66,8 @@ impl CreateSessionShell {
             args.insert("fetchFirst".into(), Value::Bool(true));
         }
         insert_optional_string(&mut args, "profile", self.profile);
+        insert_optional_profile(&mut args, "profileData", self.profile_data);
+        insert_optional_env_overrides(&mut args, self.env_overrides);
         insert_initial_size(&mut args, self.initial_size);
         insert_optional_string(&mut args, "projectId", self.project_id);
         insert_optional_string(&mut args, "blueprintId", self.blueprint_id);
@@ -72,6 +80,8 @@ impl ReconnectSessionShell {
     pub(crate) fn into_args(self) -> Value {
         let mut args = serde_json::Map::new();
         insert_optional_string(&mut args, "profile", self.profile);
+        insert_optional_profile(&mut args, "profileData", self.profile_data);
+        insert_optional_env_overrides(&mut args, self.env_overrides);
         insert_initial_size(&mut args, self.initial_size);
         insert_notes_env(&mut args, self.notes);
         Value::Object(args)
@@ -103,6 +113,25 @@ fn insert_optional_string(
 ) {
     if let Some(value) = value {
         args.insert(key.into(), Value::String(value));
+    }
+}
+
+fn insert_optional_profile(
+    args: &mut serde_json::Map<String, Value>,
+    key: &'static str,
+    value: Option<roux_core::SpawnProfile>,
+) {
+    if let Some(value) = value.and_then(|value| serde_json::to_value(value).ok()) {
+        args.insert(key.into(), value);
+    }
+}
+
+fn insert_optional_env_overrides(
+    args: &mut serde_json::Map<String, Value>,
+    value: Option<BTreeMap<String, roux_core::TerminalEnvRule>>,
+) {
+    if let Some(value) = value.and_then(|value| serde_json::to_value(value).ok()) {
+        args.insert("envOverrides".into(), value);
     }
 }
 

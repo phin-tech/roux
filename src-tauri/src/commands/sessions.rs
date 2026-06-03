@@ -4,6 +4,7 @@ use crate::state::{
     required_daemon_client, required_daemon_client_ref, AppState, DaemonPtyAttachTask,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::Manager;
 
@@ -19,6 +20,10 @@ pub(crate) struct CreateShellOpts {
     /// the PTY env so agents wake up under the right profile.
     #[serde(default)]
     pub profile: Option<String>,
+    #[serde(default)]
+    pub profile_data: Option<roux_core::SpawnProfile>,
+    #[serde(default)]
+    pub env_overrides: Option<BTreeMap<String, roux_core::TerminalEnvRule>>,
     #[serde(default)]
     pub initial_size: Option<(u16, u16)>,
     /// Git starting point for a new worktree's branch (e.g. "main",
@@ -39,6 +44,17 @@ pub(crate) struct CreateShellOpts {
     /// blueprint row when the live session is up.
     #[serde(default)]
     pub blueprint_id: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SpawnPtyOpts {
+    #[serde(default)]
+    pub profile_data: Option<roux_core::SpawnProfile>,
+    #[serde(default)]
+    pub env_overrides: Option<BTreeMap<String, roux_core::TerminalEnvRule>>,
+    #[serde(default)]
+    pub initial_size: Option<(u16, u16)>,
 }
 
 pub(crate) fn abort_daemon_attach_task(state: &AppState, id: &str) -> Result<(), String> {
@@ -142,10 +158,11 @@ pub(crate) async fn spawn_shell(
     session_id: Option<String>,
     pane_id: Option<String>,
     profile: Option<String>,
-    initial_size: Option<(u16, u16)>,
+    opts: Option<SpawnPtyOpts>,
     state: tauri::State<'_, AppState>,
     _app: tauri::AppHandle,
 ) -> Result<(), String> {
+    let opts = opts.unwrap_or_default();
     let client = required_daemon_client(&state)?;
     client
         .spawn_daemon_pty_shell(
@@ -154,7 +171,9 @@ pub(crate) async fn spawn_shell(
             session_id,
             pane_id,
             profile,
-            initial_size,
+            opts.profile_data,
+            opts.env_overrides,
+            opts.initial_size,
         )
         .await?;
     Ok(())
@@ -169,10 +188,11 @@ pub(crate) async fn spawn_task(
     session_id: Option<String>,
     pane_id: Option<String>,
     profile: Option<String>,
-    initial_size: Option<(u16, u16)>,
+    opts: Option<SpawnPtyOpts>,
     state: tauri::State<'_, AppState>,
     _app: tauri::AppHandle,
 ) -> Result<(), String> {
+    let opts = opts.unwrap_or_default();
     // See spawn_shell above: project/worktree env is deferred for the
     // secondary-pane path until this command goes async.
     let context = crate::automation_hooks::HookContext {
@@ -199,7 +219,9 @@ pub(crate) async fn spawn_task(
             session_id.clone(),
             pane_id,
             profile,
-            initial_size,
+            opts.profile_data,
+            opts.env_overrides,
+            opts.initial_size,
         )
         .await?;
     let scope = session_id.as_ref().map(|_| "session".to_string());
@@ -497,6 +519,8 @@ pub(crate) async fn create_session_shell(
             base: daemon_base,
             fetch_first: daemon_fetch_first,
             profile: opts.profile,
+            profile_data: opts.profile_data,
+            env_overrides: opts.env_overrides,
             initial_size,
             project_id: opts.project_id,
             blueprint_id: opts.blueprint_id,
@@ -515,6 +539,8 @@ pub(crate) async fn create_session_shell(
 pub(crate) async fn reconnect_session_shell(
     id: String,
     profile: Option<String>,
+    profile_data: Option<roux_core::SpawnProfile>,
+    env_overrides: Option<BTreeMap<String, roux_core::TerminalEnvRule>>,
     initial_size: Option<(u16, u16)>,
     state: tauri::State<'_, AppState>,
     _app: tauri::AppHandle,
@@ -541,6 +567,8 @@ pub(crate) async fn reconnect_session_shell(
         .reconnect_session_shell(crate::daemon_client::DaemonReconnectSessionShellRequest {
             id,
             profile,
+            profile_data,
+            env_overrides,
             initial_size,
             notes: Some(notes),
         })
