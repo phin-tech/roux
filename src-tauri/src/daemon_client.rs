@@ -261,6 +261,21 @@ impl DaemonClient {
         self.sdk.work_item_delete(id).await.map_err(DaemonClientError::from)
     }
 
+    pub(crate) async fn work_item_attach_session(
+        &self,
+        id: String,
+        session_id: String,
+    ) -> DaemonClientResult<roux_core::WorkItem> {
+        self.sdk.work_item_attach_session(id, session_id).await.map_err(DaemonClientError::from)
+    }
+
+    pub(crate) async fn work_item_detach_session(
+        &self,
+        id: String,
+    ) -> DaemonClientResult<roux_core::WorkItem> {
+        self.sdk.work_item_detach_session(id).await.map_err(DaemonClientError::from)
+    }
+
     pub(crate) async fn work_item_start(
         &self,
         id: String,

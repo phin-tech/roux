@@ -530,9 +530,18 @@ impl WorkItemStore {
         session_id: &str,
         now: u64,
     ) -> SqlResult<Option<WorkItem>> {
+        self.ensure_session_unbound_or_self(id, session_id)?;
         self.conn.execute(
             "UPDATE work_items SET session_id = ?2, updated_at = ?3 WHERE id = ?1",
             params![id, session_id, now as i64],
+        )?;
+        self.get(id)
+    }
+
+    pub fn detach_session(&mut self, id: &str, now: u64) -> SqlResult<Option<WorkItem>> {
+        self.conn.execute(
+            "UPDATE work_items SET session_id = NULL, updated_at = ?2 WHERE id = ?1",
+            params![id, now as i64],
         )?;
         self.get(id)
     }
@@ -585,6 +594,7 @@ impl WorkItemStore {
         sort_order: f64,
         now: u64,
     ) -> SqlResult<Option<WorkItem>> {
+        self.ensure_session_unbound_or_self(id, session_id)?;
         self.conn.execute(
             "UPDATE work_items SET
                 session_id = ?2,
@@ -622,6 +632,7 @@ impl WorkItemStore {
         session_id: &str,
         now: u64,
     ) -> SqlResult<bool> {
+        self.ensure_session_unbound_or_self(id, session_id)?;
         let changed = self.conn.execute(
             "UPDATE work_items SET session_id = ?2, updated_at = ?3
              WHERE id = ?1 AND session_id IS NULL",
@@ -643,6 +654,7 @@ impl WorkItemStore {
         sort_order: f64,
         now: u64,
     ) -> SqlResult<Option<(WorkItem, WorkItemRun)>> {
+        self.ensure_session_unbound_or_self(work_item_id, session_id)?;
         let tx = self.conn.transaction()?;
         let changed = tx.execute(
             "UPDATE work_items
@@ -685,6 +697,42 @@ impl WorkItemStore {
         let item = self.get(work_item_id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
         let run = self.get_run(&run_id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
         Ok(Some((item, run)))
+    }
+
+    fn ensure_session_unbound_or_self(&self, id: &str, session_id: &str) -> SqlResult<()> {
+        if let Some(bound_id) = self.session_bound_work_item_id(session_id, Some(id))? {
+            return Err(session_already_bound_error(session_id, &bound_id));
+        }
+        Ok(())
+    }
+
+    pub fn session_bound_work_item_id(
+        &self,
+        session_id: &str,
+        except_id: Option<&str>,
+    ) -> SqlResult<Option<String>> {
+        match except_id {
+            Some(id) => self
+                .conn
+                .query_row(
+                    "SELECT id FROM work_items
+                     WHERE session_id = ?1 AND id != ?2
+                     LIMIT 1",
+                    params![session_id, id],
+                    |row| row.get(0),
+                )
+                .optional(),
+            None => self
+                .conn
+                .query_row(
+                    "SELECT id FROM work_items
+                     WHERE session_id = ?1
+                     LIMIT 1",
+                    params![session_id],
+                    |row| row.get(0),
+                )
+                .optional(),
+        }
     }
 
     pub fn has_active_run(&self, work_item_id: &str) -> SqlResult<bool> {
@@ -823,12 +871,18 @@ impl WorkItemStore {
                     SELECT 1 FROM work_item_runs
                     WHERE work_item_id = ?1
                       AND status NOT IN (?2, ?3, ?4)
+                      AND (
+                          ?5 IS NULL
+                          OR session_id IS NULL
+                          OR session_id != ?5
+                      )
                 )",
                 params![
                     work_item_id,
                     WorkItemRunStatus::Done.as_str(),
                     WorkItemRunStatus::Failed.as_str(),
                     WorkItemRunStatus::Stopped.as_str(),
+                    session_id,
                 ],
                 |row| row.get(0),
             )?;
@@ -1324,6 +1378,13 @@ fn option_field_changed<T: PartialEq>(present: bool, next: Option<T>, current: O
     present && next != current
 }
 
+fn session_already_bound_error(session_id: &str, work_item_id: &str) -> rusqlite::Error {
+    rusqlite::Error::SqliteFailure(
+        rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CONSTRAINT),
+        Some(format!("session already bound to work item {work_item_id}: {session_id}")),
+    )
+}
+
 fn row_to_work_item(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkItem> {
     let status_str: String = row.get(5)?;
     let status = WorkItemStatus::from_str_opt(&status_str).unwrap_or_default();
@@ -1806,6 +1867,22 @@ mod tests {
     }
 
     #[test]
+    fn set_session_rejects_session_bound_to_another_item() {
+        let mut store = WorkItemStore::open_in_memory().unwrap();
+        store.create("i-1".into(), input("Task one"), 1000).unwrap();
+        store.create("i-2".into(), input("Task two"), 1001).unwrap();
+        store.set_session("i-1", "sess-1", 2000).unwrap().unwrap();
+
+        let err = store.set_session("i-2", "sess-1", 3000).unwrap_err();
+
+        assert!(err.to_string().contains("session already bound"), "unexpected error: {err}");
+        let first = store.get("i-1").unwrap().unwrap();
+        let second = store.get("i-2").unwrap().unwrap();
+        assert_eq!(first.session_id.as_deref(), Some("sess-1"));
+        assert!(second.session_id.is_none());
+    }
+
+    #[test]
     fn set_session_if_unbound_only_binds_once() {
         let mut store = WorkItemStore::open_in_memory().unwrap();
         store.create("i-1".into(), input("Task"), 1000).unwrap();
@@ -1823,6 +1900,69 @@ mod tests {
     fn set_session_if_unbound_is_false_for_missing_item() {
         let mut store = WorkItemStore::open_in_memory().unwrap();
         assert!(!store.set_session_if_unbound("nope", "sess-1", 1000).unwrap());
+    }
+
+    #[test]
+    fn set_session_if_unbound_rejects_session_bound_to_another_item() {
+        let mut store = WorkItemStore::open_in_memory().unwrap();
+        store.create("i-1".into(), input("Task one"), 1000).unwrap();
+        store.create("i-2".into(), input("Task two"), 1001).unwrap();
+        store.set_session("i-1", "sess-1", 2000).unwrap().unwrap();
+
+        let err = store.set_session_if_unbound("i-2", "sess-1", 3000).unwrap_err();
+
+        assert!(err.to_string().contains("session already bound"), "unexpected error: {err}");
+        let first = store.get("i-1").unwrap().unwrap();
+        let second = store.get("i-2").unwrap().unwrap();
+        assert_eq!(first.session_id.as_deref(), Some("sess-1"));
+        assert!(second.session_id.is_none());
+    }
+
+    #[test]
+    fn detach_session_clears_only_matching_item_binding() {
+        let mut store = WorkItemStore::open_in_memory().unwrap();
+        store.create("i-1".into(), input("Task one"), 1000).unwrap();
+        store.create("i-2".into(), input("Task two"), 1001).unwrap();
+        store.set_session("i-1", "sess-1", 2000).unwrap().unwrap();
+        store.set_session("i-2", "sess-2", 2001).unwrap().unwrap();
+
+        let detached = store.detach_session("i-1", 3000).unwrap().unwrap();
+
+        assert!(detached.session_id.is_none());
+        let other = store.get("i-2").unwrap().unwrap();
+        assert_eq!(other.session_id.as_deref(), Some("sess-2"));
+    }
+
+    #[test]
+    fn complete_start_rejects_session_bound_to_another_item() {
+        let mut store = WorkItemStore::open_in_memory().unwrap();
+        store.create("i-1".into(), input("Task one"), 1000).unwrap();
+        store.create("i-2".into(), input("Task two"), 1001).unwrap();
+        store.set_session("i-1", "sess-1", 2000).unwrap().unwrap();
+
+        let err =
+            store.complete_start("i-2", "sess-1", None, None, None, None, 0.0, 3000).unwrap_err();
+
+        assert!(err.to_string().contains("session already bound"), "unexpected error: {err}");
+        let second = store.get("i-2").unwrap().unwrap();
+        assert!(second.session_id.is_none());
+    }
+
+    #[test]
+    fn dispatch_run_rejects_session_bound_to_another_item() {
+        let mut store = WorkItemStore::open_in_memory().unwrap();
+        store.create("i-1".into(), input("Task one"), 1000).unwrap();
+        store.create("i-2".into(), input("Task two"), 1001).unwrap();
+        store.set_session("i-1", "sess-1", 2000).unwrap().unwrap();
+
+        let err = store
+            .dispatch_run("run-1".into(), "i-2", "sess-1", None, None, None, None, 0.0, 3000)
+            .unwrap_err();
+
+        assert!(err.to_string().contains("session already bound"), "unexpected error: {err}");
+        let second = store.get("i-2").unwrap().unwrap();
+        assert!(second.session_id.is_none());
+        assert!(store.list_runs(Some("i-2")).unwrap().is_empty());
     }
 
     #[test]

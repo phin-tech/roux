@@ -104,6 +104,79 @@ pub struct WorkItem {
     pub updated_at: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkItemSessionAttachInput {
+    pub work_item_id: String,
+    pub work_item_project_id: Option<String>,
+    pub session_id: String,
+    pub session_project_id: Option<String>,
+    pub session_bound_work_item_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkItemSessionAttachDecision {
+    pub work_item_project_id_update: Option<String>,
+    pub session_project_id_update: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WorkItemSessionAttachError {
+    ProjectMismatch { work_item_project_id: String, session_project_id: String },
+    SessionAlreadyBound { session_id: String, work_item_id: String },
+}
+
+impl std::fmt::Display for WorkItemSessionAttachError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ProjectMismatch { work_item_project_id, session_project_id } => write!(
+                f,
+                "project mismatch: work item project {work_item_project_id} differs from session project {session_project_id}"
+            ),
+            Self::SessionAlreadyBound { session_id, work_item_id } => {
+                write!(f, "session {session_id} already bound to work item {work_item_id}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for WorkItemSessionAttachError {}
+
+pub fn decide_work_item_session_attach(
+    input: WorkItemSessionAttachInput,
+) -> Result<WorkItemSessionAttachDecision, WorkItemSessionAttachError> {
+    if let Some(bound_work_item_id) = input.session_bound_work_item_id {
+        if bound_work_item_id != input.work_item_id {
+            return Err(WorkItemSessionAttachError::SessionAlreadyBound {
+                session_id: input.session_id,
+                work_item_id: bound_work_item_id,
+            });
+        }
+    }
+
+    match (input.work_item_project_id, input.session_project_id) {
+        (Some(work_item_project_id), Some(session_project_id))
+            if work_item_project_id != session_project_id =>
+        {
+            Err(WorkItemSessionAttachError::ProjectMismatch {
+                work_item_project_id,
+                session_project_id,
+            })
+        }
+        (Some(project_id), None) => Ok(WorkItemSessionAttachDecision {
+            work_item_project_id_update: None,
+            session_project_id_update: Some(project_id),
+        }),
+        (None, Some(project_id)) => Ok(WorkItemSessionAttachDecision {
+            work_item_project_id_update: Some(project_id),
+            session_project_id_update: None,
+        }),
+        _ => Ok(WorkItemSessionAttachDecision {
+            work_item_project_id_update: None,
+            session_project_id_update: None,
+        }),
+    }
+}
+
 /// Input shape for creating / importing a work item. All fields except
 /// `title` are optional; the store fills defaults.
 #[derive(Debug, Clone, Copy, Default)]
@@ -677,5 +750,81 @@ mod tests {
             assert_eq!(status, expected);
             assert_eq!(status.as_str(), s);
         }
+    }
+
+    #[test]
+    fn attach_decision_sets_session_project_when_only_card_has_project() {
+        let decision = decide_work_item_session_attach(WorkItemSessionAttachInput {
+            work_item_id: "card-1".into(),
+            work_item_project_id: Some("project-a".into()),
+            session_id: "session-1".into(),
+            session_project_id: None,
+            session_bound_work_item_id: None,
+        });
+
+        assert_eq!(
+            decision,
+            Ok(WorkItemSessionAttachDecision {
+                work_item_project_id_update: None,
+                session_project_id_update: Some("project-a".into()),
+            })
+        );
+    }
+
+    #[test]
+    fn attach_decision_sets_card_project_when_only_session_has_project() {
+        let decision = decide_work_item_session_attach(WorkItemSessionAttachInput {
+            work_item_id: "card-1".into(),
+            work_item_project_id: None,
+            session_id: "session-1".into(),
+            session_project_id: Some("project-a".into()),
+            session_bound_work_item_id: None,
+        });
+
+        assert_eq!(
+            decision,
+            Ok(WorkItemSessionAttachDecision {
+                work_item_project_id_update: Some("project-a".into()),
+                session_project_id_update: None,
+            })
+        );
+    }
+
+    #[test]
+    fn attach_decision_rejects_project_mismatch() {
+        let decision = decide_work_item_session_attach(WorkItemSessionAttachInput {
+            work_item_id: "card-1".into(),
+            work_item_project_id: Some("project-a".into()),
+            session_id: "session-1".into(),
+            session_project_id: Some("project-b".into()),
+            session_bound_work_item_id: None,
+        });
+
+        assert_eq!(
+            decision,
+            Err(WorkItemSessionAttachError::ProjectMismatch {
+                work_item_project_id: "project-a".into(),
+                session_project_id: "project-b".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn attach_decision_rejects_session_already_bound_to_another_card() {
+        let decision = decide_work_item_session_attach(WorkItemSessionAttachInput {
+            work_item_id: "card-1".into(),
+            work_item_project_id: Some("project-a".into()),
+            session_id: "session-1".into(),
+            session_project_id: Some("project-a".into()),
+            session_bound_work_item_id: Some("card-2".into()),
+        });
+
+        assert_eq!(
+            decision,
+            Err(WorkItemSessionAttachError::SessionAlreadyBound {
+                session_id: "session-1".into(),
+                work_item_id: "card-2".into(),
+            })
+        );
     }
 }

@@ -163,18 +163,36 @@ impl WorkItemHandle {
     }
 
     pub fn set_session(&self, id: &str, session_id: &str) -> Result<Option<WorkItem>, String> {
+        self.attach_session(id, session_id)
+    }
+
+    pub fn attach_session(&self, id: &str, session_id: &str) -> Result<Option<WorkItem>, String> {
         let now = now_secs();
         let item = self
             .inner
             .lock()
             .unwrap()
             .set_session(id, session_id, now)
-            .map_err(|e| format!("work-item set-session: {e}"))?;
+            .map_err(|e| format!("work-item attach-session: {e}"))?;
         if item.is_some() {
             self.broadcast(WorkItemEvent::SessionBound {
                 id: id.to_string(),
                 session_id: session_id.to_string(),
             });
+        }
+        Ok(item)
+    }
+
+    pub fn detach_session(&self, id: &str) -> Result<Option<WorkItem>, String> {
+        let now = now_secs();
+        let item = self
+            .inner
+            .lock()
+            .unwrap()
+            .detach_session(id, now)
+            .map_err(|e| format!("work-item detach-session: {e}"))?;
+        if let Some(ref item) = item {
+            self.broadcast(WorkItemEvent::Updated { item: item.clone() });
         }
         Ok(item)
     }
@@ -775,6 +793,34 @@ mod tests {
     }
 
     #[test]
+    fn attach_session_rejects_session_bound_to_another_item() {
+        let handle = WorkItemHandle::in_memory();
+        let first = handle.create(input("Task one")).unwrap();
+        let second = handle.create(input("Task two")).unwrap();
+        handle.attach_session(&first.id, "sess-1").unwrap().unwrap();
+
+        let err = handle.attach_session(&second.id, "sess-1").unwrap_err();
+
+        assert!(err.contains("session already bound"), "unexpected error: {err}");
+        assert_eq!(handle.get(&first.id).unwrap().unwrap().session_id.as_deref(), Some("sess-1"));
+        assert!(handle.get(&second.id).unwrap().unwrap().session_id.is_none());
+    }
+
+    #[test]
+    fn detach_session_clears_only_target_item() {
+        let handle = WorkItemHandle::in_memory();
+        let first = handle.create(input("Task one")).unwrap();
+        let second = handle.create(input("Task two")).unwrap();
+        handle.attach_session(&first.id, "sess-1").unwrap().unwrap();
+        handle.attach_session(&second.id, "sess-2").unwrap().unwrap();
+
+        let detached = handle.detach_session(&first.id).unwrap().unwrap();
+
+        assert!(detached.session_id.is_none());
+        assert_eq!(handle.get(&second.id).unwrap().unwrap().session_id.as_deref(), Some("sess-2"));
+    }
+
+    #[test]
     fn run_created_event_broadcasts() {
         let handle = WorkItemHandle::in_memory();
         let item = handle.create(input("Task")).unwrap();
@@ -787,6 +833,39 @@ mod tests {
         assert_eq!(run.work_item_id, item.id);
         let event = rx.try_recv().expect("RunCreated event should be broadcast");
         assert!(matches!(event, WorkItemEvent::RunCreated { .. }));
+    }
+
+    #[test]
+    fn bound_item_can_create_multiple_active_implementation_runs_in_same_session() {
+        let handle = WorkItemHandle::in_memory();
+        let item = handle.create(input("Task")).unwrap();
+        handle.attach_session(&item.id, "sess-1").unwrap().unwrap();
+
+        let first = handle
+            .create_starting_run(
+                &item.id,
+                Some("sess-1"),
+                Some("claude"),
+                Some("claude"),
+                None,
+                None,
+            )
+            .unwrap();
+        let second = handle
+            .create_starting_run(
+                &item.id,
+                Some("sess-1"),
+                Some("claude"),
+                Some("claude"),
+                None,
+                None,
+            )
+            .unwrap();
+
+        assert_ne!(first.id, second.id);
+        let runs = handle.list_runs(Some(&item.id)).unwrap();
+        assert_eq!(runs.len(), 2);
+        assert!(runs.iter().all(|run| run.session_id.as_deref() == Some("sess-1")));
     }
 
     #[test]
