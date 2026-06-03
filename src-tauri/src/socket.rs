@@ -475,7 +475,9 @@ async fn handle_session_poll(req: Request, app: &tauri::AppHandle) -> Response {
 async fn handle_session_rename(req: Request, app: &tauri::AppHandle) -> Response {
     let session_id = match req.session_id.as_deref() {
         Some(id) => id.to_string(),
-        None => return Response::err("session_id required (set $ROUX_SESSION_ID or pass --session)"),
+        None => {
+            return Response::err("session_id required (set $ROUX_SESSION_ID or pass --session)")
+        }
     };
     let raw = match req.args.get("name").and_then(|n| n.as_str()) {
         Some(n) => n.to_string(),
@@ -483,11 +485,11 @@ async fn handle_session_rename(req: Request, app: &tauri::AppHandle) -> Response
     };
     // Empty / whitespace-only name clears the override (matches the
     // GUI's clearSessionNameOverride path).
-    let name_override =
-        if raw.trim().is_empty() { None } else { Some(raw.trim().to_string()) };
+    let name_override = if raw.trim().is_empty() { None } else { Some(raw.trim().to_string()) };
 
     let state: tauri::State<AppState> = app.state();
-    if let Err(e) = state.runtime.session_handle.set_name_override(&session_id, name_override.clone()).await
+    if let Err(e) =
+        state.runtime.session_handle.set_name_override(&session_id, name_override.clone()).await
     {
         return Response::err(format!("{}", e));
     }
@@ -508,14 +510,11 @@ async fn handle_session_kill(req: Request, app: &tauri::AppHandle) -> Response {
     let session_id = match req.session_id.as_deref() {
         Some(id) => id.to_string(),
         None => {
-            return Response::err(
-                "session_id required (set $ROUX_SESSION_ID or pass --session)",
-            )
+            return Response::err("session_id required (set $ROUX_SESSION_ID or pass --session)")
         }
     };
     let state: tauri::State<AppState> = app.state();
-    if let Err(e) =
-        crate::commands::sessions::archive_session_with_hooks(&state, &session_id).await
+    if let Err(e) = crate::commands::sessions::archive_session_with_hooks(&state, &session_id).await
     {
         return Response::err(e);
     }
@@ -854,8 +853,7 @@ async fn handle_session_create(req: Request, app: &tauri::AppHandle) -> Response
     let working_dir = req.args.get("working_dir").and_then(|d| d.as_str()).map(|s| s.to_string());
     let worktree_branch =
         req.args.get("worktree_branch").and_then(|d| d.as_str()).map(|s| s.to_string());
-    let start_point =
-        req.args.get("start_point").and_then(|d| d.as_str()).map(|s| s.to_string());
+    let start_point = req.args.get("start_point").and_then(|d| d.as_str()).map(|s| s.to_string());
     let prompt = req.args.get("prompt").and_then(|d| d.as_str()).map(|s| s.to_string());
     let profile = req.args.get("profile").and_then(|p| p.as_str()).unwrap_or("claude").to_string();
     let flags: Vec<String> = req
@@ -893,11 +891,7 @@ async fn handle_session_create(req: Request, app: &tauri::AppHandle) -> Response
     // origin ref so it resolves to an up-to-date commit.
     let target = if let Some(branch) = worktree_branch.as_deref() {
         let fetch_first = start_point.as_deref().is_some_and(|sp| sp.starts_with("origin/"));
-        SessionTarget::NewWorktree {
-            branch,
-            start_point: start_point.as_deref(),
-            fetch_first,
-        }
+        SessionTarget::NewWorktree { branch, start_point: start_point.as_deref(), fetch_first }
     } else {
         match &working_dir {
             Some(dir) if dir != &repo_path => SessionTarget::ExistingWorktree { path: dir },
@@ -1322,15 +1316,14 @@ async fn prepare_send(
     let session_id = req.session_id.as_deref().ok_or_else(|| "session_id required".to_string())?;
 
     let pane_type = req.args.get("pane_type").and_then(|v| v.as_str());
-    let pty_id =
-        resolve_send_pty_id(
-            pane_handle,
-            session_handle,
-            session_id,
-            req.pane_id.as_deref(),
-            pane_type,
-        )
-        .await?;
+    let pty_id = resolve_send_pty_id(
+        pane_handle,
+        session_handle,
+        session_id,
+        req.pane_id.as_deref(),
+        pane_type,
+    )
+    .await?;
 
     let cr = req.args.get("enter").and_then(|v| v.as_bool()).unwrap_or(true);
     let data = format_send_data(&text, cr).into_bytes();
@@ -1339,11 +1332,11 @@ async fn prepare_send(
 
 async fn handle_send(req: Request, app: &tauri::AppHandle) -> Response {
     let state: tauri::State<AppState> = app.state();
-    let (pty_id, bytes) = match prepare_send(&state.runtime.pane_handle, &state.runtime.session_handle, &req).await
-    {
-        Ok(pair) => pair,
-        Err(e) => return Response::err(e),
-    };
+    let (pty_id, bytes) =
+        match prepare_send(&state.runtime.pane_handle, &state.runtime.session_handle, &req).await {
+            Ok(pair) => pair,
+            Err(e) => return Response::err(e),
+        };
     if let Err(e) = state.pty_manager.write(&pty_id, &bytes) {
         return Response::err(format!("Failed to write to session: {}", e));
     }
@@ -1479,20 +1472,21 @@ async fn handle_alias_set(req: Request, app: &tauri::AppHandle) -> Response {
     };
     // Caller may target a specific session via args.session_id; otherwise
     // default to the calling session's id.
-    let session_id = args_str(&req, "session_id")
-        .map(String::from)
-        .or_else(|| req.session_id.clone());
+    let session_id =
+        args_str(&req, "session_id").map(String::from).or_else(|| req.session_id.clone());
     let session_id = match session_id {
         Some(s) => s,
-        None => return Response::err("session_id required (call from a session, or pass args.session_id)"),
+        None => {
+            return Response::err(
+                "session_id required (call from a session, or pass args.session_id)",
+            )
+        }
     };
     let project_id = args_str(&req, "project_id").map(String::from);
     let force = args_bool(&req, "force").unwrap_or(false);
     // `args.pane_id` overrides `req.pane_id` (both are optional). Without
     // either, the binding stays at session-level for Phase-1 compat.
-    let pane_id = args_str(&req, "pane_id")
-        .map(String::from)
-        .or_else(|| req.pane_id.clone());
+    let pane_id = args_str(&req, "pane_id").map(String::from).or_else(|| req.pane_id.clone());
 
     let state: tauri::State<AppState> = app.state();
     let bind_req = roux_lib::aliases::BindRequest {
@@ -1541,9 +1535,7 @@ async fn handle_alias_claim(req: Request, app: &tauri::AppHandle) -> Response {
     // Claim picks up the calling pane via `req.pane_id` (set by the CLI
     // from `$ROUX_PANE_ID`). `args.pane_id` lets the caller target a
     // specific pane explicitly, useful from MCP / programmatic clients.
-    let pane_id = args_str(&req, "pane_id")
-        .map(String::from)
-        .or_else(|| req.pane_id.clone());
+    let pane_id = args_str(&req, "pane_id").map(String::from).or_else(|| req.pane_id.clone());
 
     let state: tauri::State<AppState> = app.state();
     let bind_req = roux_lib::aliases::BindRequest {
@@ -1595,8 +1587,7 @@ async fn handle_alias_get(req: Request, app: &tauri::AppHandle) -> Response {
             0 => Response::err(format!("alias '{canonical}' not found")),
             1 => Response::success(serde_json::to_value(&matches[0]).unwrap_or_default()),
             _ => {
-                let projects: Vec<_> =
-                    matches.iter().map(|a| a.project_id.clone()).collect();
+                let projects: Vec<_> = matches.iter().map(|a| a.project_id.clone()).collect();
                 Response::err(format!(
                     "alias '{canonical}' is ambiguous across projects {projects:?}; pass project_id"
                 ))
@@ -1608,12 +1599,15 @@ async fn handle_alias_get(req: Request, app: &tauri::AppHandle) -> Response {
 }
 
 async fn handle_alias_whoami(req: Request, app: &tauri::AppHandle) -> Response {
-    let session_id = args_str(&req, "session_id")
-        .map(String::from)
-        .or_else(|| req.session_id.clone());
+    let session_id =
+        args_str(&req, "session_id").map(String::from).or_else(|| req.session_id.clone());
     let session_id = match session_id {
         Some(s) => s,
-        None => return Response::err("session_id required (call from a session, or pass args.session_id)"),
+        None => {
+            return Response::err(
+                "session_id required (call from a session, or pass args.session_id)",
+            )
+        }
     };
     let state: tauri::State<AppState> = app.state();
     let aliases = state.alias_manager.whoami(&session_id);
@@ -1629,13 +1623,12 @@ async fn handle_alias_add_member(req: Request, app: &tauri::AppHandle) -> Respon
         },
         None => return Response::err("alias required"),
     };
-    let pane_id = match args_str(&req, "pane_id").map(str::to_string).or_else(|| req.pane_id.clone()) {
+    let pane_id = match args_str(&req, "pane_id")
+        .map(str::to_string)
+        .or_else(|| req.pane_id.clone())
+    {
         Some(p) => p,
-        None => {
-            return Response::err(
-                "pane_id required (call from a pane, or pass args.pane_id)",
-            )
-        }
+        None => return Response::err("pane_id required (call from a pane, or pass args.pane_id)"),
     };
     let project_id = args_str(&req, "project_id").map(str::to_string);
     let state: tauri::State<AppState> = app.state();
@@ -1654,10 +1647,11 @@ async fn handle_alias_remove_member(req: Request, app: &tauri::AppHandle) -> Res
         },
         None => return Response::err("alias required"),
     };
-    let pane_id = match args_str(&req, "pane_id").map(str::to_string).or_else(|| req.pane_id.clone()) {
-        Some(p) => p,
-        None => return Response::err("pane_id required"),
-    };
+    let pane_id =
+        match args_str(&req, "pane_id").map(str::to_string).or_else(|| req.pane_id.clone()) {
+            Some(p) => p,
+            None => return Response::err("pane_id required"),
+        };
     let project_id = args_str(&req, "project_id").map(str::to_string);
     let state: tauri::State<AppState> = app.state();
     match state.alias_manager.remove_member(&alias, project_id.as_deref(), &pane_id, Some(app)) {
@@ -1689,12 +1683,7 @@ async fn handle_alias_mode(req: Request, app: &tauri::AppHandle) -> Response {
     };
     let project_id = args_str(&req, "project_id").map(str::to_string);
     let state: tauri::State<AppState> = app.state();
-    match state.alias_manager.set_consumption_mode(
-        &alias,
-        project_id.as_deref(),
-        mode,
-        Some(app),
-    ) {
+    match state.alias_manager.set_consumption_mode(&alias, project_id.as_deref(), mode, Some(app)) {
         Ok(a) => Response::success(serde_json::to_value(a).unwrap_or_default()),
         Err(e) => Response::err(e.to_string()),
     }
@@ -1714,9 +1703,7 @@ fn parse_event_kind(s: &str) -> Result<roux_core::EventKind, String> {
         "question" => Ok(EventKind::Question),
         "fyi" => Ok(EventKind::Fyi),
         "signal" => Ok(EventKind::Signal),
-        other => Err(format!(
-            "invalid kind: {other}; expected task|result|question|fyi|signal"
-        )),
+        other => Err(format!("invalid kind: {other}; expected task|result|question|fyi|signal")),
     }
 }
 
@@ -1886,8 +1873,7 @@ async fn handle_mailbox_peek(req: Request, app: &tauri::AppHandle) -> Response {
     };
     let unread_only = args_bool(&req, "unread").unwrap_or(false);
     let filter = mailbox_project_filter(args_str(&req, "project_id"), args_bool(&req, "global"));
-    let mut events =
-        state.mailbox_manager.list_for_recipient(&alias, unread_only, filter);
+    let mut events = state.mailbox_manager.list_for_recipient(&alias, unread_only, filter);
     if let Some(limit) = req.args.get("limit").and_then(|v| v.as_u64()) {
         events.truncate(limit as usize);
     }
@@ -1902,8 +1888,7 @@ async fn handle_mailbox_read(req: Request, app: &tauri::AppHandle) -> Response {
     };
     let with_ack = args_bool(&req, "ack").unwrap_or(false);
     let filter = mailbox_project_filter(args_str(&req, "project_id"), args_bool(&req, "global"));
-    let mut events =
-        state.mailbox_manager.list_for_recipient(&alias, true, filter);
+    let mut events = state.mailbox_manager.list_for_recipient(&alias, true, filter);
     if let Some(limit) = req.args.get("limit").and_then(|v| v.as_u64()) {
         events.truncate(limit as usize);
     }
@@ -2014,9 +1999,7 @@ async fn handle_mailbox_reply(req: Request, app: &tauri::AppHandle) -> Response 
     let recipient = match original.from.as_deref() {
         Some(r) => r.to_string(),
         None => {
-            return Response::err(
-                "cannot reply: original event has no `from` (anonymous sender)",
-            );
+            return Response::err("cannot reply: original event has no `from` (anonymous sender)");
         }
     };
     let canonical_to = roux_core::validate_alias_name(&recipient).ok().unwrap_or(recipient);
@@ -2038,10 +2021,8 @@ async fn handle_mailbox_reply(req: Request, app: &tauri::AppHandle) -> Response 
         None => roux_core::EventKind::Result,
     };
 
-    let mut builder = EventBuilder::new(body)
-        .to(canonical_to.clone())
-        .kind(kind)
-        .correlation_id(correlation_id);
+    let mut builder =
+        EventBuilder::new(body).to(canonical_to.clone()).kind(kind).correlation_id(correlation_id);
     if let Some(f) = from {
         builder = builder.from(f);
     }
@@ -2072,9 +2053,7 @@ async fn handle_mailbox_sent(req: Request, app: &tauri::AppHandle) -> Response {
         None => match default_from(&state, &req) {
             Some(s) => s,
             None => {
-                return Response::err(
-                    "sender required (call from a session, or pass args.sender)",
-                );
+                return Response::err("sender required (call from a session, or pass args.sender)");
             }
         },
     };
@@ -2182,10 +2161,10 @@ fn resolve_subscriber_alias(req: &Request, app: &tauri::AppHandle) -> Result<Str
     })?;
     let held = state.alias_manager.find_for_pane(pane_id);
     match held.len() {
-        0 => Err(
-            "no --alias given and the calling pane holds no alias; pass --alias <name>"
-                .to_string(),
-        ),
+        0 => {
+            Err("no --alias given and the calling pane holds no alias; pass --alias <name>"
+                .to_string())
+        }
         1 => Ok(held[0].alias.clone()),
         _ => {
             let names: Vec<_> = held.iter().map(|a| a.alias.as_str()).collect();
@@ -2330,8 +2309,7 @@ pub(crate) async fn watch_stream_loop<R, W>(
     // (b) `Posted` arm + `TopicDelivered` arm for the same subscribed
     //     event (both broadcast on every post — the watcher must
     //     deliver only once).
-    let mut forwarded_ids: std::collections::HashSet<String> =
-        std::collections::HashSet::new();
+    let mut forwarded_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     if send_backlog {
         let backlog = mailbox.list_for_recipient(alias, true, project_filter);
@@ -2759,8 +2737,9 @@ mod tests {
             crate::session_service::spawn_with_path(vec![], dir.path().join("sessions.json"));
         panes.upsert(pane_record("sid-1-main", "sid-1")).await.unwrap();
 
-        let pty_id =
-            resolve_send_pty_id(&panes, &sessions, "sid-1", Some("sid-1-main"), None).await.unwrap();
+        let pty_id = resolve_send_pty_id(&panes, &sessions, "sid-1", Some("sid-1-main"), None)
+            .await
+            .unwrap();
         assert_eq!(pty_id, "sid-1");
     }
 
@@ -2792,8 +2771,9 @@ mod tests {
             dir.path().join("sessions.json"),
         );
 
-        let err =
-            resolve_send_pty_id(&panes, &sessions, "sid-2", Some("sid-1-main"), None).await.unwrap_err();
+        let err = resolve_send_pty_id(&panes, &sessions, "sid-2", Some("sid-1-main"), None)
+            .await
+            .unwrap_err();
         assert!(err.contains("pane not found"), "got: {}", err);
     }
 
@@ -2813,8 +2793,9 @@ mod tests {
         panes.upsert(pane_record("sid-A-main", "sid-A")).await.unwrap();
         panes.upsert(pane_record("sid-B-main", "sid-B")).await.unwrap();
 
-        let err =
-            resolve_send_pty_id(&panes, &sessions, "sid-B", Some("sid-A-main"), None).await.unwrap_err();
+        let err = resolve_send_pty_id(&panes, &sessions, "sid-B", Some("sid-A-main"), None)
+            .await
+            .unwrap_err();
         assert!(err.contains("does not belong to session"), "got: {}", err);
     }
 
@@ -2825,7 +2806,8 @@ mod tests {
         let (sessions, _sjoin) =
             crate::session_service::spawn_with_path(vec![], dir.path().join("sessions.json"));
 
-        let err = resolve_send_pty_id(&panes, &sessions, "missing-sid", None, None).await.unwrap_err();
+        let err =
+            resolve_send_pty_id(&panes, &sessions, "missing-sid", None, None).await.unwrap_err();
         assert!(err.contains("session not found"), "got: {}", err);
     }
 
@@ -2870,15 +2852,15 @@ mod tests {
         assert_eq!(pty_id, "pty-shell-a");
 
         // Asking for a type with no match errors cleanly.
-        let err =
-            resolve_send_pty_id(&panes, &sessions, "sid-1", None, Some("command")).await.unwrap_err();
+        let err = resolve_send_pty_id(&panes, &sessions, "sid-1", None, Some("command"))
+            .await
+            .unwrap_err();
         assert!(err.contains("no 'command' pane found"), "got: {}", err);
     }
 
     #[test]
     fn request_session_kill_deserializes() {
-        let json =
-            r#"{"command": "session-kill", "session_id": "sid-1"}"#;
+        let json = r#"{"command": "session-kill", "session_id": "sid-1"}"#;
         let req: Request = serde_json::from_str(json).unwrap();
         assert_eq!(req.command, "session-kill");
         assert_eq!(req.session_id.as_deref(), Some("sid-1"));
@@ -3181,6 +3163,7 @@ mod tests {
             startup_command: None,
             startup_behavior: None,
             env: None,
+            before_shell_starts: None,
             cwd_override: None,
             icon: None,
             provider: None,
@@ -3199,6 +3182,7 @@ mod tests {
             startup_command: None,
             startup_behavior: None,
             env: None,
+            before_shell_starts: None,
             cwd_override: None,
             icon: None,
             provider: None,
@@ -3520,10 +3504,8 @@ mod tests {
         let (server_read, server_write) = tokio::io::split(server_side);
         let buf_reader = BufReader::new(server_read);
         tokio::spawn(async move {
-            watch_stream_loop(
-                &mailbox, alias, filter, ack, send_backlog, buf_reader, server_write,
-            )
-            .await;
+            watch_stream_loop(&mailbox, alias, filter, ack, send_backlog, buf_reader, server_write)
+                .await;
         });
         client_side
     }
@@ -3593,12 +3575,7 @@ mod tests {
         let (_dir, mgr, subs) = watch_test_managers();
         // Post BEFORE starting the watcher → the event lives in backlog.
         let event = mgr
-            .post(
-                roux_core::EventBuilder::new("queued")
-                    .to("auditor")
-                    .from("builder"),
-                None,
-            )
+            .post(roux_core::EventBuilder::new("queued").to("auditor").from("builder"), None)
             .unwrap();
 
         let mut client = spawn_watch_for_test(mgr, subs, "auditor", false, true);
@@ -3611,16 +3588,16 @@ mod tests {
     #[tokio::test]
     async fn watch_no_backlog_skips_existing_events() {
         let (_dir, mgr, subs) = watch_test_managers();
-        mgr.post(
-            roux_core::EventBuilder::new("queued")
-                .to("auditor")
-                .from("builder"),
-            None,
-        )
-        .unwrap();
+        mgr.post(roux_core::EventBuilder::new("queued").to("auditor").from("builder"), None)
+            .unwrap();
 
-        let mut client =
-            spawn_watch_for_test(mgr.clone(), subs, "auditor", false, /* send_backlog */ false);
+        let mut client = spawn_watch_for_test(
+            mgr.clone(),
+            subs,
+            "auditor",
+            false,
+            /* send_backlog */ false,
+        );
 
         let frames = read_frames(&mut client, 1, std::time::Duration::from_millis(150)).await;
         // Only `ready` — no event (queued was unread but backlog suppressed).
@@ -3635,20 +3612,10 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(20)).await;
 
         // Post one to a different alias, one to auditor.
-        mgr.post(
-            roux_core::EventBuilder::new("not for you")
-                .to("reviewer")
-                .from("builder"),
-            None,
-        )
-        .unwrap();
+        mgr.post(roux_core::EventBuilder::new("not for you").to("reviewer").from("builder"), None)
+            .unwrap();
         let mine = mgr
-            .post(
-                roux_core::EventBuilder::new("for you")
-                    .to("auditor")
-                    .from("builder"),
-                None,
-            )
+            .post(roux_core::EventBuilder::new("for you").to("auditor").from("builder"), None)
             .unwrap();
 
         let frames = read_frames(&mut client, 3, std::time::Duration::from_millis(500)).await;
@@ -3702,12 +3669,7 @@ mod tests {
 
         // Post first so the event is unread → goes into the backlog.
         let event = mgr
-            .post(
-                roux_core::EventBuilder::new("queued")
-                    .to("auditor")
-                    .from("builder"),
-                None,
-            )
+            .post(roux_core::EventBuilder::new("queued").to("auditor").from("builder"), None)
             .unwrap();
 
         // The watcher's broadcast subscribe happens inside the spawn,
@@ -3744,21 +3706,13 @@ mod tests {
 
         // Project-scoped event must NOT propagate to a global watcher.
         mgr.post(
-            roux_core::EventBuilder::new("p1")
-                .to("auditor")
-                .from("builder")
-                .project_id("p1"),
+            roux_core::EventBuilder::new("p1").to("auditor").from("builder").project_id("p1"),
             None,
         )
         .unwrap();
         // Global event MUST propagate.
         let global = mgr
-            .post(
-                roux_core::EventBuilder::new("g")
-                    .to("auditor")
-                    .from("builder"),
-                None,
-            )
+            .post(roux_core::EventBuilder::new("g").to("auditor").from("builder"), None)
             .unwrap();
 
         let frames = read_frames(&mut client, 3, std::time::Duration::from_millis(300)).await;
@@ -3778,12 +3732,7 @@ mod tests {
     async fn watch_with_ack_marks_event_read_and_acked() {
         let (_dir, mgr, subs) = watch_test_managers();
         let event = mgr
-            .post(
-                roux_core::EventBuilder::new("queued")
-                    .to("auditor")
-                    .from("builder"),
-                None,
-            )
+            .post(roux_core::EventBuilder::new("queued").to("auditor").from("builder"), None)
             .unwrap();
 
         let mut client =
@@ -3810,12 +3759,7 @@ mod tests {
     async fn forward_event_does_not_ack_when_write_fails() {
         let (_dir, mgr, _subs) = watch_test_managers();
         let event = mgr
-            .post(
-                roux_core::EventBuilder::new("queued")
-                    .to("auditor")
-                    .from("builder"),
-                None,
-            )
+            .post(roux_core::EventBuilder::new("queued").to("auditor").from("builder"), None)
             .unwrap();
 
         // tokio::io::sink() with a custom Empty wouldn't fail — instead

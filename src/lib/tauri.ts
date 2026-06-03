@@ -1,6 +1,6 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { SpawnProfileRef } from "$lib/panes/profiles";
+import type { SpawnProfile, SpawnProfileRef } from "$lib/panes/profiles";
 import type { ProjectPromptTemplateContext } from "$lib/projectPromptTemplates";
 import type {
   ExternalTool,
@@ -33,6 +33,8 @@ export interface CreateSessionShellOpts {
    * PTY env so agents wake up under the right profile.
    */
   profile?: string | null;
+  profileData?: SpawnProfile | null;
+  envOverrides?: SpawnProfile["env"] | null;
   /**
    * Git starting point for a newly-created worktree branch (e.g. "main",
    * "origin/main"). Only used when `branch` is a new branch; ignored for
@@ -199,6 +201,8 @@ export async function createSessionShell(
   const {
     initialSize,
     profile,
+    profileData,
+    envOverrides,
     base,
     fetchFirst,
     projectId,
@@ -211,6 +215,8 @@ export async function createSessionShell(
     branch,
     opts: {
       profile: profile ?? null,
+      profileData: profileData ?? null,
+      envOverrides: envOverrides ?? null,
       initialSize: initialSize ? [initialSize.cols, initialSize.rows] : null,
       base: base ?? null,
       fetchFirst: fetchFirst ?? null,
@@ -242,10 +248,14 @@ export async function reconnectSessionShellPty(
   id: string,
   profile?: string | null,
   initialSize?: InitialPtySize | null,
+  profileData?: SpawnProfile | null,
+  envOverrides?: SpawnProfile["env"] | null,
 ): Promise<Session> {
   return invoke("reconnect_session_shell", {
     id,
     profile: profile ?? null,
+    profileData: profileData ?? null,
+    envOverrides: envOverrides ?? null,
     initialSize: initialSize ? [initialSize.cols, initialSize.rows] : null,
   });
 }
@@ -289,6 +299,8 @@ export async function spawnShell(
   paneId: string | null,
   profile?: string | null,
   initialSize?: InitialPtySize | null,
+  profileData?: SpawnProfile | null,
+  envOverrides?: SpawnProfile["env"] | null,
 ): Promise<void> {
   return invoke("spawn_shell", {
     id,
@@ -296,7 +308,11 @@ export async function spawnShell(
     sessionId,
     paneId,
     profile: profile ?? null,
-    initialSize: initialSize ? [initialSize.cols, initialSize.rows] : null,
+    opts: {
+      profileData: profileData ?? null,
+      envOverrides: envOverrides ?? null,
+      initialSize: initialSize ? [initialSize.cols, initialSize.rows] : null,
+    },
   });
 }
 
@@ -308,6 +324,8 @@ export async function spawnTask(
   paneId: string | null,
   profile?: string | null,
   initialSize?: InitialPtySize | null,
+  profileData?: SpawnProfile | null,
+  envOverrides?: SpawnProfile["env"] | null,
 ): Promise<void> {
   return invoke("spawn_task", {
     id,
@@ -316,7 +334,11 @@ export async function spawnTask(
     sessionId,
     paneId,
     profile: profile ?? null,
-    initialSize: initialSize ? [initialSize.cols, initialSize.rows] : null,
+    opts: {
+      profileData: profileData ?? null,
+      envOverrides: envOverrides ?? null,
+      initialSize: initialSize ? [initialSize.cols, initialSize.rows] : null,
+    },
   });
 }
 

@@ -4,14 +4,6 @@ import type { SpawnProfile } from "./profiles";
 import { appendAgentSystemPrompt } from "./agentPrompt";
 
 /**
- * Valid POSIX-ish shell identifier: must start with a letter or underscore
- * and contain only word characters thereafter. Env entries whose keys don't
- * match are silently dropped — they'd produce a broken `export` line and
- * their use is almost always a typo in the profile editor.
- */
-const VALID_ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
-
-/**
  * Wrap a value in single quotes for safe inclusion in a shell command.
  * Single-quoted strings suppress every form of shell expansion — $, `,
  * \, glob chars, all of it — except for the single quote itself, which
@@ -35,21 +27,21 @@ export interface RunProfileOptions {
 }
 
 /**
- * Type a profile's environment, working-directory override, and setup /
- * startup commands into an existing shell PTY.
+ * Type a profile's working-directory override and setup / startup commands
+ * into an existing shell PTY. Profile environment and preflight commands are
+ * resolved by the daemon/runtime before the shell process starts.
  *
  * Order (each line written as a separate chunk so ordering is explicit and
  * the PTY receives human-looking input):
  *
  *   1. `cd 'escaped/cwdOverride'` (if set and non-empty)
- *   2. `export KEY='escaped value'` for each valid env entry
- *   3. `setupCommand` (always auto-run — the user opted into the profile
+ *   2. `setupCommand` (always auto-run — the user opted into the profile
  *      and is not going to inspect setup mid-stream)
- *   4. `startupCommand`, with trailing `\n` unless `startupBehavior ==
+ *   3. `startupCommand`, with trailing `\n` unless `startupBehavior ==
  *      "typeOnly"`, in which case the command sits at the prompt for
  *      review before the user presses Enter.
  *
- * No-op for profiles that have none of cwdOverride / env / setupCommand /
+ * No-op for profiles that have none of cwdOverride / setupCommand /
  * startupCommand (e.g. the built-in `Plain shell` profile). Safe to call
  * on a just-spawned PTY; the backend's pending-output channel buffers
  * writes until the reader is attached.
@@ -60,9 +52,6 @@ export async function runProfileInPane(
   opts: RunProfileOptions = {},
 ): Promise<void> {
   const cwdOverride = profile.cwdOverride?.trim() ?? "";
-  const envEntries = Object.entries(profile.env ?? {}).filter(
-    ([name]) => VALID_ENV_NAME.test(name),
-  );
   const hasSetup = !!profile.setupCommand && profile.setupCommand.trim().length > 0;
   const baseStartup = profile.startupCommand ?? "";
   const startupCommand = appendAgentSystemPrompt(
@@ -72,7 +61,7 @@ export async function runProfileInPane(
   );
   const hasStartup = startupCommand.trim().length > 0;
 
-  if (!cwdOverride && envEntries.length === 0 && !hasSetup && !hasStartup) {
+  if (!cwdOverride && !hasSetup && !hasStartup) {
     return;
   }
 
@@ -88,11 +77,6 @@ export async function runProfileInPane(
       `runProfileInPane(${ptyId}): cd to override for profile "${profile.id}"`,
     );
     await writeToSession(ptyId, `cd ${shellSingleQuote(cwdOverride)}`);
-    await writeToSession(ptyId, "\n");
-  }
-
-  for (const [name, value] of envEntries) {
-    await writeToSession(ptyId, `export ${name}=${shellSingleQuote(value)}`);
     await writeToSession(ptyId, "\n");
   }
 

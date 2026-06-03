@@ -20,6 +20,7 @@ pub struct PtyCommandPlan {
     pub program: PathBuf,
     pub args: Vec<String>,
     pub env: Vec<(String, String)>,
+    pub env_remove: Vec<String>,
     pub cwd: String,
 }
 
@@ -56,6 +57,7 @@ pub fn shell_spawn_plan(inputs: ShellSpawnPlanInputs<'_>) -> PtySpawnPlan {
         program: PathBuf::from(inputs.shell),
         args: Vec::new(),
         env: inputs.roux_env.to_vec(),
+        env_remove: Vec::new(),
         cwd: inputs.working_dir.to_string(),
     };
 
@@ -69,6 +71,7 @@ pub fn task_spawn_plan(inputs: TaskSpawnPlanInputs<'_>) -> PtySpawnPlan {
         program: PathBuf::from(inputs.shell),
         args: task_command_args(inputs.shell, inputs.command),
         env: inputs.roux_env.to_vec(),
+        env_remove: Vec::new(),
         cwd: inputs.working_dir.to_string(),
     };
 

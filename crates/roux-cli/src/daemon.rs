@@ -525,6 +525,8 @@ async fn handle_session_create_shell(
 
     let pane_id = format!("{id}-main");
     let profile = req.args.get("profile").and_then(|profile| profile.as_str()).map(str::to_string);
+    let profile_data = resolve_spawn_profile_data(&req.args, &settings);
+    let launch_env = parse_launch_env_overrides(&req.args);
     let initial_size = parse_initial_size(&req.args);
     let project_id = req
         .args
@@ -550,6 +552,9 @@ async fn handle_session_create_shell(
             notes: parse_notes_env(&req.args),
             env: parse_pty_env_request(&req.args, identity),
             profile: profile.clone(),
+            profile_data,
+            terminal_defaults: settings.terminal_defaults.clone(),
+            launch_env,
             initial_size,
             role: roux_core::PtyRole::SessionPrimary,
         })
@@ -614,7 +619,10 @@ async fn handle_session_reconnect_shell(
     let _ = host.pty_handle.remove(&primary_pty_id).await;
     let pane_id = format!("{}-main", session.id);
     let initial_size = parse_initial_size(&req.args);
+    let settings = load_daemon_settings();
     let profile = req.args.get("profile").and_then(|profile| profile.as_str()).map(str::to_string);
+    let profile_data = resolve_spawn_profile_data(&req.args, &settings);
+    let launch_env = parse_launch_env_overrides(&req.args);
     let spawn = host
         .pty_handle
         .spawn_shell(PtySpawnRequest {
@@ -627,6 +635,9 @@ async fn handle_session_reconnect_shell(
             notes: parse_notes_env(&req.args),
             env: parse_pty_env_request(&req.args, identity),
             profile,
+            profile_data,
+            terminal_defaults: settings.terminal_defaults.clone(),
+            launch_env,
             initial_size,
             role: roux_core::PtyRole::SessionPrimary,
         })
@@ -1331,6 +1342,7 @@ async fn handle_session_panes_create(
         return Response::err("direction must be horizontal or vertical");
     }
 
+    let settings = load_daemon_settings();
     let profile =
         req.args.get("profile").and_then(|profile| profile.as_str()).unwrap_or("plain-shell");
     let working_dir = req
@@ -1368,6 +1380,10 @@ async fn handle_session_panes_create(
             notes: parse_notes_env(&req.args),
             env: parse_pty_env_request(&req.args, identity),
             profile: Some(profile.to_string()),
+            profile_data: resolve_spawn_profile_data(&req.args, &settings)
+                .or_else(|| roux_core::providers::resolve_profile(profile, &settings)),
+            terminal_defaults: settings.terminal_defaults.clone(),
+            launch_env: parse_launch_env_overrides(&req.args),
             initial_size: parse_initial_size(&req.args),
             role: PtyRole::Secondary,
         })
@@ -1692,6 +1708,7 @@ async fn parse_pty_spawn_request(
         Some("sessionPrimary") | Some("session_primary") => roux_core::PtyRole::SessionPrimary,
         _ => roux_core::PtyRole::Secondary,
     };
+    let settings = load_daemon_settings();
 
     let mut request = PtySpawnRequest {
         id: req.args.get("id").and_then(|id| id.as_str()).map(str::to_string),
@@ -1713,6 +1730,9 @@ async fn parse_pty_spawn_request(
         notes: parse_notes_env(&req.args),
         env: parse_pty_env_request(&req.args, identity),
         profile: req.args.get("profile").and_then(|profile| profile.as_str()).map(str::to_string),
+        profile_data: resolve_spawn_profile_data(&req.args, &settings),
+        terminal_defaults: settings.terminal_defaults.clone(),
+        launch_env: parse_launch_env_overrides(&req.args),
         initial_size: parse_initial_size(&req.args),
         role,
     };
@@ -1738,6 +1758,31 @@ async fn apply_session_spawn_bindings(
         request.worktree_path = Some(session.worktree_path.clone());
     }
     Ok(())
+}
+
+fn resolve_spawn_profile_data(
+    args: &Value,
+    settings: &roux_core::RouxSettings,
+) -> Option<roux_core::SpawnProfile> {
+    if let Some(value) = args.get("profileData").or_else(|| args.get("profile_data")) {
+        if let Ok(profile) = serde_json::from_value::<roux_core::SpawnProfile>(value.clone()) {
+            return Some(profile);
+        }
+    }
+    args.get("profile")
+        .and_then(|profile| profile.as_str())
+        .and_then(|profile| roux_core::providers::resolve_profile(profile, settings))
+}
+
+fn parse_launch_env_overrides(
+    args: &Value,
+) -> Option<std::collections::BTreeMap<String, roux_core::TerminalEnvRule>> {
+    args.get("envOverrides").or_else(|| args.get("env_overrides")).and_then(|value| {
+        serde_json::from_value::<std::collections::BTreeMap<String, roux_core::TerminalEnvRule>>(
+            value.clone(),
+        )
+        .ok()
+    })
 }
 
 fn parse_pty_env_request(args: &Value, identity: &DaemonIdentity) -> PtyEnvRequest {

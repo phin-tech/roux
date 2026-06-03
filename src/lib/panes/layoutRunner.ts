@@ -185,7 +185,15 @@ export async function applyLayoutToSession(
   for (const leaf of leaves) {
     if (leaf.isFirst) continue;
     try {
-      await spawnShell(leaf.ptyId, session.worktreePath, session.id, leaf.paneId, leaf.profile.id);
+      await spawnShell(
+        leaf.ptyId,
+        session.worktreePath,
+        session.id,
+        leaf.paneId,
+        leaf.profile.id,
+        null,
+        leaf.profile.source === "inline" ? leaf.profile : null,
+      );
       spawned.push(leaf.ptyId);
     } catch (e) {
       // Step 5: Unwind on failure

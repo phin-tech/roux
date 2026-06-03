@@ -247,6 +247,8 @@ async function respawnStaleShell(
       session.id,
       descriptor.id,
       profileId,
+      null,
+      descriptor.spawnProfileRef?.kind === "inline" ? descriptor.spawnProfileRef.profile : null,
     );
     return { kind: "ok", ptyId: freshPtyId, profile };
   } catch (e) {

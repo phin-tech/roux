@@ -4,6 +4,7 @@ use crate::error::{RouxError, RouxResult};
 use crate::protocol::CommandRequest;
 use crate::types::{PtyAttachFrame, PtyRecord, PtySnapshot};
 use serde_json::Value;
+use std::collections::BTreeMap;
 
 #[derive(Debug, Clone)]
 pub struct Session {
@@ -26,6 +27,8 @@ pub struct SpawnTask {
     pub(crate) session_id: Option<String>,
     pub(crate) pane_id: Option<String>,
     pub(crate) profile: Option<String>,
+    pub(crate) profile_data: Option<roux_core::SpawnProfile>,
+    pub(crate) env_overrides: Option<BTreeMap<String, roux_core::TerminalEnvRule>>,
     pub(crate) initial_size: Option<(u16, u16)>,
 }
 
@@ -37,6 +40,8 @@ pub struct SpawnShell {
     pub(crate) session_id: Option<String>,
     pub(crate) pane_id: Option<String>,
     pub(crate) profile: Option<String>,
+    pub(crate) profile_data: Option<roux_core::SpawnProfile>,
+    pub(crate) env_overrides: Option<BTreeMap<String, roux_core::TerminalEnvRule>>,
     pub(crate) initial_size: Option<(u16, u16)>,
 }
 
@@ -58,6 +63,8 @@ impl Roux {
             session_id: None,
             pane_id: None,
             profile: None,
+            profile_data: None,
+            env_overrides: None,
             initial_size: None,
         }
     }
@@ -70,6 +77,8 @@ impl Roux {
             session_id: None,
             pane_id: None,
             profile: None,
+            profile_data: None,
+            env_overrides: None,
             initial_size: None,
         }
     }
@@ -270,6 +279,19 @@ impl SpawnTask {
         self
     }
 
+    pub fn profile_data(mut self, profile: roux_core::SpawnProfile) -> Self {
+        self.profile_data = Some(profile);
+        self
+    }
+
+    pub fn env_overrides(
+        mut self,
+        env_overrides: BTreeMap<String, roux_core::TerminalEnvRule>,
+    ) -> Self {
+        self.env_overrides = Some(env_overrides);
+        self
+    }
+
     pub fn initial_size(mut self, cols: u16, rows: u16) -> Self {
         self.initial_size = Some((cols, rows));
         self
@@ -298,6 +320,16 @@ impl SpawnTask {
         }
         if let Some(profile) = self.profile {
             args.insert("profile".into(), Value::String(profile));
+        }
+        if let Some(profile_data) =
+            self.profile_data.and_then(|profile| serde_json::to_value(profile).ok())
+        {
+            args.insert("profileData".into(), profile_data);
+        }
+        if let Some(env_overrides) =
+            self.env_overrides.and_then(|env| serde_json::to_value(env).ok())
+        {
+            args.insert("envOverrides".into(), env_overrides);
         }
         if let Some((cols, rows)) = self.initial_size {
             args.insert("initialSize".into(), serde_json::json!([cols, rows]));
@@ -334,6 +366,19 @@ impl SpawnShell {
         self
     }
 
+    pub fn profile_data(mut self, profile: roux_core::SpawnProfile) -> Self {
+        self.profile_data = Some(profile);
+        self
+    }
+
+    pub fn env_overrides(
+        mut self,
+        env_overrides: BTreeMap<String, roux_core::TerminalEnvRule>,
+    ) -> Self {
+        self.env_overrides = Some(env_overrides);
+        self
+    }
+
     pub fn initial_size(mut self, cols: u16, rows: u16) -> Self {
         self.initial_size = Some((cols, rows));
         self
@@ -361,6 +406,16 @@ impl SpawnShell {
         }
         if let Some(profile) = self.profile {
             args.insert("profile".into(), Value::String(profile));
+        }
+        if let Some(profile_data) =
+            self.profile_data.and_then(|profile| serde_json::to_value(profile).ok())
+        {
+            args.insert("profileData".into(), profile_data);
+        }
+        if let Some(env_overrides) =
+            self.env_overrides.and_then(|env| serde_json::to_value(env).ok())
+        {
+            args.insert("envOverrides".into(), env_overrides);
         }
         if let Some((cols, rows)) = self.initial_size {
             args.insert("initialSize".into(), serde_json::json!([cols, rows]));

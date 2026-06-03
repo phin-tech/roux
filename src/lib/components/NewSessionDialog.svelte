@@ -771,6 +771,7 @@
         {
           initialSize,
           profile: profile.id,
+          profileData: profile.source === "inline" ? profile : null,
           base: defaultBase.base,
           fetchFirst: defaultBase.fetchFirst,
         },

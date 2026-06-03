@@ -131,7 +131,7 @@ describe("runProfileInPane", () => {
   });
 
   describe("env", () => {
-    it("emits an export per entry before setup/startup", async () => {
+    it("does not type profile env exports because spawn applies them", async () => {
       await runProfileInPane(
         "pty-1",
         profile({
@@ -139,43 +139,19 @@ describe("runProfileInPane", () => {
           startupCommand: "claude",
         }),
       );
-      // BTreeMap serialization is lexicographic, so BAZ comes first.
-      // We don't hard-assert order in this test because Object iteration
-      // in JS is insertion-ordered; just check both are present and
-      // precede the startup command.
-      const out = writes();
-      const startupIdx = out.indexOf("claude");
-      expect(startupIdx).toBeGreaterThan(-1);
-      expect(out.slice(0, startupIdx)).toEqual(
-        expect.arrayContaining(["export FOO='bar'", "export BAZ='qux'", "\n"]),
-      );
+      expect(writes()).toEqual(["claude", "\n"]);
     });
 
-    it("shell-escapes env values containing single quotes and metacharacters", async () => {
+    it("is a no-op when a profile only has env", async () => {
       await runProfileInPane(
         "pty-1",
         profile({ env: { MSG: "it's; $(whoami)" } }),
       );
-      expect(writes()).toEqual([
-        "export MSG='it'\\''s; $(whoami)'",
-        "\n",
-      ]);
-    });
-
-    it("skips env entries with invalid shell variable names", async () => {
-      // Names must match [A-Za-z_][A-Za-z0-9_]*. `1BAD` and `WITH-DASH`
-      // would silently break the exported line if we didn't filter them.
-      await runProfileInPane(
-        "pty-1",
-        profile({
-          env: { "1BAD": "x", "WITH-DASH": "y", GOOD: "z" },
-        }),
-      );
-      expect(writes()).toEqual(["export GOOD='z'", "\n"]);
+      expect(writes()).toEqual([]);
     });
   });
 
-  it("applies cwdOverride → env → setup → startup in order", async () => {
+  it("applies cwdOverride → setup → startup in order", async () => {
     await runProfileInPane(
       "pty-1",
       profile({
@@ -187,8 +163,6 @@ describe("runProfileInPane", () => {
     );
     expect(writes()).toEqual([
       "cd '/work'",
-      "\n",
-      "export API='https://api'",
       "\n",
       "./seed.sh",
       "\n",
