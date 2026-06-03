@@ -79,12 +79,27 @@ fn parse_persisted_socket_endpoint(raw: &str) -> Option<SocketEndpoint> {
     }
     #[cfg(not(windows))]
     {
-        if PathBuf::from(trimmed).is_absolute() {
-            Some(SocketEndpoint::Unix(PathBuf::from(trimmed)))
-        } else {
+        let path = PathBuf::from(trimmed);
+        if path.is_absolute() {
+            Some(SocketEndpoint::Unix(path))
+        } else if is_legacy_tcp_addr(trimmed) {
             Some(SocketEndpoint::Tcp(trimmed.to_string()))
+        } else {
+            Some(SocketEndpoint::Unix(path))
         }
     }
+}
+
+#[cfg(not(windows))]
+fn is_legacy_tcp_addr(value: &str) -> bool {
+    let Some((host, port)) = value.rsplit_once(':') else {
+        return false;
+    };
+
+    !host.is_empty()
+        && !port.is_empty()
+        && port.chars().all(|ch| ch.is_ascii_digit())
+        && !host.contains(std::path::MAIN_SEPARATOR)
 }
 
 pub(crate) fn load_socket_auth_token() -> Option<String> {

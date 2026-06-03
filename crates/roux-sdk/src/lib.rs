@@ -89,6 +89,28 @@ mod tests {
         assert_eq!(endpoint, Some(SocketEndpoint::Tcp("100.73.57.24:7777".to_string())));
     }
 
+    #[cfg(not(windows))]
+    #[test]
+    fn resolves_persisted_relative_unix_socket_endpoint_when_env_socket_is_absent() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("roux-socket-addr"), "roux.sock").unwrap();
+
+        let endpoint = with_endpoint_env(dir.path(), resolve_socket_endpoint);
+
+        assert_eq!(endpoint, Some(SocketEndpoint::Unix("roux.sock".into())));
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn resolves_legacy_bare_tcp_socket_endpoint_when_env_socket_is_absent() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("roux-socket-addr"), "127.0.0.1:7777").unwrap();
+
+        let endpoint = with_endpoint_env(dir.path(), resolve_socket_endpoint);
+
+        assert_eq!(endpoint, Some(SocketEndpoint::Tcp("127.0.0.1:7777".to_string())));
+    }
+
     #[test]
     fn command_request_serializes_protocol_shape() {
         let request = CommandRequest::new("daemon-status")
