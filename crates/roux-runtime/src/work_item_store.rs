@@ -11,7 +11,6 @@
 use std::path::Path;
 
 use rusqlite::{params, types::Type, Connection, OptionalExtension, Result as SqlResult};
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use roux_core::{
@@ -22,50 +21,6 @@ use roux_core::{
 };
 
 pub const WORK_ITEM_SCHEMA_VERSION: i64 = 7;
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum WorkItemMigrationStorage {
-    BoardDb,
-    InMemory,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WorkItemMigrationStatus {
-    pub current_version: i64,
-    pub target_version: i64,
-    pub pending_versions: Vec<i64>,
-    pub storage: WorkItemMigrationStorage,
-    pub error: Option<String>,
-}
-
-impl WorkItemMigrationStatus {
-    pub fn new(
-        current_version: i64,
-        storage: WorkItemMigrationStorage,
-        error: Option<String>,
-    ) -> Self {
-        WorkItemMigrationStatus {
-            current_version,
-            target_version: WORK_ITEM_SCHEMA_VERSION,
-            pending_versions: pending_work_item_migrations(
-                current_version,
-                WORK_ITEM_SCHEMA_VERSION,
-            ),
-            storage,
-            error,
-        }
-    }
-}
-
-pub fn pending_work_item_migrations(current_version: i64, target_version: i64) -> Vec<i64> {
-    if current_version >= target_version {
-        return Vec::new();
-    }
-    let start = current_version.saturating_add(1).max(1);
-    (start..=target_version).collect()
-}
 
 pub struct WorkItemStore {
     conn: Connection,
@@ -1659,9 +1614,9 @@ mod tests {
 
     #[test]
     fn pending_migrations_are_versions_after_current() {
-        assert_eq!(pending_work_item_migrations(4, 7), vec![5, 6, 7]);
-        assert!(pending_work_item_migrations(7, 7).is_empty());
-        assert!(pending_work_item_migrations(8, 7).is_empty());
+        assert_eq!(roux_core::pending_work_item_migrations(4, 7), vec![5, 6, 7]);
+        assert!(roux_core::pending_work_item_migrations(7, 7).is_empty());
+        assert!(roux_core::pending_work_item_migrations(8, 7).is_empty());
     }
 
     #[test]

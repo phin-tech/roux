@@ -1,22 +1,5 @@
-use roux_core::PtyInfo;
+use roux_core::{PtyInfo, WorkItemMigrationStatus};
 use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub enum WorkItemMigrationStorage {
-    BoardDb,
-    InMemory,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct WorkItemMigrationStatus {
-    pub current_version: i64,
-    pub target_version: i64,
-    pub pending_versions: Vec<i64>,
-    pub storage: WorkItemMigrationStorage,
-    pub error: Option<String>,
-}
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]

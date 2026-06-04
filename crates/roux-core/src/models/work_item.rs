@@ -47,6 +47,48 @@ impl std::fmt::Display for WorkItemStatus {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub enum WorkItemMigrationStorage {
+    BoardDb,
+    InMemory,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkItemMigrationStatus {
+    pub current_version: i64,
+    pub target_version: i64,
+    pub pending_versions: Vec<i64>,
+    pub storage: WorkItemMigrationStorage,
+    pub error: Option<String>,
+}
+
+impl WorkItemMigrationStatus {
+    pub fn new(
+        current_version: i64,
+        target_version: i64,
+        storage: WorkItemMigrationStorage,
+        error: Option<String>,
+    ) -> Self {
+        WorkItemMigrationStatus {
+            current_version,
+            target_version,
+            pending_versions: pending_work_item_migrations(current_version, target_version),
+            storage,
+            error,
+        }
+    }
+}
+
+pub fn pending_work_item_migrations(current_version: i64, target_version: i64) -> Vec<i64> {
+    if current_version >= target_version {
+        return Vec::new();
+    }
+    let start = current_version.saturating_add(1).max(1);
+    (start..=target_version).collect()
+}
+
 /// Pointer to an item's identity in an external system (e.g. a future
 /// GitHub or Linear adapter). Only `provider` + `external_id` together
 /// form the dedup key; `url` is informational.

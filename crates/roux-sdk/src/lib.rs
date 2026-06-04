@@ -17,14 +17,12 @@ pub use error::{RouxError, RouxResult};
 pub use handles::{LatestOutput, Pty, PtyWrite, Session, SpawnShell, SpawnTask};
 pub use protocol::{CommandRequest, CommandResponse};
 pub use requests::{CreateSessionShell, MailboxPost, NotesEnv, ReconnectSessionShell};
+pub use roux_core::{WorkItemMigrationStatus, WorkItemMigrationStorage};
 pub use streams::{
     AliasEventStreamFrame, MailboxEventStreamFrame, SubscriptionEventStreamFrame,
     WatchEventStreamFrame, WorkItemEventStreamFrame,
 };
-pub use types::{
-    DaemonStatus, PtyAttachFrame, PtyKind, PtyRecord, PtySnapshot, WorkItemMigrationStatus,
-    WorkItemMigrationStorage,
-};
+pub use types::{DaemonStatus, PtyAttachFrame, PtyKind, PtyRecord, PtySnapshot};
 
 #[cfg(test)]
 mod tests {

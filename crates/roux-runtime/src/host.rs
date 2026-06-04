@@ -54,10 +54,7 @@ impl RuntimeHostConfig {
         let work_item_handle = match WorkItemHandle::open(&self.work_item_db_path) {
             Ok(handle) => handle,
             Err(err) => {
-                eprintln!(
-                    "Warning: failed to open board.db at {}: {err}; using in-memory work items for this process.",
-                    self.work_item_db_path.display()
-                );
+                eprintln!("Warning: {err}; using in-memory work items for this process.");
                 WorkItemHandle::in_memory_with_error(Some(err))
             }
         };

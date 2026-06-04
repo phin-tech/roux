@@ -9,7 +9,7 @@ use tauri::{AppHandle, Emitter};
 use crate::commands::notes::{NotesRead, NotesSearchQuery, NotesTarget};
 use roux_core::{
     AgentAlias, BusSubscription, CreateWatchConfig, Event, Project, ProjectUpdate, ReadState,
-    Session, SessionExitPayload, SessionExitReason, Watch, Worktree,
+    Session, SessionExitPayload, SessionExitReason, Watch, WorkItemMigrationStatus, Worktree,
 };
 use roux_runtime::automation_hooks::{
     HookListItem, HookLogEntry, HookPreviewItem, HookRunRequest, HookRunSummary,
@@ -17,7 +17,6 @@ use roux_runtime::automation_hooks::{
 use roux_runtime::process_service::{ProcessRecord, ProcessSnapshot};
 use roux_runtime::terminal_env::NotesEnvInputs;
 use roux_runtime::work_item_service::WorkItemHandle;
-use roux_runtime::work_item_store::WorkItemMigrationStatus;
 use roux_sdk::{
     AliasEventStreamFrame, MailboxEventStreamFrame, PtyAttachFrame, PtyRecord, PtySnapshot,
     SubscriptionEventStreamFrame, WatchEventStreamFrame, WorkItemEventStreamFrame,
