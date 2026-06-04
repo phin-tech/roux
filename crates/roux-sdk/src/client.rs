@@ -846,6 +846,29 @@ impl Roux {
             .ok_or_else(|| RouxError::Command("missing id in delete response".to_string()))
     }
 
+    pub async fn work_item_attach_session(
+        &self,
+        id: impl Into<String>,
+        session_id: impl Into<String>,
+    ) -> RouxResult<roux_core::WorkItem> {
+        self.command(
+            CommandRequest::new("work-item-attach-session")
+                .args(work_item_attach_session_args(id.into(), session_id.into())),
+        )
+        .await
+    }
+
+    pub async fn work_item_detach_session(
+        &self,
+        id: impl Into<String>,
+    ) -> RouxResult<roux_core::WorkItem> {
+        self.command(
+            CommandRequest::new("work-item-detach-session")
+                .args(work_item_detach_session_args(id.into())),
+        )
+        .await
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub async fn work_item_start(
         &self,
@@ -1232,6 +1255,14 @@ fn work_item_plan_args(
     args
 }
 
+fn work_item_attach_session_args(id: String, session_id: String) -> Value {
+    serde_json::json!({ "id": id, "sessionId": session_id })
+}
+
+fn work_item_detach_session_args(id: String) -> Value {
+    serde_json::json!({ "id": id })
+}
+
 fn optional_string_arg(key: &'static str, value: Option<String>) -> Value {
     let mut args = serde_json::Map::new();
     args.insert(key.into(), value.map(Value::String).unwrap_or(Value::Null));
@@ -1443,5 +1474,19 @@ mod tests {
         assert_eq!(args["id"], "wi-1");
         assert_eq!(args["profile"], "claude");
         assert_eq!(args["replaceActive"], true);
+    }
+
+    #[test]
+    fn work_item_attach_session_args_use_daemon_shape() {
+        let args = work_item_attach_session_args("wi-1".to_string(), "sess-1".to_string());
+
+        assert_eq!(args, serde_json::json!({ "id": "wi-1", "sessionId": "sess-1" }));
+    }
+
+    #[test]
+    fn work_item_detach_session_args_use_daemon_shape() {
+        let args = work_item_detach_session_args("wi-1".to_string());
+
+        assert_eq!(args, serde_json::json!({ "id": "wi-1" }));
     }
 }

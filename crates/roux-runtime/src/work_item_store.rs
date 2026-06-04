@@ -197,7 +197,12 @@ impl WorkItemStore {
             )?;
             version = 6;
         }
-        debug_assert!(version >= 6);
+        if version < 7 {
+            add_column_if_missing(&conn, "work_item_runs", "pty_id", "TEXT")?;
+            conn.execute_batch("PRAGMA user_version = 7;")?;
+            version = 7;
+        }
+        debug_assert!(version >= 7);
         Ok(WorkItemStore { conn })
     }
 
@@ -530,9 +535,18 @@ impl WorkItemStore {
         session_id: &str,
         now: u64,
     ) -> SqlResult<Option<WorkItem>> {
+        self.ensure_session_unbound_or_self(id, session_id)?;
         self.conn.execute(
             "UPDATE work_items SET session_id = ?2, updated_at = ?3 WHERE id = ?1",
             params![id, session_id, now as i64],
+        )?;
+        self.get(id)
+    }
+
+    pub fn detach_session(&mut self, id: &str, now: u64) -> SqlResult<Option<WorkItem>> {
+        self.conn.execute(
+            "UPDATE work_items SET session_id = NULL, updated_at = ?2 WHERE id = ?1",
+            params![id, now as i64],
         )?;
         self.get(id)
     }
@@ -585,6 +599,7 @@ impl WorkItemStore {
         sort_order: f64,
         now: u64,
     ) -> SqlResult<Option<WorkItem>> {
+        self.ensure_session_unbound_or_self(id, session_id)?;
         self.conn.execute(
             "UPDATE work_items SET
                 session_id = ?2,
@@ -622,6 +637,7 @@ impl WorkItemStore {
         session_id: &str,
         now: u64,
     ) -> SqlResult<bool> {
+        self.ensure_session_unbound_or_self(id, session_id)?;
         let changed = self.conn.execute(
             "UPDATE work_items SET session_id = ?2, updated_at = ?3
              WHERE id = ?1 AND session_id IS NULL",
@@ -643,6 +659,7 @@ impl WorkItemStore {
         sort_order: f64,
         now: u64,
     ) -> SqlResult<Option<(WorkItem, WorkItemRun)>> {
+        self.ensure_session_unbound_or_self(work_item_id, session_id)?;
         let tx = self.conn.transaction()?;
         let changed = tx.execute(
             "UPDATE work_items
@@ -685,6 +702,42 @@ impl WorkItemStore {
         let item = self.get(work_item_id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
         let run = self.get_run(&run_id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
         Ok(Some((item, run)))
+    }
+
+    fn ensure_session_unbound_or_self(&self, id: &str, session_id: &str) -> SqlResult<()> {
+        if let Some(bound_id) = self.session_bound_work_item_id(session_id, Some(id))? {
+            return Err(session_already_bound_error(session_id, &bound_id));
+        }
+        Ok(())
+    }
+
+    pub fn session_bound_work_item_id(
+        &self,
+        session_id: &str,
+        except_id: Option<&str>,
+    ) -> SqlResult<Option<String>> {
+        match except_id {
+            Some(id) => self
+                .conn
+                .query_row(
+                    "SELECT id FROM work_items
+                     WHERE session_id = ?1 AND id != ?2
+                     LIMIT 1",
+                    params![session_id, id],
+                    |row| row.get(0),
+                )
+                .optional(),
+            None => self
+                .conn
+                .query_row(
+                    "SELECT id FROM work_items
+                     WHERE session_id = ?1
+                     LIMIT 1",
+                    params![session_id],
+                    |row| row.get(0),
+                )
+                .optional(),
+        }
     }
 
     pub fn has_active_run(&self, work_item_id: &str) -> SqlResult<bool> {
@@ -823,12 +876,18 @@ impl WorkItemStore {
                     SELECT 1 FROM work_item_runs
                     WHERE work_item_id = ?1
                       AND status NOT IN (?2, ?3, ?4)
+                      AND (
+                          ?5 IS NULL
+                          OR session_id IS NULL
+                          OR session_id != ?5
+                      )
                 )",
                 params![
                     work_item_id,
                     WorkItemRunStatus::Done.as_str(),
                     WorkItemRunStatus::Failed.as_str(),
                     WorkItemRunStatus::Stopped.as_str(),
+                    session_id,
                 ],
                 |row| row.get(0),
             )?;
@@ -867,7 +926,7 @@ impl WorkItemStore {
     pub fn get_run(&self, id: &str) -> SqlResult<Option<WorkItemRun>> {
         self.conn
             .query_row(
-                "SELECT id, work_item_id, kind, session_id, provider, profile_id, status,
+                "SELECT id, work_item_id, kind, session_id, pty_id, provider, profile_id, status,
                         worktree_path, branch, cost, created_at, started_at, ended_at, updated_at
                  FROM work_item_runs
                  WHERE id = ?1",
@@ -879,13 +938,13 @@ impl WorkItemStore {
 
     pub fn list_runs(&self, work_item_id: Option<&str>) -> SqlResult<Vec<WorkItemRun>> {
         let sql = if work_item_id.is_some() {
-            "SELECT id, work_item_id, kind, session_id, provider, profile_id, status,
+            "SELECT id, work_item_id, kind, session_id, pty_id, provider, profile_id, status,
                     worktree_path, branch, cost, created_at, started_at, ended_at, updated_at
              FROM work_item_runs
              WHERE work_item_id = ?1
              ORDER BY rowid"
         } else {
-            "SELECT id, work_item_id, kind, session_id, provider, profile_id, status,
+            "SELECT id, work_item_id, kind, session_id, pty_id, provider, profile_id, status,
                     worktree_path, branch, cost, created_at, started_at, ended_at, updated_at
              FROM work_item_runs
              ORDER BY rowid"
@@ -915,6 +974,24 @@ impl WorkItemStore {
             params![id, run_id, kind.as_str(), payload, now as i64],
         )?;
         self.get_run_event(&id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)
+    }
+
+    pub fn set_run_pty_id(
+        &mut self,
+        id: &str,
+        pty_id: Option<&str>,
+        now: u64,
+    ) -> SqlResult<Option<WorkItemRun>> {
+        let changed = self.conn.execute(
+            "UPDATE work_item_runs
+             SET pty_id = ?2, updated_at = ?3
+             WHERE id = ?1",
+            params![id, pty_id, now as i64],
+        )?;
+        if changed == 0 {
+            return Ok(None);
+        }
+        self.get_run(id)
     }
 
     pub fn get_run_event(&self, id: &str) -> SqlResult<Option<WorkItemRunEvent>> {
@@ -1324,6 +1401,13 @@ fn option_field_changed<T: PartialEq>(present: bool, next: Option<T>, current: O
     present && next != current
 }
 
+fn session_already_bound_error(session_id: &str, work_item_id: &str) -> rusqlite::Error {
+    rusqlite::Error::SqliteFailure(
+        rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CONSTRAINT),
+        Some(format!("session already bound to work item {work_item_id}: {session_id}")),
+    )
+}
+
 fn row_to_work_item(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkItem> {
     let status_str: String = row.get(5)?;
     let status = WorkItemStatus::from_str_opt(&status_str).unwrap_or_default();
@@ -1356,23 +1440,24 @@ fn row_to_work_item(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkItem> {
 fn row_to_work_item_run(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkItemRun> {
     let kind_str: String = row.get(2)?;
     let kind = WorkItemRunKind::from_str_opt(&kind_str).unwrap_or_default();
-    let status_str: String = row.get(6)?;
+    let status_str: String = row.get(7)?;
     let status = WorkItemRunStatus::from_str_opt(&status_str).unwrap_or_default();
     Ok(WorkItemRun {
         id: row.get(0)?,
         work_item_id: row.get(1)?,
         kind,
         session_id: row.get(3)?,
-        provider: row.get(4)?,
-        profile_id: row.get(5)?,
+        pty_id: row.get(4)?,
+        provider: row.get(5)?,
+        profile_id: row.get(6)?,
         status,
-        worktree_path: row.get(7)?,
-        branch: row.get(8)?,
-        cost: row.get(9)?,
-        created_at: row.get::<_, i64>(10)? as u64,
-        started_at: row.get::<_, Option<i64>>(11)?.map(|value| value as u64),
-        ended_at: row.get::<_, Option<i64>>(12)?.map(|value| value as u64),
-        updated_at: row.get::<_, i64>(13)? as u64,
+        worktree_path: row.get(8)?,
+        branch: row.get(9)?,
+        cost: row.get(10)?,
+        created_at: row.get::<_, i64>(11)? as u64,
+        started_at: row.get::<_, Option<i64>>(12)?.map(|value| value as u64),
+        ended_at: row.get::<_, Option<i64>>(13)?.map(|value| value as u64),
+        updated_at: row.get::<_, i64>(14)? as u64,
     })
 }
 
@@ -1526,7 +1611,7 @@ mod tests {
         let store = WorkItemStore::open_in_memory().unwrap();
         let version: i64 =
             store.conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
-        assert_eq!(version, 6);
+        assert_eq!(version, 7);
     }
 
     #[test]
@@ -1537,21 +1622,23 @@ mod tests {
             let store = WorkItemStore::open(&path).unwrap();
             let version: i64 =
                 store.conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
-            assert_eq!(version, 6);
+            assert_eq!(version, 7);
             assert!(table_has_column(&store.conn, "work_items", "repo_path").unwrap());
             assert!(table_has_column(&store.conn, "work_items", "branch").unwrap());
             assert!(table_has_column(&store.conn, "work_items", "fetch_first").unwrap());
             assert!(table_has_column(&store.conn, "work_item_runs", "kind").unwrap());
+            assert!(table_has_column(&store.conn, "work_item_runs", "pty_id").unwrap());
         }
 
         let store = WorkItemStore::open(&path).unwrap();
         let version: i64 =
             store.conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
-        assert_eq!(version, 6);
+        assert_eq!(version, 7);
         assert!(table_has_column(&store.conn, "work_items", "repo_path").unwrap());
         assert!(table_has_column(&store.conn, "work_items", "branch").unwrap());
         assert!(table_has_column(&store.conn, "work_items", "fetch_first").unwrap());
         assert!(table_has_column(&store.conn, "work_item_runs", "kind").unwrap());
+        assert!(table_has_column(&store.conn, "work_item_runs", "pty_id").unwrap());
     }
 
     #[test]
@@ -1626,7 +1713,7 @@ mod tests {
         let store = WorkItemStore::open(&path).unwrap();
         let version: i64 =
             store.conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
-        assert_eq!(version, 6);
+        assert_eq!(version, 7);
         for column in [
             "repo_path",
             "agent_profile",
@@ -1639,6 +1726,7 @@ mod tests {
             assert!(table_has_column(&store.conn, "work_items", column).unwrap());
         }
         assert!(table_has_column(&store.conn, "work_item_runs", "kind").unwrap());
+        assert!(table_has_column(&store.conn, "work_item_runs", "pty_id").unwrap());
         let item = store.get("missing").unwrap();
         assert!(item.is_none());
     }
@@ -1806,6 +1894,22 @@ mod tests {
     }
 
     #[test]
+    fn set_session_rejects_session_bound_to_another_item() {
+        let mut store = WorkItemStore::open_in_memory().unwrap();
+        store.create("i-1".into(), input("Task one"), 1000).unwrap();
+        store.create("i-2".into(), input("Task two"), 1001).unwrap();
+        store.set_session("i-1", "sess-1", 2000).unwrap().unwrap();
+
+        let err = store.set_session("i-2", "sess-1", 3000).unwrap_err();
+
+        assert!(err.to_string().contains("session already bound"), "unexpected error: {err}");
+        let first = store.get("i-1").unwrap().unwrap();
+        let second = store.get("i-2").unwrap().unwrap();
+        assert_eq!(first.session_id.as_deref(), Some("sess-1"));
+        assert!(second.session_id.is_none());
+    }
+
+    #[test]
     fn set_session_if_unbound_only_binds_once() {
         let mut store = WorkItemStore::open_in_memory().unwrap();
         store.create("i-1".into(), input("Task"), 1000).unwrap();
@@ -1823,6 +1927,69 @@ mod tests {
     fn set_session_if_unbound_is_false_for_missing_item() {
         let mut store = WorkItemStore::open_in_memory().unwrap();
         assert!(!store.set_session_if_unbound("nope", "sess-1", 1000).unwrap());
+    }
+
+    #[test]
+    fn set_session_if_unbound_rejects_session_bound_to_another_item() {
+        let mut store = WorkItemStore::open_in_memory().unwrap();
+        store.create("i-1".into(), input("Task one"), 1000).unwrap();
+        store.create("i-2".into(), input("Task two"), 1001).unwrap();
+        store.set_session("i-1", "sess-1", 2000).unwrap().unwrap();
+
+        let err = store.set_session_if_unbound("i-2", "sess-1", 3000).unwrap_err();
+
+        assert!(err.to_string().contains("session already bound"), "unexpected error: {err}");
+        let first = store.get("i-1").unwrap().unwrap();
+        let second = store.get("i-2").unwrap().unwrap();
+        assert_eq!(first.session_id.as_deref(), Some("sess-1"));
+        assert!(second.session_id.is_none());
+    }
+
+    #[test]
+    fn detach_session_clears_only_matching_item_binding() {
+        let mut store = WorkItemStore::open_in_memory().unwrap();
+        store.create("i-1".into(), input("Task one"), 1000).unwrap();
+        store.create("i-2".into(), input("Task two"), 1001).unwrap();
+        store.set_session("i-1", "sess-1", 2000).unwrap().unwrap();
+        store.set_session("i-2", "sess-2", 2001).unwrap().unwrap();
+
+        let detached = store.detach_session("i-1", 3000).unwrap().unwrap();
+
+        assert!(detached.session_id.is_none());
+        let other = store.get("i-2").unwrap().unwrap();
+        assert_eq!(other.session_id.as_deref(), Some("sess-2"));
+    }
+
+    #[test]
+    fn complete_start_rejects_session_bound_to_another_item() {
+        let mut store = WorkItemStore::open_in_memory().unwrap();
+        store.create("i-1".into(), input("Task one"), 1000).unwrap();
+        store.create("i-2".into(), input("Task two"), 1001).unwrap();
+        store.set_session("i-1", "sess-1", 2000).unwrap().unwrap();
+
+        let err =
+            store.complete_start("i-2", "sess-1", None, None, None, None, 0.0, 3000).unwrap_err();
+
+        assert!(err.to_string().contains("session already bound"), "unexpected error: {err}");
+        let second = store.get("i-2").unwrap().unwrap();
+        assert!(second.session_id.is_none());
+    }
+
+    #[test]
+    fn dispatch_run_rejects_session_bound_to_another_item() {
+        let mut store = WorkItemStore::open_in_memory().unwrap();
+        store.create("i-1".into(), input("Task one"), 1000).unwrap();
+        store.create("i-2".into(), input("Task two"), 1001).unwrap();
+        store.set_session("i-1", "sess-1", 2000).unwrap().unwrap();
+
+        let err = store
+            .dispatch_run("run-1".into(), "i-2", "sess-1", None, None, None, None, 0.0, 3000)
+            .unwrap_err();
+
+        assert!(err.to_string().contains("session already bound"), "unexpected error: {err}");
+        let second = store.get("i-2").unwrap().unwrap();
+        assert!(second.session_id.is_none());
+        assert!(store.list_runs(Some("i-2")).unwrap().is_empty());
     }
 
     #[test]
@@ -1916,6 +2083,22 @@ mod tests {
         let runs = store.list_runs(Some("i-1")).unwrap();
         assert_eq!(runs.len(), 1);
         assert_eq!(runs[0].id, "run-1");
+    }
+
+    #[test]
+    fn run_pty_id_persists_and_lists() {
+        let mut store = WorkItemStore::open_in_memory().unwrap();
+        store.create("i-1".into(), input("Task"), 1000).unwrap();
+        let run = store
+            .create_run("run-1".into(), "i-1", Some("sess-1"), None, None, None, None, 1100)
+            .unwrap();
+        assert!(run.pty_id.is_none());
+
+        let run = store.set_run_pty_id("run-1", Some("sess-1-run-1"), 1200).unwrap().unwrap();
+        assert_eq!(run.pty_id.as_deref(), Some("sess-1-run-1"));
+
+        let runs = store.list_runs(Some("i-1")).unwrap();
+        assert_eq!(runs[0].pty_id.as_deref(), Some("sess-1-run-1"));
     }
 
     #[test]

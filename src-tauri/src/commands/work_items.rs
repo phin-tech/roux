@@ -82,6 +82,35 @@ pub(crate) async fn work_item_delete(
 
 #[tauri::command]
 #[specta::specta]
+pub(crate) async fn work_item_attach_session(
+    id: String,
+    session_id: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<WorkItem, String> {
+    if let Some(client) =
+        state.daemon_client.clone().filter(|c| c.supports("work-item-attach-session"))
+    {
+        return client.work_item_attach_session(id, session_id).await.map_err(String::from);
+    }
+    Err("Attaching a work item session requires a running daemon.".to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn work_item_detach_session(
+    id: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<WorkItem, String> {
+    if let Some(client) =
+        state.daemon_client.clone().filter(|c| c.supports("work-item-detach-session"))
+    {
+        return client.work_item_detach_session(id).await.map_err(String::from);
+    }
+    Err("Detaching a work item session requires a running daemon.".to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub(crate) async fn work_item_start(
     id: String,
     profile: Option<String>,

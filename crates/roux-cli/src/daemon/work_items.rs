@@ -187,6 +187,107 @@ pub(super) async fn handle_work_item_delete(req: Request, host: &RuntimeHost) ->
     }
 }
 
+pub(super) async fn handle_work_item_attach_session(req: Request, host: &RuntimeHost) -> Response {
+    let Some(id) = optional_string_arg(&req.args, &["id"]) else {
+        return Response::err("id required");
+    };
+    let Some(session_id) = optional_string_arg(&req.args, &["sessionId", "session_id"]) else {
+        return Response::err("sessionId required");
+    };
+
+    let item = match host.work_item_handle.get(&id) {
+        Ok(Some(item)) => item,
+        Ok(None) => return Response::err("work item not found"),
+        Err(err) => return Response::err(err),
+    };
+    let session = match host.session_handle.get(&session_id).await {
+        Ok(Some(session)) => session,
+        Ok(None) => return Response::err("session not found"),
+        Err(err) => return Response::err(err.to_string()),
+    };
+    let bound_work_item_id = match host.work_item_handle.list(None) {
+        Ok(items) => items
+            .into_iter()
+            .find(|candidate| candidate.session_id.as_deref() == Some(session_id.as_str()))
+            .map(|candidate| candidate.id),
+        Err(err) => return Response::err(err),
+    };
+
+    let decision =
+        match roux_core::decide_work_item_session_attach(roux_core::WorkItemSessionAttachInput {
+            work_item_id: item.id.clone(),
+            work_item_project_id: item.project_id.clone(),
+            session_id: session.id.clone(),
+            session_project_id: session.project_id.clone(),
+            session_bound_work_item_id: bound_work_item_id,
+        }) {
+            Ok(decision) => decision,
+            Err(err) => return Response::err(err.to_string()),
+        };
+
+    let mut item = match host.work_item_handle.attach_session(&item.id, &session_id) {
+        Ok(Some(item)) => item,
+        Ok(None) => return Response::err("work item not found"),
+        Err(err) => return Response::err(err),
+    };
+
+    if let Some(project_id) = decision.session_project_id_update {
+        if let Err(err) = host.session_handle.set_project(&session_id, Some(project_id)).await {
+            return Response::err(err.to_string());
+        }
+    }
+    if let Some(project_id) = decision.work_item_project_id_update {
+        let input = work_item_project_update_input(&item, project_id);
+        item = match host.work_item_handle.update(&id, input) {
+            Ok(Some(item)) => item,
+            Ok(None) => return Response::err("work item not found"),
+            Err(err) => return Response::err(err),
+        };
+    }
+
+    match serde_json::to_value(&item) {
+        Ok(value) => Response::success(value),
+        Err(err) => Response::err(format!("failed to serialize work item: {err}")),
+    }
+}
+
+pub(super) async fn handle_work_item_detach_session(req: Request, host: &RuntimeHost) -> Response {
+    let Some(id) = optional_string_arg(&req.args, &["id"]) else {
+        return Response::err("id required");
+    };
+    match host.work_item_handle.detach_session(&id) {
+        Ok(Some(item)) => match serde_json::to_value(&item) {
+            Ok(value) => Response::success(value),
+            Err(err) => Response::err(format!("failed to serialize work item: {err}")),
+        },
+        Ok(None) => Response::err("work item not found"),
+        Err(err) => Response::err(err),
+    }
+}
+
+fn work_item_project_update_input(
+    item: &roux_core::WorkItem,
+    project_id: String,
+) -> roux_core::WorkItemInput {
+    roux_core::WorkItemInput {
+        title: item.title.clone(),
+        body: item.body.clone(),
+        status: Some(item.status.clone()),
+        repo_path: item.repo_path.clone(),
+        agent_profile: item.agent_profile.clone(),
+        base_branch: item.base_branch.clone(),
+        worktree_path: item.worktree_path.clone(),
+        branch: item.branch.clone(),
+        fetch_first: item.fetch_first,
+        start_error: item.start_error.clone(),
+        project_id: Some(project_id),
+        parent_id: item.parent_id.clone(),
+        external_ref: None,
+        sort_order: Some(item.sort_order),
+        field_presence: WorkItemInputPresence { project_id: true, ..Default::default() },
+    }
+}
+
 pub(super) async fn handle_document_attach(req: Request, host: &RuntimeHost) -> Response {
     let Some(target_kind) = optional_string_arg(&req.args, &["targetKind", "target_kind"]) else {
         return Response::err("targetKind required");
@@ -346,7 +447,7 @@ pub(super) async fn handle_work_item_review_accept(req: Request, host: &RuntimeH
     }
 }
 
-type ProfileDispatchFuture<'a> = Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>>;
+type ProfileDispatchFuture<'a> = Pin<Box<dyn Future<Output = Result<String, String>> + Send + 'a>>;
 type ProfileDispatcher = for<'a> fn(
     &'a RuntimeHost,
     &'a roux_core::WorkItem,
@@ -508,21 +609,26 @@ async fn plan_work_item_run_with_hooks(
     let mut dispatch_item = item.clone();
     dispatch_item.repo_path = Some(repo_path);
     dispatch_item.agent_profile = Some(profile_id.clone());
-    if let Err(err) =
-        dispatch_profile(host, &dispatch_item, &run.id, &session_id, &profile_id, identity).await
-    {
-        let _ = host.work_item_handle.set_run_status(
-            &run.id,
-            roux_core::WorkItemRunStatus::Failed,
-            serde_json::json!({
-                "reason": "promptDispatchFailed",
-                "message": err.clone(),
-                "sessionId": session_id.clone(),
-            }),
-        );
-        return Err(Response::err(err));
-    }
-    start_work_item_run_output_monitor(host.clone(), run.id.clone(), session_id.clone());
+    let pty_id =
+        match dispatch_profile(host, &dispatch_item, &run.id, &session_id, &profile_id, identity)
+            .await
+        {
+            Ok(pty_id) => pty_id,
+            Err(err) => {
+                let _ = host.work_item_handle.set_run_status(
+                    &run.id,
+                    roux_core::WorkItemRunStatus::Failed,
+                    serde_json::json!({
+                        "reason": "promptDispatchFailed",
+                        "message": err.clone(),
+                        "sessionId": session_id.clone(),
+                    }),
+                );
+                return Err(Response::err(err));
+            }
+        };
+    let run = persist_work_item_run_pty_id(host, &run.id, &pty_id)?;
+    start_work_item_run_output_monitor(host.clone(), run.id.clone(), pty_id);
 
     let _ = host.work_item_handle.append_run_event(
         &run.id,
@@ -569,9 +675,7 @@ async fn stop_planning_run_for_replacement(
         },
         Err(err) => return Err(Response::err(err)),
     };
-    if let Some(session_id) = stopped_run.session_id.as_deref() {
-        cleanup_stopped_work_item_run_session(host, session_id).await?;
-    }
+    cleanup_stopped_work_item_run_session(host, &stopped_run).await?;
     Ok(())
 }
 
@@ -580,14 +684,7 @@ fn active_work_item_run(
     item_id: &str,
 ) -> Result<Option<roux_core::WorkItemRun>, Response> {
     let runs = host.work_item_handle.list_runs(Some(item_id)).map_err(Response::err)?;
-    Ok(runs.into_iter().find(|run| {
-        !matches!(
-            run.status,
-            roux_core::WorkItemRunStatus::Done
-                | roux_core::WorkItemRunStatus::Failed
-                | roux_core::WorkItemRunStatus::Stopped
-        )
-    }))
+    Ok(runs.into_iter().find(is_active_work_item_run))
 }
 
 async fn resolve_planning_repo_path(
@@ -650,21 +747,23 @@ async fn start_work_item_run_with_hooks(
         Err(err) => return Err(Response::err(err)),
     };
 
-    match host.work_item_handle.has_active_run(&item_id) {
-        Ok(true) => {
-            return Err(record_start_failure_response(
-                host,
-                &item_id,
-                "work item already has an active run",
-                None,
-                None,
-                None,
-                None,
-                None,
-            ));
+    if item.session_id.is_none() {
+        match host.work_item_handle.has_active_run(&item_id) {
+            Ok(true) => {
+                return Err(record_start_failure_response(
+                    host,
+                    &item_id,
+                    "work item already has an active run",
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                ));
+            }
+            Ok(false) => {}
+            Err(err) => return Err(Response::err(err)),
         }
-        Ok(false) => {}
-        Err(err) => return Err(Response::err(err)),
     }
 
     let settings = load_daemon_settings();
@@ -768,6 +867,130 @@ async fn start_work_item_run_with_hooks(
         requested_branch.or_else(|| Some(default_work_item_branch(&item)))
     };
     let base_branch = base.clone();
+
+    if let Some(session_id) = item.session_id.clone() {
+        let session = match host.session_handle.get(&session_id).await {
+            Ok(Some(session)) => session,
+            Ok(None) => {
+                return Err(record_start_failure_response(
+                    host,
+                    &item_id,
+                    "bound session not found",
+                    Some(&session_id),
+                    item.worktree_path.as_deref(),
+                    Some(&profile_id),
+                    Some(&repo_path),
+                    base_branch.as_deref(),
+                ));
+            }
+            Err(err) => return Err(Response::err(err.to_string())),
+        };
+        let provider = provider_slug(profile.provider).map(str::to_string);
+        let worktree_path = Some(session.worktree_path.as_str());
+        let branch = (!session.branch.trim().is_empty()).then_some(session.branch.as_str());
+        let run = match host.work_item_handle.create_starting_run(
+            &item_id,
+            Some(&session_id),
+            provider.as_deref(),
+            Some(&profile_id),
+            worktree_path,
+            branch,
+        ) {
+            Ok(run) => run,
+            Err(err) => {
+                return Err(Response::err(format!(
+                    "work item run create failed; bound session was preserved: {err}"
+                )));
+            }
+        };
+        let _ = host.work_item_handle.append_run_event(
+            &run.id,
+            roux_core::WorkItemRunEventKind::Lifecycle,
+            serde_json::json!({
+                "stage": "sessionReused",
+                "sessionId": session_id.clone(),
+                "worktreePath": worktree_path,
+                "branch": branch,
+            }),
+        );
+        let mut dispatch_item = item.clone();
+        dispatch_item.worktree_path = worktree_path.map(str::to_string);
+        dispatch_item.agent_profile = Some(profile_id.clone());
+        dispatch_item.repo_path = Some(repo_path.clone());
+        dispatch_item.base_branch = base_branch.clone();
+
+        let pty_id = match dispatch_profile(
+            host,
+            &dispatch_item,
+            &run.id,
+            &session_id,
+            &profile_id,
+            identity,
+        )
+        .await
+        {
+            Ok(pty_id) => pty_id,
+            Err(err) => {
+                let _ = host.work_item_handle.set_run_status(
+                    &run.id,
+                    roux_core::WorkItemRunStatus::Failed,
+                    serde_json::json!({
+                        "reason": "promptDispatchFailed",
+                        "message": err.clone(),
+                        "sessionId": session_id.clone(),
+                    }),
+                );
+                let _ = host.work_item_handle.record_start_failure(
+                    &item_id,
+                    &err,
+                    Some(&session_id),
+                    worktree_path,
+                    Some(&profile_id),
+                    Some(&repo_path),
+                    base_branch.as_deref(),
+                );
+                return Err(Response::err(err));
+            }
+        };
+        let run = persist_work_item_run_pty_id(host, &run.id, &pty_id)?;
+        start_work_item_run_output_monitor(host.clone(), run.id.clone(), pty_id);
+
+        let _ = host.work_item_handle.append_run_event(
+            &run.id,
+            roux_core::WorkItemRunEventKind::Lifecycle,
+            serde_json::json!({
+                "stage": "promptDispatched",
+                "sessionId": session_id.clone(),
+            }),
+        );
+        let run = match host.work_item_handle.set_run_status(
+            &run.id,
+            roux_core::WorkItemRunStatus::Running,
+            serde_json::json!({
+                "reason": "promptDispatched",
+                "sessionId": session_id.clone(),
+            }),
+        ) {
+            Ok(Some(run)) => run,
+            Ok(None) => host.work_item_handle.get_run(&run.id).ok().flatten().unwrap_or(run),
+            Err(_) => run,
+        };
+        item = match host.work_item_handle.complete_start(
+            &item_id,
+            &session_id,
+            worktree_path,
+            Some(&profile_id),
+            Some(&repo_path),
+            base_branch.as_deref(),
+            item.sort_order,
+        ) {
+            Ok(Some(item)) => item,
+            Ok(None) => return Err(Response::err("work item not found after prompt dispatch")),
+            Err(err) => return Err(Response::err(err)),
+        };
+
+        return Ok(roux_core::WorkItemStartResult { item, session, run });
+    }
 
     let mut session_args = serde_json::json!({
         "repoPath": repo_path.clone(),
@@ -894,30 +1117,35 @@ async fn start_work_item_run_with_hooks(
     dispatch_item.repo_path = Some(repo_path.clone());
     dispatch_item.base_branch = base_branch.clone();
 
-    if let Err(err) =
-        dispatch_profile(host, &dispatch_item, &run.id, &session_id, &profile_id, identity).await
-    {
-        let _ = host.work_item_handle.set_run_status(
-            &run.id,
-            roux_core::WorkItemRunStatus::Failed,
-            serde_json::json!({
-                "reason": "promptDispatchFailed",
-                "message": err.clone(),
-                "sessionId": session_id.clone(),
-            }),
-        );
-        let _ = host.work_item_handle.record_start_failure(
-            &item_id,
-            &err,
-            Some(&session_id),
-            worktree_path,
-            Some(&profile_id),
-            Some(&repo_path),
-            base_branch.as_deref(),
-        );
-        return Err(Response::err(err));
-    }
-    start_work_item_run_output_monitor(host.clone(), run.id.clone(), session_id.clone());
+    let pty_id =
+        match dispatch_profile(host, &dispatch_item, &run.id, &session_id, &profile_id, identity)
+            .await
+        {
+            Ok(pty_id) => pty_id,
+            Err(err) => {
+                let _ = host.work_item_handle.set_run_status(
+                    &run.id,
+                    roux_core::WorkItemRunStatus::Failed,
+                    serde_json::json!({
+                        "reason": "promptDispatchFailed",
+                        "message": err.clone(),
+                        "sessionId": session_id.clone(),
+                    }),
+                );
+                let _ = host.work_item_handle.record_start_failure(
+                    &item_id,
+                    &err,
+                    Some(&session_id),
+                    worktree_path,
+                    Some(&profile_id),
+                    Some(&repo_path),
+                    base_branch.as_deref(),
+                );
+                return Err(Response::err(err));
+            }
+        };
+    let run = persist_work_item_run_pty_id(host, &run.id, &pty_id)?;
+    start_work_item_run_output_monitor(host.clone(), run.id.clone(), pty_id);
 
     let _ = host.work_item_handle.append_run_event(
         &run.id,
@@ -976,6 +1204,38 @@ fn record_start_failure_response(
         base_branch,
     );
     Response::err(message.to_string())
+}
+
+fn work_item_run_pty_id(replace_primary: bool, session_id: &str, run_id: &str) -> String {
+    if replace_primary {
+        session_id.to_string()
+    } else {
+        format!("{session_id}-{run_id}")
+    }
+}
+
+fn persist_work_item_run_pty_id(
+    host: &RuntimeHost,
+    run_id: &str,
+    pty_id: &str,
+) -> Result<roux_core::WorkItemRun, Response> {
+    match host.work_item_handle.set_run_pty_id(run_id, Some(pty_id)) {
+        Ok(Some(run)) => Ok(run),
+        Ok(None) => Err(Response::err("work item run not found after prompt dispatch")),
+        Err(err) => Err(Response::err(err)),
+    }
+}
+
+fn work_item_run_replaces_primary(host: &RuntimeHost, item_id: &str) -> bool {
+    let Ok(runs) = host.work_item_handle.list_runs(Some(item_id)) else {
+        return false;
+    };
+    let active_implementation_runs = runs
+        .iter()
+        .filter(|run| run.kind == roux_core::WorkItemRunKind::Implementation)
+        .filter(|run| is_active_work_item_run(run))
+        .count();
+    active_implementation_runs <= 1
 }
 
 fn autonomous_profile_rejection_reason(profile: &roux_core::SpawnProfile) -> Option<&'static str> {
@@ -1096,10 +1356,8 @@ pub(super) async fn handle_work_item_run_stop(req: Request, host: &RuntimeHost) 
         Err(err) => return Response::err(err),
     };
 
-    if let Some(session_id) = run.session_id.as_deref() {
-        if let Err(response) = cleanup_stopped_work_item_run_session(host, session_id).await {
-            return response;
-        }
+    if let Err(response) = cleanup_stopped_work_item_run_session(host, &stopped_run).await {
+        return response;
     }
 
     match serde_json::to_value(stopped_run) {
@@ -1113,10 +1371,8 @@ async fn terminal_work_item_run_stop_response(
     run: roux_core::WorkItemRun,
 ) -> Response {
     if run.status == roux_core::WorkItemRunStatus::Stopped {
-        if let Some(session_id) = run.session_id.as_deref() {
-            if let Err(response) = cleanup_stopped_work_item_run_session(host, session_id).await {
-                return response;
-            }
+        if let Err(response) = cleanup_stopped_work_item_run_session(host, &run).await {
+            return response;
         }
     }
     match serde_json::to_value(run) {
@@ -1127,10 +1383,42 @@ async fn terminal_work_item_run_stop_response(
 
 async fn cleanup_stopped_work_item_run_session(
     host: &RuntimeHost,
-    session_id: &str,
+    run: &roux_core::WorkItemRun,
 ) -> Result<(), Response> {
+    let Some(session_id) = run.session_id.as_deref() else {
+        return Ok(());
+    };
+    if has_active_work_item_run_for_session(host, session_id)? {
+        if let Some(pty_id) = run.pty_id.as_deref() {
+            let _ = host.pty_handle.remove(pty_id).await;
+        }
+        return Ok(());
+    }
     kill_session_ptys(host, session_id).await;
     host.session_handle.archive(session_id).await.map_err(|err| Response::err(err.to_string()))
+}
+
+fn has_active_work_item_run_for_session(
+    host: &RuntimeHost,
+    session_id: &str,
+) -> Result<bool, Response> {
+    let runs = host.work_item_handle.list_runs(None).map_err(Response::err)?;
+    Ok(runs
+        .iter()
+        .any(|run| run.session_id.as_deref() == Some(session_id) && is_active_work_item_run(run)))
+}
+
+fn is_active_work_item_run(run: &roux_core::WorkItemRun) -> bool {
+    !is_terminal_work_item_run_status(&run.status)
+}
+
+fn is_terminal_work_item_run_status(status: &roux_core::WorkItemRunStatus) -> bool {
+    matches!(
+        status,
+        roux_core::WorkItemRunStatus::Done
+            | roux_core::WorkItemRunStatus::Failed
+            | roux_core::WorkItemRunStatus::Stopped
+    )
 }
 
 pub(super) async fn handle_work_item_decision_create(req: Request, host: &RuntimeHost) -> Response {
@@ -1218,16 +1506,18 @@ async fn write_resolved_decision_to_run(
     let Some(session_id) = run.session_id.as_deref() else {
         return;
     };
+    let target_pty_id = run.pty_id.as_deref().unwrap_or(session_id);
 
     let input = format!("{value}\n");
-    if let Err(err) = host.pty_handle.write(session_id, input.into_bytes()).await {
+    if let Err(err) = host.pty_handle.write(target_pty_id, input.into_bytes()).await {
         let _ = host.work_item_handle.append_run_event(
             &run.id,
             roux_core::WorkItemRunEventKind::Error,
             serde_json::json!({
                 "decisionId": decision.id,
-                "message": format!("failed to write resolved decision to session: {err}"),
+                "message": format!("failed to write resolved decision to pty: {err}"),
                 "sessionId": session_id,
+                "ptyId": target_pty_id,
                 "stage": "decisionResolutionWrite"
             }),
         );
@@ -1657,13 +1947,14 @@ async fn run_dispatched_profile(
     session_id: &str,
     profile_id: &str,
     identity: &DaemonIdentity,
-) -> Result<(), String> {
+) -> Result<String, String> {
     let session = host.session_handle.get(session_id).await.ok().flatten();
     let settings = load_daemon_settings();
     let task_prompt = render_work_item_task_prompt(item, run_id, session.as_ref(), &settings);
     run_dispatched_profile_with_task_prompt(
         host,
         item,
+        run_id,
         session_id,
         profile_id,
         identity,
@@ -1680,13 +1971,14 @@ async fn run_dispatched_planning_profile(
     session_id: &str,
     profile_id: &str,
     identity: &DaemonIdentity,
-) -> Result<(), String> {
+) -> Result<String, String> {
     let session = host.session_handle.get(session_id).await.ok().flatten();
     let settings = load_daemon_settings();
     let task_prompt = render_work_item_planning_prompt(item, run_id, session.as_ref(), &settings);
     run_dispatched_profile_with_task_prompt(
         host,
         item,
+        run_id,
         session_id,
         profile_id,
         identity,
@@ -1699,12 +1991,13 @@ async fn run_dispatched_planning_profile(
 async fn run_dispatched_profile_with_task_prompt(
     host: &RuntimeHost,
     item: &roux_core::WorkItem,
+    run_id: &str,
     session_id: &str,
     profile_id: &str,
     identity: &DaemonIdentity,
     task_prompt: &str,
     planning: bool,
-) -> Result<(), String> {
+) -> Result<String, String> {
     let settings = load_daemon_settings();
     let Some(profile) = roux_core::providers::resolve_profile(profile_id, &settings) else {
         return Err(format!("agent profile not found: {profile_id}"));
@@ -1731,11 +2024,18 @@ async fn run_dispatched_profile_with_task_prompt(
         return Err("agentProfile did not produce startup command".to_string());
     };
 
-    let primary_pty_id = session.primary_pty_id.clone().unwrap_or_else(|| session_id.to_string());
-    host.pty_handle
-        .remove(&primary_pty_id)
-        .await
-        .map_err(|err| format!("failed to replace session shell for work item run: {err}"))?;
+    let replace_primary = planning || work_item_run_replaces_primary(host, &item.id);
+    let pty_id = if replace_primary {
+        session.primary_pty_id.clone().unwrap_or_else(|| session_id.to_string())
+    } else {
+        work_item_run_pty_id(false, session_id, run_id)
+    };
+    if replace_primary {
+        host.pty_handle
+            .remove(&pty_id)
+            .await
+            .map_err(|err| format!("failed to replace session shell for work item run: {err}"))?;
+    }
 
     let working_dir = profile_working_dir(&profile, &session);
     let env_args = serde_json::Value::Null;
@@ -1744,24 +2044,35 @@ async fn run_dispatched_profile_with_task_prompt(
         .spawn_task(
             command,
             PtySpawnRequest {
-                id: Some(primary_pty_id),
+                id: Some(pty_id.clone()),
                 working_dir: Some(working_dir),
                 session_id: Some(session_id.to_string()),
-                pane_id: Some(format!("{session_id}-main")),
+                pane_id: Some(if replace_primary {
+                    format!("{session_id}-main")
+                } else {
+                    pty_id.clone()
+                }),
                 project_id: item.project_id.clone(),
                 worktree_path: session.is_worktree.then(|| session.worktree_path.clone()),
                 env: parse_pty_env_request(&env_args, identity),
                 profile: Some(profile_id.to_string()),
                 profile_data: Some(profile.clone()),
                 terminal_defaults: settings.terminal_defaults.clone(),
-                role: roux_core::PtyRole::SessionPrimary,
+                role: if replace_primary {
+                    roux_core::PtyRole::SessionPrimary
+                } else {
+                    roux_core::PtyRole::Secondary
+                },
                 ..PtySpawnRequest::default()
             },
         )
         .await
     {
-        Ok(_) => Ok(()),
-        Err(err) => Err(cleanup_failed_agent_launch_session(host, session_id, err).await),
+        Ok(_) => Ok(pty_id),
+        Err(err) if replace_primary => {
+            Err(cleanup_failed_agent_launch_session(host, session_id, err).await)
+        }
+        Err(err) => Err(format!("failed to launch agent task in session: {err}")),
     }
 }
 
@@ -2385,7 +2696,7 @@ mod tests {
         repo: &std::path::Path,
         item_id: &str,
     ) -> (String, String, serde_json::Value) {
-        let resp = handle_request(
+        let result = start_work_item_run_with_hooks(
             req(
                 "work-item-start",
                 serde_json::json!({
@@ -2396,10 +2707,12 @@ mod tests {
             ),
             host,
             identity,
+            dummy_agent_dispatcher,
+            noop_after_session_created,
         )
-        .await;
-        assert!(resp.ok, "work-item-start failed: {:?}", resp.error);
-        let data = resp.data.expect("start response");
+        .await
+        .expect("work-item-start should succeed");
+        let data = serde_json::to_value(&result).expect("serialize start result");
         let run_id = data["run"]["id"].as_str().unwrap().to_string();
         let session_id = data["run"]["sessionId"].as_str().unwrap().to_string();
         assert_eq!(data["item"]["status"], "doing");
@@ -2421,11 +2734,88 @@ mod tests {
         _host: &'a RuntimeHost,
         _item: &'a roux_core::WorkItem,
         _run_id: &'a str,
-        _session_id: &'a str,
+        session_id: &'a str,
         _profile_id: &'a str,
         _identity: &'a DaemonIdentity,
     ) -> ProfileDispatchFuture<'a> {
-        Box::pin(async { Ok(()) })
+        Box::pin(async { Ok(session_id.to_string()) })
+    }
+
+    /// Test dispatcher that mirrors the real agent dispatch's PTY-id scheme and
+    /// session-reuse semantics, but spawns a long-lived dependency-free command
+    /// instead of the `claude` binary. CI runners have no `claude` on PATH, so
+    /// the real dispatcher's PTY exits immediately (exit 127) and the
+    /// run-output monitor marks the run failed — which makes any "session stays
+    /// bound / run stays active" assertion environment-dependent. This keeps the
+    /// run's PTY alive so those assertions exercise the feature, not the host.
+    #[cfg(not(windows))]
+    fn dummy_agent_dispatcher<'a>(
+        host: &'a RuntimeHost,
+        item: &'a roux_core::WorkItem,
+        run_id: &'a str,
+        session_id: &'a str,
+        _profile_id: &'a str,
+        _identity: &'a DaemonIdentity,
+    ) -> ProfileDispatchFuture<'a> {
+        Box::pin(dispatch_dummy_agent(host, item, run_id, session_id))
+    }
+
+    #[cfg(not(windows))]
+    async fn dispatch_dummy_agent(
+        host: &RuntimeHost,
+        item: &roux_core::WorkItem,
+        run_id: &str,
+        session_id: &str,
+    ) -> Result<String, String> {
+        let session = host
+            .session_handle
+            .get(session_id)
+            .await
+            .map_err(|err| err.to_string())?
+            .ok_or_else(|| format!("session not found: {session_id}"))?;
+
+        // Same PTY-id and primary-replacement decision the real dispatcher makes
+        // (see `run_dispatched_profile_with_task_prompt`), so the ids the tests
+        // assert on are produced by the production helpers rather than guessed.
+        let replace_primary = work_item_run_replaces_primary(host, &item.id);
+        let pty_id = if replace_primary {
+            session.primary_pty_id.clone().unwrap_or_else(|| session_id.to_string())
+        } else {
+            work_item_run_pty_id(false, session_id, run_id)
+        };
+        if replace_primary {
+            host.pty_handle.remove(&pty_id).await.map_err(|err| {
+                format!("failed to replace session shell for work item run: {err}")
+            })?;
+        }
+
+        host.pty_handle
+            .spawn_task(
+                // Long-lived, dependency-free command so the run's PTY stays
+                // alive regardless of whether `claude` is installed.
+                "sleep 600".to_string(),
+                PtySpawnRequest {
+                    id: Some(pty_id.clone()),
+                    working_dir: Some(PathBuf::from(&session.worktree_path)),
+                    session_id: Some(session_id.to_string()),
+                    pane_id: Some(if replace_primary {
+                        format!("{session_id}-main")
+                    } else {
+                        pty_id.clone()
+                    }),
+                    project_id: item.project_id.clone(),
+                    worktree_path: session.is_worktree.then(|| session.worktree_path.clone()),
+                    role: if replace_primary {
+                        roux_core::PtyRole::SessionPrimary
+                    } else {
+                        roux_core::PtyRole::Secondary
+                    },
+                    ..PtySpawnRequest::default()
+                },
+            )
+            .await
+            .map(|_| pty_id)
+            .map_err(|err| format!("failed to launch dummy agent task in session: {err}"))
     }
 
     fn create_active_run_after_session_created(
@@ -2829,6 +3219,8 @@ mod tests {
             "work-item-update",
             "work-item-move",
             "work-item-delete",
+            "work-item-attach-session",
+            "work-item-detach-session",
             "work-item-start",
             "work-item-events",
         ] {
@@ -2855,19 +3247,20 @@ mod tests {
         assert!(resp.ok);
         let item_id = resp.data.as_ref().unwrap()["id"].as_str().unwrap().to_string();
 
-        let (_run_id, session_id, data) =
+        let (run_id, session_id, data) =
             start_agent_work_item(&host, &identity, &repo, &item_id).await;
         assert_eq!(data["item"]["agentProfile"], "claude");
         assert!(data["item"]["worktreePath"].as_str().unwrap().contains("roux-card"));
+        assert_eq!(data["run"]["ptyId"], session_id);
 
         // The work item should now have session_id bound
         let item = host.work_item_handle.get(&item_id).unwrap().unwrap();
         assert_eq!(item.session_id.as_deref(), Some(session_id.as_str()), "session_id bound");
         assert_eq!(item.status, roux_core::WorkItemStatus::Doing);
 
-        // A card with a live binding cannot be started again; otherwise the
-        // second session would orphan the first session from the board.
-        let resp2 = handle_request(
+        // A card with a live binding starts another run inside the same
+        // durable session rather than creating a second top-level session.
+        let result2 = start_work_item_run_with_hooks(
             req(
                 "work-item-start",
                 serde_json::json!({
@@ -2878,14 +3271,17 @@ mod tests {
             ),
             &host,
             &identity,
+            dummy_agent_dispatcher,
+            noop_after_session_created,
         )
-        .await;
-        assert!(!resp2.ok, "second start should be rejected");
-        assert!(
-            resp2.error.as_deref().unwrap_or_default().contains("active run"),
-            "unexpected error: {:?}",
-            resp2.error
-        );
+        .await
+        .expect("second start should reuse bound session");
+        let second_data = serde_json::to_value(&result2).expect("serialize second start result");
+        let second_run_id = second_data["run"]["id"].as_str().unwrap();
+        let second_pty_id = format!("{session_id}-{second_run_id}");
+        assert_eq!(second_data["session"]["id"], session_id);
+        assert_eq!(second_data["run"]["sessionId"], session_id);
+        assert_eq!(second_data["run"]["ptyId"], second_pty_id);
         let item = host.work_item_handle.get(&item_id).unwrap().unwrap();
         assert_eq!(
             item.session_id.as_deref(),
@@ -2894,7 +3290,12 @@ mod tests {
         );
         assert_eq!(item.status, roux_core::WorkItemStatus::Doing);
         let runs = host.work_item_handle.list_runs(Some(&item_id)).unwrap();
-        assert_eq!(runs.len(), 1);
+        assert_eq!(runs.len(), 2);
+        assert!(runs.iter().all(|run| run.session_id.as_deref() == Some(session_id.as_str())));
+        let first_run = runs.iter().find(|run| run.id == run_id).unwrap();
+        assert_eq!(first_run.pty_id.as_deref(), Some(session_id.as_str()));
+        let second_run = runs.iter().find(|run| run.id == second_run_id).unwrap();
+        assert_eq!(second_run.pty_id.as_deref(), Some(second_pty_id.as_str()));
         let sessions = host.session_handle.list().await.unwrap();
         assert_eq!(sessions.len(), 1);
         let ptys = host.pty_handle.list().await.unwrap();
@@ -2902,10 +3303,101 @@ mod tests {
             ptys.iter()
                 .filter(|pty| pty.info.session_id.as_deref() == Some(session_id.as_str()))
                 .count(),
-            1
+            2
         );
 
         let _ = host.pty_handle.kill(&session_id).await;
+        shutdown_host(host, joins).await;
+    }
+
+    #[tokio::test]
+    async fn daemon_work_item_attach_session_command_binds_card() {
+        let dir = tempfile::tempdir().unwrap();
+        let (host, identity, joins) = make_host_and_identity(&dir).await;
+        host.session_handle.add(session("sess-1")).await.unwrap();
+        let item = host
+            .work_item_handle
+            .create(roux_core::WorkItemInput { title: "Attach me".into(), ..Default::default() })
+            .unwrap();
+
+        let resp = handle_request(
+            req(
+                "work-item-attach-session",
+                serde_json::json!({ "id": item.id, "sessionId": "sess-1" }),
+            ),
+            &host,
+            &identity,
+        )
+        .await;
+
+        assert!(resp.ok, "attach failed: {:?}", resp.error);
+        assert_eq!(resp.data.as_ref().unwrap()["sessionId"], "sess-1");
+        let item = host.work_item_handle.get(&item.id).unwrap().unwrap();
+        assert_eq!(item.session_id.as_deref(), Some("sess-1"));
+
+        shutdown_host(host, joins).await;
+    }
+
+    #[tokio::test]
+    async fn daemon_work_item_attach_session_sets_blank_session_project_after_binding() {
+        let dir = tempfile::tempdir().unwrap();
+        let (host, identity, joins) = make_host_and_identity(&dir).await;
+        host.session_handle.add(session("sess-1")).await.unwrap();
+        let item = host
+            .work_item_handle
+            .create(roux_core::WorkItemInput {
+                title: "Attach me".into(),
+                project_id: Some("proj-1".into()),
+                field_presence: roux_core::WorkItemInputPresence {
+                    project_id: true,
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+            .unwrap();
+
+        let resp = handle_request(
+            req(
+                "work-item-attach-session",
+                serde_json::json!({ "id": item.id, "sessionId": "sess-1" }),
+            ),
+            &host,
+            &identity,
+        )
+        .await;
+
+        assert!(resp.ok, "attach failed: {:?}", resp.error);
+        assert_eq!(resp.data.as_ref().unwrap()["sessionId"], "sess-1");
+        assert_eq!(resp.data.as_ref().unwrap()["projectId"], "proj-1");
+        let session = host.session_handle.get("sess-1").await.unwrap().unwrap();
+        assert_eq!(session.project_id.as_deref(), Some("proj-1"));
+
+        shutdown_host(host, joins).await;
+    }
+
+    #[tokio::test]
+    async fn daemon_work_item_detach_session_command_clears_binding() {
+        let dir = tempfile::tempdir().unwrap();
+        let (host, identity, joins) = make_host_and_identity(&dir).await;
+        host.session_handle.add(session("sess-1")).await.unwrap();
+        let item = host
+            .work_item_handle
+            .create(roux_core::WorkItemInput { title: "Detach me".into(), ..Default::default() })
+            .unwrap();
+        host.work_item_handle.attach_session(&item.id, "sess-1").unwrap().unwrap();
+
+        let resp = handle_request(
+            req("work-item-detach-session", serde_json::json!({ "id": item.id })),
+            &host,
+            &identity,
+        )
+        .await;
+
+        assert!(resp.ok, "detach failed: {:?}", resp.error);
+        assert!(resp.data.as_ref().unwrap()["sessionId"].is_null());
+        let item = host.work_item_handle.get(&item.id).unwrap().unwrap();
+        assert!(item.session_id.is_none());
+
         shutdown_host(host, joins).await;
     }
 
@@ -3737,6 +4229,68 @@ mod tests {
 
     #[cfg(not(windows))]
     #[tokio::test]
+    async fn daemon_work_item_run_stop_keeps_shared_session_for_active_sibling_run() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path().join("repo");
+        init_repo(&repo);
+        let (host, identity, joins) = make_host_and_identity(&dir).await;
+
+        let resp = handle_request(
+            req("work-item-create", serde_json::json!({ "title": "Run card" })),
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(resp.ok);
+        let item_id = resp.data.as_ref().unwrap()["id"].as_str().unwrap().to_string();
+
+        let (first_run_id, session_id, first_data) =
+            start_agent_work_item(&host, &identity, &repo, &item_id).await;
+        let first_pty_id =
+            first_data["run"]["ptyId"].as_str().expect("first run pty id").to_string();
+
+        let result = start_work_item_run_with_hooks(
+            req(
+                "work-item-start",
+                serde_json::json!({
+                    "id": item_id,
+                    "repoPath": repo,
+                    "profile": "claude",
+                }),
+            ),
+            &host,
+            &identity,
+            dummy_agent_dispatcher,
+            noop_after_session_created,
+        )
+        .await
+        .expect("second start should succeed");
+        let second_data = serde_json::to_value(&result).expect("serialize second start result");
+        let second_run_id = second_data["run"]["id"].as_str().unwrap().to_string();
+        let second_pty_id = second_data["run"]["ptyId"].as_str().unwrap().to_string();
+
+        let resp = handle_request(
+            req("work-item-run-stop", serde_json::json!({ "runId": second_run_id })),
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(resp.ok, "run stop failed: {:?}", resp.error);
+        assert_eq!(resp.data.as_ref().unwrap()["status"], "stopped");
+
+        let first_run = host.work_item_handle.get_run(&first_run_id).unwrap().unwrap();
+        assert!(is_active_work_item_run(&first_run));
+        let session = host.session_handle.get(&session_id).await.unwrap().unwrap();
+        assert!(!session.archived);
+        assert!(host.pty_handle.snapshot(&first_pty_id, 64).await.unwrap().is_some());
+        assert!(host.pty_handle.snapshot(&second_pty_id, 64).await.unwrap().is_none());
+
+        let _ = host.pty_handle.kill(&first_pty_id).await;
+        shutdown_host(host, joins).await;
+    }
+
+    #[cfg(not(windows))]
+    #[tokio::test]
     async fn daemon_work_item_run_stop_retries_cleanup_for_already_stopped_run() {
         let dir = tempfile::tempdir().unwrap();
         let repo = dir.path().join("repo");
@@ -3913,6 +4467,7 @@ mod tests {
             .work_item_handle
             .create(roux_core::WorkItemInput { title: "Needs answer".into(), ..Default::default() })
             .unwrap();
+        let session_id = "decision-session";
         let pty_id = "decision-resolve-pty";
         host.pty_handle
             .spawn_task(
@@ -3920,7 +4475,7 @@ mod tests {
                 PtySpawnRequest {
                     id: Some(pty_id.into()),
                     working_dir: Some(dir.path().to_path_buf()),
-                    session_id: Some(pty_id.into()),
+                    session_id: Some(session_id.into()),
                     profile: Some("task".into()),
                     initial_size: Some((80, 24)),
                     ..PtySpawnRequest::default()
@@ -3930,8 +4485,9 @@ mod tests {
             .unwrap();
         let run = host
             .work_item_handle
-            .create_run(&item.id, Some(pty_id), None, None, None, None)
+            .create_run(&item.id, Some(session_id), None, None, None, None)
             .unwrap();
+        host.work_item_handle.set_run_pty_id(&run.id, Some(pty_id)).unwrap();
         let decision = host
             .work_item_handle
             .create_decision(

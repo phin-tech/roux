@@ -122,6 +122,7 @@ function workItemRun(overrides: Partial<WorkItemRun> = {}): WorkItemRun {
     workItemId: "wi-1",
     kind: "implementation",
     sessionId: "sess-1",
+    ptyId: "sess-1",
     provider: "claude",
     profileId: "claude",
     status: "running",

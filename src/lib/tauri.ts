@@ -926,6 +926,25 @@ export async function workItemDelete(id: string): Promise<string> {
   return r.data;
 }
 
+export async function workItemAttachSession(
+  id: string,
+  sessionId: string,
+): Promise<import("$lib/bindings").WorkItem> {
+  const { commands } = await import("$lib/bindings");
+  const r = await commands.workItemAttachSession(id, sessionId);
+  if (r.status === "error") throw new Error(r.error);
+  return r.data;
+}
+
+export async function workItemDetachSession(
+  id: string,
+): Promise<import("$lib/bindings").WorkItem> {
+  const { commands } = await import("$lib/bindings");
+  const r = await commands.workItemDetachSession(id);
+  if (r.status === "error") throw new Error(r.error);
+  return r.data;
+}
+
 export interface WorkItemStartOptions {
   profile?: string | null;
   repoPath?: string | null;
