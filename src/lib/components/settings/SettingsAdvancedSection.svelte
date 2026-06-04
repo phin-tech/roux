@@ -3,7 +3,11 @@
   import DoctorPanel from "$lib/components/DoctorPanel.svelte";
   import { getLogPath, setLoggingEnabled } from "$lib/logging";
   import { settings, updateSetting } from "$lib/stores/settings";
-  import { getRuntimeStatus, type RuntimeStatus } from "$lib/tauri";
+  import {
+    getRuntimeStatus,
+    type RuntimeStatus,
+    type WorkItemMigrationStorage,
+  } from "$lib/tauri";
 
   let runtimeStatus = $state<RuntimeStatus | null>(null);
   let runtimeStatusError = $state<string | null>(null);
@@ -51,6 +55,19 @@
     if (hours > 0) return `${hours}h ${minutes}m`;
     if (minutes > 0) return `${minutes}m ${seconds}s`;
     return `${seconds}s`;
+  }
+
+  function migrationStorageLabel(storage: WorkItemMigrationStorage): string {
+    return storage === "boardDb" ? "board.db" : "In-memory fallback";
+  }
+
+  function formatMigrationVersion(version: number): string {
+    return Number.isFinite(version) ? `v${version}` : String(version);
+  }
+
+  function formatPendingMigrations(versions: number[]): string {
+    if (versions.length === 0) return "None";
+    return versions.map(formatMigrationVersion).join(", ");
   }
 </script>
 
@@ -134,6 +151,34 @@
           {runtimeStatus.daemon.processCount ?? 0} processes,
           {runtimeStatus.daemon.ptyCount ?? 0} PTYs
         </div>
+
+        {#if runtimeStatus.daemon.workItemMigrationStatus}
+          {@const migration = runtimeStatus.daemon.workItemMigrationStatus}
+          <div class="text-text-muted">Database</div>
+          <div class="text-text-secondary">
+            {migrationStorageLabel(migration.storage)}
+          </div>
+
+          <div class="text-text-muted">Current migration</div>
+          <div class="font-mono text-text-secondary">
+            {formatMigrationVersion(migration.currentVersion)}
+          </div>
+
+          <div class="text-text-muted">Target migration</div>
+          <div class="font-mono text-text-secondary">
+            {formatMigrationVersion(migration.targetVersion)}
+          </div>
+
+          <div class="text-text-muted">Pending</div>
+          <div class="font-mono text-text-secondary">
+            {formatPendingMigrations(migration.pendingVersions)}
+          </div>
+
+          {#if migration.error}
+            <div class="text-text-muted">Migration error</div>
+            <div class="break-all text-amber">{migration.error}</div>
+          {/if}
+        {/if}
       {:else if runtimeStatus.local}
         <div class="text-text-muted">State</div>
         <div class="text-text-secondary">

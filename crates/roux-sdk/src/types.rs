@@ -1,4 +1,4 @@
-use roux_core::PtyInfo;
+use roux_core::{PtyInfo, WorkItemMigrationStatus};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -19,6 +19,8 @@ pub struct DaemonStatus {
     pub process_count: usize,
     #[serde(default)]
     pub pty_count: usize,
+    #[serde(default)]
+    pub work_item_migration_status: Option<WorkItemMigrationStatus>,
     pub capabilities: Vec<String>,
 }
 

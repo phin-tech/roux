@@ -20,6 +20,8 @@ use roux_core::{
     WorkItemRunStatus, WorkItemStatus,
 };
 
+pub const WORK_ITEM_SCHEMA_VERSION: i64 = 7;
+
 pub struct WorkItemStore {
     conn: Connection,
 }
@@ -202,8 +204,12 @@ impl WorkItemStore {
             conn.execute_batch("PRAGMA user_version = 7;")?;
             version = 7;
         }
-        debug_assert!(version >= 7);
+        debug_assert!(version >= WORK_ITEM_SCHEMA_VERSION);
         Ok(WorkItemStore { conn })
+    }
+
+    pub fn current_schema_version(&self) -> SqlResult<i64> {
+        self.conn.query_row("PRAGMA user_version", [], |row| row.get(0))
     }
 
     pub fn list(&self, project_id: Option<&str>) -> SqlResult<Vec<WorkItem>> {
@@ -1604,6 +1610,13 @@ mod tests {
             }),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn pending_migrations_are_versions_after_current() {
+        assert_eq!(roux_core::pending_work_item_migrations(4, 7), vec![5, 6, 7]);
+        assert!(roux_core::pending_work_item_migrations(7, 7).is_empty());
+        assert!(roux_core::pending_work_item_migrations(8, 7).is_empty());
     }
 
     #[test]
