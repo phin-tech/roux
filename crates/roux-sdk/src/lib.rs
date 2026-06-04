@@ -21,7 +21,10 @@ pub use streams::{
     AliasEventStreamFrame, MailboxEventStreamFrame, SubscriptionEventStreamFrame,
     WatchEventStreamFrame, WorkItemEventStreamFrame,
 };
-pub use types::{DaemonStatus, PtyAttachFrame, PtyKind, PtyRecord, PtySnapshot};
+pub use types::{
+    DaemonStatus, PtyAttachFrame, PtyKind, PtyRecord, PtySnapshot, WorkItemMigrationStatus,
+    WorkItemMigrationStorage,
+};
 
 #[cfg(test)]
 mod tests {
