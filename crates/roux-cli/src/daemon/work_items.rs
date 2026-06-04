@@ -2696,7 +2696,7 @@ mod tests {
         repo: &std::path::Path,
         item_id: &str,
     ) -> (String, String, serde_json::Value) {
-        let resp = handle_request(
+        let result = start_work_item_run_with_hooks(
             req(
                 "work-item-start",
                 serde_json::json!({
@@ -2707,10 +2707,12 @@ mod tests {
             ),
             host,
             identity,
+            dummy_agent_dispatcher,
+            noop_after_session_created,
         )
-        .await;
-        assert!(resp.ok, "work-item-start failed: {:?}", resp.error);
-        let data = resp.data.expect("start response");
+        .await
+        .expect("work-item-start should succeed");
+        let data = serde_json::to_value(&result).expect("serialize start result");
         let run_id = data["run"]["id"].as_str().unwrap().to_string();
         let session_id = data["run"]["sessionId"].as_str().unwrap().to_string();
         assert_eq!(data["item"]["status"], "doing");
@@ -2737,6 +2739,83 @@ mod tests {
         _identity: &'a DaemonIdentity,
     ) -> ProfileDispatchFuture<'a> {
         Box::pin(async { Ok(session_id.to_string()) })
+    }
+
+    /// Test dispatcher that mirrors the real agent dispatch's PTY-id scheme and
+    /// session-reuse semantics, but spawns a long-lived dependency-free command
+    /// instead of the `claude` binary. CI runners have no `claude` on PATH, so
+    /// the real dispatcher's PTY exits immediately (exit 127) and the
+    /// run-output monitor marks the run failed — which makes any "session stays
+    /// bound / run stays active" assertion environment-dependent. This keeps the
+    /// run's PTY alive so those assertions exercise the feature, not the host.
+    #[cfg(not(windows))]
+    fn dummy_agent_dispatcher<'a>(
+        host: &'a RuntimeHost,
+        item: &'a roux_core::WorkItem,
+        run_id: &'a str,
+        session_id: &'a str,
+        _profile_id: &'a str,
+        _identity: &'a DaemonIdentity,
+    ) -> ProfileDispatchFuture<'a> {
+        Box::pin(dispatch_dummy_agent(host, item, run_id, session_id))
+    }
+
+    #[cfg(not(windows))]
+    async fn dispatch_dummy_agent(
+        host: &RuntimeHost,
+        item: &roux_core::WorkItem,
+        run_id: &str,
+        session_id: &str,
+    ) -> Result<String, String> {
+        let session = host
+            .session_handle
+            .get(session_id)
+            .await
+            .map_err(|err| err.to_string())?
+            .ok_or_else(|| format!("session not found: {session_id}"))?;
+
+        // Same PTY-id and primary-replacement decision the real dispatcher makes
+        // (see `run_dispatched_profile_with_task_prompt`), so the ids the tests
+        // assert on are produced by the production helpers rather than guessed.
+        let replace_primary = work_item_run_replaces_primary(host, &item.id);
+        let pty_id = if replace_primary {
+            session.primary_pty_id.clone().unwrap_or_else(|| session_id.to_string())
+        } else {
+            work_item_run_pty_id(false, session_id, run_id)
+        };
+        if replace_primary {
+            host.pty_handle.remove(&pty_id).await.map_err(|err| {
+                format!("failed to replace session shell for work item run: {err}")
+            })?;
+        }
+
+        host.pty_handle
+            .spawn_task(
+                // Long-lived, dependency-free command so the run's PTY stays
+                // alive regardless of whether `claude` is installed.
+                "sleep 600".to_string(),
+                PtySpawnRequest {
+                    id: Some(pty_id.clone()),
+                    working_dir: Some(PathBuf::from(&session.worktree_path)),
+                    session_id: Some(session_id.to_string()),
+                    pane_id: Some(if replace_primary {
+                        format!("{session_id}-main")
+                    } else {
+                        pty_id.clone()
+                    }),
+                    project_id: item.project_id.clone(),
+                    worktree_path: session.is_worktree.then(|| session.worktree_path.clone()),
+                    role: if replace_primary {
+                        roux_core::PtyRole::SessionPrimary
+                    } else {
+                        roux_core::PtyRole::Secondary
+                    },
+                    ..PtySpawnRequest::default()
+                },
+            )
+            .await
+            .map(|_| pty_id)
+            .map_err(|err| format!("failed to launch dummy agent task in session: {err}"))
     }
 
     fn create_active_run_after_session_created(
@@ -3181,7 +3260,7 @@ mod tests {
 
         // A card with a live binding starts another run inside the same
         // durable session rather than creating a second top-level session.
-        let resp2 = handle_request(
+        let result2 = start_work_item_run_with_hooks(
             req(
                 "work-item-start",
                 serde_json::json!({
@@ -3192,10 +3271,12 @@ mod tests {
             ),
             &host,
             &identity,
+            dummy_agent_dispatcher,
+            noop_after_session_created,
         )
-        .await;
-        assert!(resp2.ok, "second start should reuse bound session: {:?}", resp2.error);
-        let second_data = resp2.data.as_ref().unwrap();
+        .await
+        .expect("second start should reuse bound session");
+        let second_data = serde_json::to_value(&result2).expect("serialize second start result");
         let second_run_id = second_data["run"]["id"].as_str().unwrap();
         let second_pty_id = format!("{session_id}-{second_run_id}");
         assert_eq!(second_data["session"]["id"], session_id);
@@ -4168,7 +4249,7 @@ mod tests {
         let first_pty_id =
             first_data["run"]["ptyId"].as_str().expect("first run pty id").to_string();
 
-        let resp = handle_request(
+        let result = start_work_item_run_with_hooks(
             req(
                 "work-item-start",
                 serde_json::json!({
@@ -4179,12 +4260,14 @@ mod tests {
             ),
             &host,
             &identity,
+            dummy_agent_dispatcher,
+            noop_after_session_created,
         )
-        .await;
-        assert!(resp.ok, "second start failed: {:?}", resp.error);
-        let second_run_id = resp.data.as_ref().unwrap()["run"]["id"].as_str().unwrap().to_string();
-        let second_pty_id =
-            resp.data.as_ref().unwrap()["run"]["ptyId"].as_str().unwrap().to_string();
+        .await
+        .expect("second start should succeed");
+        let second_data = serde_json::to_value(&result).expect("serialize second start result");
+        let second_run_id = second_data["run"]["id"].as_str().unwrap().to_string();
+        let second_pty_id = second_data["run"]["ptyId"].as_str().unwrap().to_string();
 
         let resp = handle_request(
             req("work-item-run-stop", serde_json::json!({ "runId": second_run_id })),
