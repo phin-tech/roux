@@ -320,7 +320,7 @@ mod tests {
     #[test]
     fn typed_status_decodes_from_daemon_response() {
         let (client, handle) = tcp_client_with_response(
-            r#"{"ok":true,"data":{"kind":"roux-daemon","pid":42,"socket":"tcp://test","startedAtMs":10,"uptimeMs":20,"sessionCount":1,"projectCount":2,"watchCount":3,"processCount":4,"ptyCount":5,"capabilities":["daemon-status","daemon-pty-list"]}}"#
+            r#"{"ok":true,"data":{"kind":"roux-daemon","pid":42,"socket":"tcp://test","startedAtMs":10,"uptimeMs":20,"sessionCount":1,"projectCount":2,"watchCount":3,"processCount":4,"ptyCount":5,"workItemMigrationStatus":{"currentVersion":7,"targetVersion":7,"pendingVersions":[],"storage":"boardDb","error":null},"capabilities":["daemon-status","daemon-pty-list"]}}"#
                 .to_string(),
         );
         let rt = tokio::runtime::Builder::new_current_thread().build().unwrap();
@@ -330,6 +330,7 @@ mod tests {
         assert_eq!(request["command"], "daemon-status");
         assert_eq!(status.kind, "roux-daemon");
         assert_eq!(status.pty_count, 5);
+        assert_eq!(status.work_item_migration_status.as_ref().unwrap().current_version, 7);
         assert!(status.capabilities.iter().any(|capability| capability == "daemon-pty-list"));
     }
 

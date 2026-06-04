@@ -17,6 +17,7 @@ use roux_runtime::automation_hooks::{
 use roux_runtime::process_service::{ProcessRecord, ProcessSnapshot};
 use roux_runtime::terminal_env::NotesEnvInputs;
 use roux_runtime::work_item_service::WorkItemHandle;
+use roux_runtime::work_item_store::WorkItemMigrationStatus;
 use roux_sdk::{
     AliasEventStreamFrame, MailboxEventStreamFrame, PtyAttachFrame, PtyRecord, PtySnapshot,
     SubscriptionEventStreamFrame, WatchEventStreamFrame, WorkItemEventStreamFrame,
@@ -48,6 +49,8 @@ pub(crate) struct DaemonStatus {
     pub(crate) process_count: usize,
     #[serde(default)]
     pub(crate) pty_count: usize,
+    #[serde(default)]
+    pub(crate) work_item_migration_status: Option<WorkItemMigrationStatus>,
     pub(crate) capabilities: Vec<String>,
 }
 
@@ -1550,6 +1553,7 @@ mod tests {
             watch_count: 0,
             process_count: 0,
             pty_count: 0,
+            work_item_migration_status: None,
             capabilities: vec!["daemon-status".to_string()],
         }
     }

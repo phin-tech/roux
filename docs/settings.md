@@ -17,7 +17,7 @@ Settings are grouped into categories in a sidebar modal. Changes are persisted a
 - **Notifications** — OS notification master switch, test notification trigger, and Claude/Codex agent notification setup.
 - **Keyboard** — toggles for Option-pane and Command-session hint overlays.
 - **Notes** — experimental multi-scoped vault settings. See below.
-- **Advanced** — app version, updater controls, update channel, logging, and the Doctor panel.
+- **Advanced** — runtime diagnostics, work-item database migration status, app version, updater controls, update channel, logging, and the Doctor panel.
 
 ## Terminal themes
 

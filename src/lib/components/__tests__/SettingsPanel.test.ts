@@ -124,6 +124,13 @@ vi.mock("$lib/tauri", () => ({
       watchCount: 6,
       processCount: 4,
       ptyCount: 5,
+      workItemMigrationStatus: {
+        currentVersion: 7,
+        targetVersion: 7,
+        pendingVersions: [],
+        storage: "boardDb",
+        error: null,
+      },
       capabilities: ["daemon-status", "daemon-pty-list"],
     },
   }),
@@ -672,6 +679,11 @@ describe("SettingsPanel runtime debug", () => {
     expect(await screen.findByText("pid 4242")).toBeDefined();
     expect(await screen.findByText("/tmp/roux.sock")).toBeDefined();
     expect(await screen.findByText(/6 watches/)).toBeDefined();
+    expect(await screen.findByText("Current migration")).toBeDefined();
+    expect(await screen.findByText("Target migration")).toBeDefined();
+    expect((await screen.findAllByText("v7")).length).toBeGreaterThan(1);
+    expect(await screen.findByText("None")).toBeDefined();
+    expect(await screen.findByText("board.db")).toBeDefined();
     expect(getRuntimeStatus).toHaveBeenCalled();
   });
 });

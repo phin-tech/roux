@@ -22,7 +22,9 @@ use roux_core::{
     WorkItemRunEvent, WorkItemRunEventKind, WorkItemRunKind, WorkItemRunStatus, WorkItemStatus,
 };
 
-use crate::work_item_store::WorkItemStore;
+use crate::work_item_store::{
+    WorkItemMigrationStatus, WorkItemMigrationStorage, WorkItemStore, WORK_ITEM_SCHEMA_VERSION,
+};
 
 const BROADCAST_CAPACITY: usize = 256;
 
@@ -34,20 +36,49 @@ fn now_secs() -> u64 {
 pub struct WorkItemHandle {
     inner: Arc<Mutex<WorkItemStore>>,
     broadcast_tx: broadcast::Sender<WorkItemEvent>,
+    migration_status: WorkItemMigrationStatus,
 }
 
 impl WorkItemHandle {
     pub fn open(path: &Path) -> Result<Self, String> {
         let store =
             WorkItemStore::open(path).map_err(|e| format!("failed to open board.db: {e}"))?;
+        let current_version = store
+            .current_schema_version()
+            .map_err(|e| format!("failed to inspect board.db migration status: {e}"))?;
         let (broadcast_tx, _) = broadcast::channel(BROADCAST_CAPACITY);
-        Ok(WorkItemHandle { inner: Arc::new(Mutex::new(store)), broadcast_tx })
+        Ok(WorkItemHandle {
+            inner: Arc::new(Mutex::new(store)),
+            broadcast_tx,
+            migration_status: WorkItemMigrationStatus::new(
+                current_version,
+                WorkItemMigrationStorage::BoardDb,
+                None,
+            ),
+        })
     }
 
     pub fn in_memory() -> Self {
+        Self::in_memory_with_error(None)
+    }
+
+    pub fn in_memory_with_error(error: Option<String>) -> Self {
         let store = WorkItemStore::open_in_memory().expect("in-memory SQLite should always work");
+        let current_version = store.current_schema_version().unwrap_or(WORK_ITEM_SCHEMA_VERSION);
         let (broadcast_tx, _) = broadcast::channel(BROADCAST_CAPACITY);
-        WorkItemHandle { inner: Arc::new(Mutex::new(store)), broadcast_tx }
+        WorkItemHandle {
+            inner: Arc::new(Mutex::new(store)),
+            broadcast_tx,
+            migration_status: WorkItemMigrationStatus::new(
+                current_version,
+                WorkItemMigrationStorage::InMemory,
+                error,
+            ),
+        }
+    }
+
+    pub fn migration_status(&self) -> WorkItemMigrationStatus {
+        self.migration_status.clone()
     }
 
     pub fn subscribe_events(&self) -> broadcast::Receiver<WorkItemEvent> {

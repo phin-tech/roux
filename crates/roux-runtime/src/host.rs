@@ -58,7 +58,7 @@ impl RuntimeHostConfig {
                     "Warning: failed to open board.db at {}: {err}; using in-memory work items for this process.",
                     self.work_item_db_path.display()
                 );
-                WorkItemHandle::in_memory()
+                WorkItemHandle::in_memory_with_error(Some(err))
             }
         };
 
