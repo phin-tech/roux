@@ -231,16 +231,18 @@ export function disposePane(
   const inst = map.get(id);
   if (!inst) return;
 
-  // Kill the underlying PTY for any pane that hosts one. Markdown panes
-  // carry an empty ptyId so the killer is skipped implicitly.
+  // Kill only the PTY that is logically attached to this pane. Restored panes
+  // can preserve a persisted ptyId while terminalState is empty because live
+  // inventory was unavailable; closing that UI shell must not kill it.
   // Note: agents now live inside the shell PTY, so killing the pane kills
   // the agent — there is no separate session-level PTY to preserve.
+  const attachedPtyId = getAttachedPtyId(inst);
   if (
     killPty &&
-    inst.ptyId &&
+    attachedPtyId &&
     (inst.type === "shell" || inst.type === "command")
   ) {
-    killPty(inst.ptyId).catch(() => {
+    killPty(attachedPtyId).catch(() => {
       /* best-effort */
     });
   }

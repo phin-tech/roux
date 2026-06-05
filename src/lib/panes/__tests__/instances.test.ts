@@ -159,6 +159,28 @@ describe("pane instances", () => {
     expect(cleaned).toBe(true);
   });
 
+  it("disposePane kills the attached PTY for terminal panes", () => {
+    const killPty = vi.fn().mockResolvedValue(undefined);
+    const id = createPane({ type: "shell", ptyId: "pty-1" });
+    updateInstance(id, {
+      terminalState: { kind: "attached", ptyId: "pty-1" },
+    });
+
+    disposePane(id, killPty);
+
+    expect(killPty).toHaveBeenCalledWith("pty-1");
+  });
+
+  it("disposePane does not kill preserved PTY ids for empty restored panes", () => {
+    const killPty = vi.fn().mockResolvedValue(undefined);
+    const id = createPane({ type: "shell", ptyId: "maybe-live" });
+    updateInstance(id, { terminalState: { kind: "empty" } });
+
+    disposePane(id, killPty);
+
+    expect(killPty).not.toHaveBeenCalled();
+  });
+
   describe("restoreError field", () => {
     it("createPane defaults restoreError to undefined", () => {
       const id = createPane({ type: "shell", ptyId: "pty-1" });
