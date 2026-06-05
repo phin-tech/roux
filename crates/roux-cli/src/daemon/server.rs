@@ -22,24 +22,26 @@ use super::work_items::handle_work_item_events_stream;
 pub(super) struct SocketServerHandle {
     join: tokio::task::JoinHandle<()>,
     cleanup: SocketCleanup,
-    _owner_guard: Option<SocketOwnerGuard>,
+    owner_guard: SocketOwnerGuard,
     pub(super) endpoint: platform::SocketEndpoint,
 }
 
 impl SocketServerHandle {
-    pub(super) fn shutdown(self) {
-        self.join.abort();
-        self.cleanup.remove();
+    pub(super) fn shutdown(self) -> SocketOwnerGuard {
+        let Self { join, cleanup, owner_guard, endpoint: _ } = self;
+        join.abort();
+        cleanup.remove();
+        owner_guard
     }
 }
 
 #[cfg(not(windows))]
-struct SocketOwnerGuard {
+pub(super) struct SocketOwnerGuard {
     _file: std::fs::File,
 }
 
 #[cfg(windows)]
-struct SocketOwnerGuard {
+pub(super) struct SocketOwnerGuard {
     _file: std::fs::File,
 }
 
@@ -65,10 +67,8 @@ pub(super) async fn start_socket_server(
         platform::SocketEndpoint::Unix(path) => {
             #[cfg(not(windows))]
             {
-                let owner_guard = acquire_daemon_owner(
-                    &unix_socket_lock_path(&path),
-                    &path.display().to_string(),
-                )?;
+                let owner_guard =
+                    acquire_daemon_owner(&identity.owner_lock_path, &identity.endpoint_display())?;
                 let listener = bind_unix_listener(&path)?;
                 log.write(&format!("Socket server listening on {}", path.display()));
                 let cleanup_paths = vec![path.clone()];
@@ -104,7 +104,7 @@ pub(super) async fn start_socket_server(
                 Ok(SocketServerHandle {
                     join,
                     cleanup: SocketCleanup { paths: cleanup_paths },
-                    _owner_guard: Some(owner_guard),
+                    owner_guard,
                     endpoint,
                 })
             }
@@ -119,7 +119,7 @@ pub(super) async fn start_socket_server(
         }
         platform::SocketEndpoint::Tcp(addr) => {
             let owner_guard =
-                acquire_daemon_owner(&daemon_owner_lock_path(), &format!("tcp://{addr}"))?;
+                acquire_daemon_owner(&identity.owner_lock_path, &identity.endpoint_display())?;
             let listener = bind_tcp_listener(&addr, &identity).await?;
             let local_addr = listener
                 .local_addr()
@@ -162,7 +162,7 @@ pub(super) async fn start_socket_server(
             Ok(SocketServerHandle {
                 join,
                 cleanup: SocketCleanup { paths: cleanup_paths },
-                _owner_guard: Some(owner_guard),
+                owner_guard,
                 endpoint,
             })
         }
@@ -217,19 +217,6 @@ fn acquire_daemon_owner(lock_path: &Path, endpoint: &str) -> Result<SocketOwnerG
         })?;
 
     Ok(SocketOwnerGuard { _file: file })
-}
-
-fn daemon_owner_lock_path() -> PathBuf {
-    platform::app_config_dir().join("roux-daemon.lock")
-}
-
-#[cfg(not(windows))]
-fn unix_socket_lock_path(path: &Path) -> PathBuf {
-    let mut lock_path = path.to_path_buf();
-    let mut file_name = path.file_name().map(std::ffi::OsString::from).unwrap_or_default();
-    file_name.push(".lock");
-    lock_path.set_file_name(file_name);
-    lock_path
 }
 
 #[cfg(not(windows))]

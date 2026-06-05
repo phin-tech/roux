@@ -2919,6 +2919,7 @@ async fn daemon_socket_serves_status_request() {
         AutomationHookManager::from_config_root(dir.path()),
     );
     let log_path = dir.path().join("roux-daemon.log");
+    let owner_lock_path = dir.path().join("roux-daemon.lock");
     let server = start_socket_server(
         host.clone(),
         watch_runner,
@@ -2926,7 +2927,8 @@ async fn daemon_socket_serves_status_request() {
             platform::SocketEndpoint::Unix(socket_path.clone()),
             log_path.clone(),
             None,
-        ),
+        )
+        .with_owner_lock_path(owner_lock_path),
         DaemonLog::new_for_test(log_path.clone()),
     )
     .await
@@ -2945,7 +2947,7 @@ async fn daemon_socket_serves_status_request() {
     let expected_log_path = log_path.to_string_lossy().to_string();
     assert_eq!(value["data"]["logPath"], serde_json::Value::String(expected_log_path));
 
-    server.shutdown();
+    let _owner_guard = server.shutdown();
     host.process_handle.shutdown().await;
     host.pty_handle.shutdown().await;
     host.watch_handle.shutdown().await;
@@ -2978,6 +2980,7 @@ async fn daemon_socket_server_refuses_second_owner_even_if_socket_file_was_remov
         AutomationHookManager::from_config_root(dir.path()),
     );
     let log_path = dir.path().join("roux-daemon.log");
+    let owner_lock_path = dir.path().join("roux-daemon.lock");
 
     let first = start_socket_server(
         host.clone(),
@@ -2986,7 +2989,8 @@ async fn daemon_socket_server_refuses_second_owner_even_if_socket_file_was_remov
             platform::SocketEndpoint::Unix(socket_path.clone()),
             log_path.clone(),
             None,
-        ),
+        )
+        .with_owner_lock_path(owner_lock_path.clone()),
         DaemonLog::new_for_test(log_path.clone()),
     )
     .await
@@ -3001,21 +3005,97 @@ async fn daemon_socket_server_refuses_second_owner_even_if_socket_file_was_remov
             platform::SocketEndpoint::Unix(socket_path.clone()),
             log_path.clone(),
             None,
-        ),
+        )
+        .with_owner_lock_path(owner_lock_path),
         DaemonLog::new_for_test(log_path),
     )
     .await;
 
     let failure = match second {
         Ok(second) => {
-            second.shutdown();
+            let _owner_guard = second.shutdown();
             Some("second daemon socket server unexpectedly started".to_string())
         }
         Err(err) if err.contains("already running") => None,
         Err(err) => Some(format!("unexpected second-start error: {err}")),
     };
 
-    first.shutdown();
+    let _owner_guard = first.shutdown();
+    host.process_handle.shutdown().await;
+    host.pty_handle.shutdown().await;
+    host.watch_handle.shutdown().await;
+    host.session_handle.shutdown().await;
+    host.project_handle.shutdown().await;
+    drop(host);
+    for join in joins {
+        join.await.unwrap();
+    }
+
+    if let Some(failure) = failure {
+        panic!("{failure}");
+    }
+}
+
+#[cfg(not(windows))]
+#[tokio::test]
+async fn daemon_socket_server_refuses_tcp_owner_while_unix_owner_is_running() {
+    let dir = tempfile::tempdir().unwrap();
+    let socket_path = dir.path().join("roux.sock");
+    let services = RuntimeHostConfig {
+        initial_sessions: Vec::new(),
+        session_persist_path: dir.path().join("sessions.json"),
+        initial_projects: Vec::new(),
+        project_persist_path: dir.path().join("projects.json"),
+        initial_watches: Vec::new(),
+        watch_persist_path: Some(dir.path().join("watches.json")),
+        work_item_db_path: dir.path().join("board.db"),
+    }
+    .build();
+    let (host, joins) = services.spawn_with(tokio::spawn);
+    let watch_runner = WatchRunner::new(
+        host.watch_handle.clone(),
+        AutomationHookManager::from_config_root(dir.path()),
+    );
+    let log_path = dir.path().join("roux-daemon.log");
+    let owner_lock_path = dir.path().join("roux-daemon.lock");
+
+    let first = start_socket_server(
+        host.clone(),
+        watch_runner.clone(),
+        DaemonIdentity::new(
+            platform::SocketEndpoint::Unix(socket_path.clone()),
+            log_path.clone(),
+            None,
+        )
+        .with_owner_lock_path(owner_lock_path.clone()),
+        DaemonLog::new_for_test(log_path.clone()),
+    )
+    .await
+    .unwrap();
+
+    let second = start_socket_server(
+        host.clone(),
+        watch_runner,
+        DaemonIdentity::new(
+            platform::SocketEndpoint::Tcp("127.0.0.1:0".to_string()),
+            log_path.clone(),
+            Some("test-token".to_string()),
+        )
+        .with_owner_lock_path(owner_lock_path),
+        DaemonLog::new_for_test(log_path),
+    )
+    .await;
+
+    let failure = match second {
+        Ok(second) => {
+            let _owner_guard = second.shutdown();
+            Some("second daemon socket server unexpectedly started".to_string())
+        }
+        Err(err) if err.contains("already running") => None,
+        Err(err) => Some(format!("unexpected second-start error: {err}")),
+    };
+
+    let _owner_guard = first.shutdown();
     host.process_handle.shutdown().await;
     host.pty_handle.shutdown().await;
     host.watch_handle.shutdown().await;
@@ -3054,6 +3134,7 @@ async fn daemon_socket_stop_requests_shutdown_after_response() {
         AutomationHookManager::from_config_root(dir.path()),
     );
     let log_path = dir.path().join("roux-daemon.log");
+    let owner_lock_path = dir.path().join("roux-daemon.lock");
     let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
     let server = start_socket_server(
         host.clone(),
@@ -3063,6 +3144,7 @@ async fn daemon_socket_stop_requests_shutdown_after_response() {
             log_path.clone(),
             None,
         )
+        .with_owner_lock_path(owner_lock_path)
         .with_shutdown(shutdown_tx),
         DaemonLog::new_for_test(log_path),
     )
@@ -3088,7 +3170,7 @@ async fn daemon_socket_stop_requests_shutdown_after_response() {
     }
     assert!(*shutdown_rx.borrow(), "daemon-stop should signal shutdown");
 
-    server.shutdown();
+    let _owner_guard = server.shutdown();
     host.process_handle.shutdown().await;
     host.pty_handle.shutdown().await;
     host.watch_handle.shutdown().await;

@@ -15,6 +15,7 @@ pub(super) struct DaemonIdentity {
     pub(super) started_at_ms: u64,
     pub(super) socket: PathBuf,
     pub(super) log_path: PathBuf,
+    pub(super) owner_lock_path: PathBuf,
     #[cfg_attr(not(windows), allow(dead_code))]
     pub(super) auth_token: Option<String>,
     pub(super) endpoint: platform::SocketEndpoint,
@@ -41,6 +42,7 @@ impl DaemonIdentity {
             started_at_ms: unix_now_ms(),
             socket: endpoint_path(&endpoint),
             log_path,
+            owner_lock_path: platform::daemon_owner_lock_path(),
             auth_token,
             endpoint,
             alias_manager: AliasManager::load_from(paths::roux_config_dir().join("aliases.json")),
@@ -71,6 +73,7 @@ impl DaemonIdentity {
             started_at_ms: 1_000,
             socket: socket.clone(),
             log_path: PathBuf::from("/tmp/roux-daemon.log"),
+            owner_lock_path: platform::daemon_owner_lock_path(),
             auth_token: None,
             endpoint: platform::SocketEndpoint::Unix(socket),
             alias_manager: AliasManager::in_memory(),
@@ -90,6 +93,7 @@ impl DaemonIdentity {
             started_at_ms: 1_000,
             socket: endpoint_path(&endpoint),
             log_path: PathBuf::from("/tmp/roux-daemon.log"),
+            owner_lock_path: platform::daemon_owner_lock_path(),
             auth_token,
             endpoint,
             alias_manager: AliasManager::in_memory(),
@@ -110,6 +114,7 @@ impl DaemonIdentity {
             started_at_ms: 1_000,
             socket: socket.clone(),
             log_path: PathBuf::from("/tmp/roux-daemon.log"),
+            owner_lock_path: platform::daemon_owner_lock_path(),
             auth_token: None,
             endpoint: platform::SocketEndpoint::Unix(socket),
             alias_manager: AliasManager::load_from(alias_path),
@@ -133,6 +138,7 @@ impl DaemonIdentity {
             started_at_ms: 1_000,
             socket: socket.clone(),
             log_path: PathBuf::from("/tmp/roux-daemon.log"),
+            owner_lock_path: platform::daemon_owner_lock_path(),
             auth_token: None,
             endpoint: platform::SocketEndpoint::Unix(socket),
             alias_manager: AliasManager::load_from(alias_path),
@@ -144,6 +150,12 @@ impl DaemonIdentity {
             .with_subscriptions(subscription_manager),
             shutdown_tx: None,
         }
+    }
+
+    #[cfg(test)]
+    pub(super) fn with_owner_lock_path(mut self, owner_lock_path: PathBuf) -> Self {
+        self.owner_lock_path = owner_lock_path;
+        self
     }
 }
 

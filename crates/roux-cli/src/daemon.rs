@@ -141,7 +141,7 @@ pub async fn run() -> Result<(), String> {
     wait_for_shutdown_signal(shutdown_rx).await?;
     log.write("Shutdown signal received");
 
-    socket_server.shutdown();
+    let owner_guard = socket_server.shutdown();
     log.write("Socket server stopped");
     host.process_handle.shutdown().await;
     host.pty_handle.shutdown().await;
@@ -159,6 +159,7 @@ pub async fn run() -> Result<(), String> {
         }
     }
 
+    drop(owner_guard);
     log.write("Shutdown complete");
     Ok(())
 }
