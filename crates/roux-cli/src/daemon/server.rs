@@ -36,17 +36,11 @@ impl SocketServerHandle {
 #[cfg(not(windows))]
 struct SocketOwnerGuard {
     _file: std::fs::File,
-    path: PathBuf,
 }
 
 #[cfg(windows)]
-struct SocketOwnerGuard;
-
-#[cfg(not(windows))]
-impl Drop for SocketOwnerGuard {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.path);
-    }
+struct SocketOwnerGuard {
+    _file: std::fs::File,
 }
 
 struct SocketCleanup {
@@ -71,7 +65,10 @@ pub(super) async fn start_socket_server(
         platform::SocketEndpoint::Unix(path) => {
             #[cfg(not(windows))]
             {
-                let owner_guard = acquire_unix_socket_owner(&path)?;
+                let owner_guard = acquire_daemon_owner(
+                    &unix_socket_lock_path(&path),
+                    &path.display().to_string(),
+                )?;
                 let listener = bind_unix_listener(&path)?;
                 log.write(&format!("Socket server listening on {}", path.display()));
                 let cleanup_paths = vec![path.clone()];
@@ -121,6 +118,8 @@ pub(super) async fn start_socket_server(
             }
         }
         platform::SocketEndpoint::Tcp(addr) => {
+            let owner_guard =
+                acquire_daemon_owner(&daemon_owner_lock_path(), &format!("tcp://{addr}"))?;
             let listener = bind_tcp_listener(&addr, &identity).await?;
             let local_addr = listener
                 .local_addr()
@@ -163,7 +162,7 @@ pub(super) async fn start_socket_server(
             Ok(SocketServerHandle {
                 join,
                 cleanup: SocketCleanup { paths: cleanup_paths },
-                _owner_guard: None,
+                _owner_guard: Some(owner_guard),
                 endpoint,
             })
         }
@@ -171,15 +170,14 @@ pub(super) async fn start_socket_server(
 }
 
 #[cfg(not(windows))]
-fn acquire_unix_socket_owner(path: &Path) -> Result<SocketOwnerGuard, String> {
+fn acquire_daemon_owner(lock_path: &Path, endpoint: &str) -> Result<SocketOwnerGuard, String> {
     use std::os::fd::AsRawFd;
 
-    if let Some(parent) = path.parent() {
+    if let Some(parent) = lock_path.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|err| format!("create socket directory {}: {err}", parent.display()))?;
     }
 
-    let lock_path = unix_socket_lock_path(path);
     let file =
         std::fs::OpenOptions::new().create(true).read(true).write(true).open(&lock_path).map_err(
             |err| format!("open daemon socket owner lock {}: {err}", lock_path.display()),
@@ -188,12 +186,41 @@ fn acquire_unix_socket_owner(path: &Path) -> Result<SocketOwnerGuard, String> {
     if result == -1 {
         let err = std::io::Error::last_os_error();
         if err.kind() == std::io::ErrorKind::WouldBlock {
-            return Err(format!("Roux daemon already running for socket {}", path.display()));
+            return Err(format!("Roux daemon already running for {endpoint}"));
         }
         return Err(format!("lock daemon socket owner {}: {err}", lock_path.display()));
     }
 
-    Ok(SocketOwnerGuard { _file: file, path: lock_path })
+    Ok(SocketOwnerGuard { _file: file })
+}
+
+#[cfg(windows)]
+fn acquire_daemon_owner(lock_path: &Path, endpoint: &str) -> Result<SocketOwnerGuard, String> {
+    use std::os::windows::fs::OpenOptionsExt;
+
+    if let Some(parent) = lock_path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|err| format!("create socket directory {}: {err}", parent.display()))?;
+    }
+
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .read(true)
+        .write(true)
+        .share_mode(0)
+        .open(lock_path)
+        .map_err(|err| match err.kind() {
+            std::io::ErrorKind::PermissionDenied | std::io::ErrorKind::WouldBlock => {
+                format!("Roux daemon already running for {endpoint}")
+            }
+            _ => format!("open daemon socket owner lock {}: {err}", lock_path.display()),
+        })?;
+
+    Ok(SocketOwnerGuard { _file: file })
+}
+
+fn daemon_owner_lock_path() -> PathBuf {
+    platform::app_config_dir().join("roux-daemon.lock")
 }
 
 #[cfg(not(windows))]
@@ -432,5 +459,27 @@ mod tests {
         write_private_file(&path, b"secret-2", "test token").unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "secret-2");
         assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+    }
+
+    #[test]
+    fn daemon_owner_lock_prevents_second_owner_and_leaves_lock_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let lock_path = dir.path().join("roux-daemon.lock");
+
+        let first = acquire_daemon_owner(&lock_path, "test endpoint").unwrap();
+        assert!(lock_path.exists());
+
+        let second = match acquire_daemon_owner(&lock_path, "test endpoint") {
+            Ok(_) => panic!("second owner should fail while first guard is held"),
+            Err(err) => err,
+        };
+        assert!(second.contains("already running"));
+
+        drop(first);
+        assert!(lock_path.exists(), "flock path should remain as a reusable inode");
+
+        let third = acquire_daemon_owner(&lock_path, "test endpoint")
+            .expect("released lock file should be reusable");
+        drop(third);
     }
 }
