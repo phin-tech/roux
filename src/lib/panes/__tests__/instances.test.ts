@@ -159,26 +159,34 @@ describe("pane instances", () => {
     expect(cleaned).toBe(true);
   });
 
-  it("disposePane kills the attached PTY for terminal panes", () => {
-    const killPty = vi.fn().mockResolvedValue(undefined);
+  it("disposePane kills the attached PTY for terminal panes", async () => {
+    const killed: string[] = [];
+    const killPty = async (ptyId: string) => {
+      killed.push(ptyId);
+    };
     const id = createPane({ type: "shell", ptyId: "pty-1" });
     updateInstance(id, {
       terminalState: { kind: "attached", ptyId: "pty-1" },
     });
 
     disposePane(id, killPty);
+    await Promise.resolve();
 
-    expect(killPty).toHaveBeenCalledWith("pty-1");
+    expect(killed).toEqual(["pty-1"]);
   });
 
-  it("disposePane does not kill preserved PTY ids for empty restored panes", () => {
-    const killPty = vi.fn().mockResolvedValue(undefined);
+  it("disposePane does not kill preserved PTY ids for empty restored panes", async () => {
+    const killed: string[] = [];
+    const killPty = async (ptyId: string) => {
+      killed.push(ptyId);
+    };
     const id = createPane({ type: "shell", ptyId: "maybe-live" });
     updateInstance(id, { terminalState: { kind: "empty" } });
 
     disposePane(id, killPty);
+    await Promise.resolve();
 
-    expect(killPty).not.toHaveBeenCalled();
+    expect(killed).toEqual([]);
   });
 
   describe("restoreError field", () => {
