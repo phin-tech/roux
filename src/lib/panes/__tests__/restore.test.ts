@@ -348,7 +348,7 @@ describe("restoreSessionPanes", () => {
 
     expect(spawnShellMock).not.toHaveBeenCalled();
     expect(runProfileInPaneMock).not.toHaveBeenCalled();
-    expect(get(paneInstances).get("shell-pane")?.ptyId).toBe("");
+    expect(get(paneInstances).get("shell-pane")?.ptyId).toBe("maybe-live");
     expect(get(paneInstances).get("shell-pane")?.terminalState).toEqual({
       kind: "empty",
     });
@@ -388,7 +388,7 @@ describe("restoreSessionPanes", () => {
     });
 
     const shellPane = get(paneInstances).get("shell-pane");
-    expect(shellPane?.ptyId).toBe("");
+    expect(shellPane?.ptyId).toBe("maybe-live-pty");
     expect(shellPane?.terminalState).toEqual({ kind: "empty" });
     expect(shellPane?.restoreError).toBeUndefined();
     expect(get(focusedPaneId)).toBe("s1-main");

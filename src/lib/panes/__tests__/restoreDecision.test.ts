@@ -58,7 +58,7 @@ describe("decidePaneRestore", () => {
     });
   });
 
-  it("does not attach terminal panes when live PTY inventory is unknown", () => {
+  it("does not attach but preserves PTY identity when live PTY inventory is unknown", () => {
     expect(
       decidePaneRestore({
         descriptor: descriptor({ id: "shell-pane", ptyId: "maybe-live" }),
@@ -67,7 +67,26 @@ describe("decidePaneRestore", () => {
       }),
     ).toEqual({
       kind: "empty",
-      panePtyId: "",
+      panePtyId: "maybe-live",
+      terminalState: { kind: "empty" },
+    });
+  });
+
+  it("does not strip command panes when live PTY inventory is unknown", () => {
+    expect(
+      decidePaneRestore({
+        descriptor: descriptor({
+          id: "cmd-pane",
+          type: "command",
+          ptyId: "maybe-live-command",
+          command: "npm test",
+        }),
+        sessionId: "s1",
+        livePtyIds: null,
+      }),
+    ).toEqual({
+      kind: "empty",
+      panePtyId: "maybe-live-command",
       terminalState: { kind: "empty" },
     });
   });

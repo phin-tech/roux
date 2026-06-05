@@ -29,6 +29,14 @@ export function decidePaneRestore({
     };
   }
 
+  if (livePtyIds == null) {
+    return {
+      kind: "empty",
+      panePtyId: descriptor.ptyId,
+      terminalState: { kind: "empty" },
+    };
+  }
+
   if (descriptor.type === "command") return { kind: "strip" };
 
   return {
