@@ -1047,8 +1047,6 @@ describe("BoardMainView", () => {
     render(BoardMainView);
 
     const reviewColumn = document.querySelector('[data-column="review"]')!;
-    expect(
-      reviewColumn.querySelector('[aria-label="Add card"]'),
-    ).toBeNull();
+    expect(reviewColumn.querySelector('[aria-label="Add card"]')).toBeNull();
   });
 });
