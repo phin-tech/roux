@@ -32,6 +32,16 @@ describe("resolveReviewAgentRepoRoot", () => {
     ).toBe("/repo/web");
   });
 
+  it("matches daemon-generated dashed sibling card worktrees", () => {
+    expect(
+      resolveReviewAgentRepoRoot({
+        itemRepoPath: null,
+        projectRepoRoots: ["/repo", "/repo/web"],
+        worktreePath: "/repo/web-roux-card-abc",
+      }),
+    ).toBe("/repo/web");
+  });
+
   it("returns null when no project root owns the worktree", () => {
     expect(
       resolveReviewAgentRepoRoot({

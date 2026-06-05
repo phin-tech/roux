@@ -14,7 +14,8 @@ function rootOwnsWorktree(root: string, worktreePath: string): boolean {
   return (
     normalizedWorktree === normalizedRoot ||
     normalizedWorktree.startsWith(`${normalizedRoot}/`) ||
-    normalizedWorktree.startsWith(`${normalizedRoot}.roux-card`)
+    normalizedWorktree.startsWith(`${normalizedRoot}.roux-card`) ||
+    normalizedWorktree.startsWith(`${normalizedRoot}-roux-card`)
   );
 }
 
