@@ -1046,7 +1046,12 @@ describe("BoardMainView", () => {
   it("does not show an add card button on non–To Do columns", () => {
     render(BoardMainView);
 
-    const reviewColumn = document.querySelector('[data-column="review"]')!;
-    expect(reviewColumn.querySelector('[aria-label="Add card"]')).toBeNull();
+    for (const col of ["ready", "doing", "review", "done"]) {
+      const column = document.querySelector(`[data-column="${col}"]`)!;
+      expect(
+        column.querySelector('[aria-label="Add card"]'),
+        `column "${col}" should not have an Add card button`,
+      ).toBeNull();
+    }
   });
 });
