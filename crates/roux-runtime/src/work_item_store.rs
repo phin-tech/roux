@@ -1245,11 +1245,20 @@ impl WorkItemStore {
         run_id: &str,
         target_status: WorkItemStatus,
         event_id: String,
-        payload: Value,
+        mut payload: Value,
+        feedback: Option<(String, AttachmentInput, u64, String)>,
         now: u64,
-    ) -> SqlResult<Option<(WorkItem, WorkItemRun, WorkItemRunEvent)>> {
+    ) -> SqlResult<Option<(WorkItem, WorkItemRun, WorkItemRunEvent, Option<Attachment>)>> {
+        let feedback_document_id =
+            feedback.as_ref().map(|(id, input, _, _)| attachment_document_id(&input.target_id, id));
+        if let (Value::Object(object), Some(document_id)) =
+            (&mut payload, feedback_document_id.as_ref())
+        {
+            object.insert("feedbackDocumentId".into(), Value::String(document_id.clone()));
+        }
         let payload = serde_json::to_string(&payload)
             .map_err(|err| rusqlite::Error::ToSqlConversionFailure(Box::new(err)))?;
+        let feedback_attachment_id = feedback.as_ref().map(|(id, _, _, _)| id.clone());
         let tx = self.conn.transaction()?;
         let run_row = tx
             .query_row(
@@ -1281,6 +1290,17 @@ impl WorkItemStore {
             tx.rollback()?;
             return Ok(None);
         }
+        if let Some((_, input, _, _)) = feedback.as_ref() {
+            if input.target_kind.as_str() != AttachmentTargetKind::WorkItem.as_str()
+                || input.target_id != work_item_id
+            {
+                tx.rollback()?;
+                return Err(rusqlite::Error::SqliteFailure(
+                    rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CONSTRAINT),
+                    Some("review feedback attachment target must match the work item".into()),
+                ));
+            }
+        }
         let changed = tx.execute(
             "UPDATE work_item_runs
              SET status = ?2,
@@ -1307,6 +1327,28 @@ impl WorkItemStore {
              WHERE id = ?1",
             params![work_item_id, target_status.as_str(), now as i64],
         )?;
+        if let Some((id, input, byte_len, sha256)) = feedback {
+            tx.execute(
+                "INSERT INTO attachments
+                 (id, target_kind, target_id, title, content_kind, content, mime_type, source_path,
+                  byte_len, sha256, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                params![
+                    id,
+                    input.target_kind.as_str(),
+                    input.target_id,
+                    input.title,
+                    input.content_kind.as_str(),
+                    input.content,
+                    input.mime_type,
+                    input.source_path,
+                    byte_len as i64,
+                    sha256,
+                    now as i64,
+                    now as i64,
+                ],
+            )?;
+        }
         tx.execute(
             "INSERT INTO work_item_run_events (id, run_id, kind, payload, created_at)
              VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -1323,7 +1365,13 @@ impl WorkItemStore {
         let item = self.get(&work_item_id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
         let run = self.get_run(run_id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
         let event = self.get_run_event(&event_id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
-        Ok(Some((item, run, event)))
+        let attachment = match feedback_attachment_id {
+            Some(id) => {
+                Some(self.get_attachment(&id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?)
+            }
+            None => None,
+        };
+        Ok(Some((item, run, event, attachment)))
     }
 
     pub fn create_decision(

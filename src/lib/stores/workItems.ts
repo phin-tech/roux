@@ -21,6 +21,7 @@ import {
   workItemReviewAccept as tauriWorkItemReviewAccept,
   workItemReviewRequestChanges as tauriWorkItemReviewRequestChanges,
   workItemRunsList as tauriWorkItemRunsList,
+  workItemRunEvents as tauriWorkItemRunEvents,
   workItemRunStop as tauriWorkItemRunStop,
   workItemDecisionsList as tauriWorkItemDecisionsList,
   workItemDecisionResolve as tauriWorkItemDecisionResolve,
@@ -177,8 +178,16 @@ export async function hydrateWorkItems(): Promise<void> {
       tauriWorkItemDecisionsList(null),
       tauriDocumentList("workItem", null),
     ]);
+    const reviewRunEvents = (
+      await Promise.all(
+        runs
+          .filter((run) => run.kind === "implementation" && run.status === "review")
+          .map((run) => tauriWorkItemRunEvents(run.id)),
+      )
+    ).flat();
     workItems.set(items);
     workItemRuns.set(runs);
+    workItemRunEvents.set(reviewRunEvents);
     workItemDecisions.set(decisions);
     workItemAttachments.set(attachments);
   } catch (err) {

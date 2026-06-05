@@ -663,7 +663,8 @@ impl WorkItemHandle {
         run_id: &str,
         target_status: WorkItemStatus,
         mut payload: serde_json::Value,
-    ) -> Result<Option<(WorkItem, WorkItemRun)>, String> {
+        feedback: Option<AttachmentInput>,
+    ) -> Result<Option<(WorkItem, WorkItemRun, Option<Attachment>)>, String> {
         let now = now_secs();
         if let serde_json::Value::Object(ref mut object) = payload {
             object.entry("status").or_insert_with(|| {
@@ -674,22 +675,31 @@ impl WorkItemHandle {
                 .or_insert_with(|| serde_json::Value::String(target_status.as_str().to_string()));
         }
         let event_id = Uuid::new_v4().to_string();
+        let feedback = feedback.map(|input| {
+            let id = Uuid::new_v4().to_string();
+            let byte_len = input.content.len() as u64;
+            let sha256 = sha256_hex(input.content.as_bytes());
+            (id, input, byte_len, sha256)
+        });
         let result = self
             .inner
             .lock()
             .unwrap()
-            .request_changes(run_id, target_status, event_id, payload, now)
+            .request_changes(run_id, target_status, event_id, payload, feedback, now)
             .map_err(|e| format!("work-item review request changes: {e}"))?;
-        if let Some((item, run, event)) = result {
+        if let Some((item, run, event, attachment)) = result {
             self.broadcast(WorkItemEvent::RunUpdated { run: run.clone() });
             self.broadcast(WorkItemEvent::RunEventAppended { event });
+            if let Some(ref attachment) = attachment {
+                self.broadcast(WorkItemEvent::DocumentAttached { attachment: attachment.clone() });
+            }
             self.broadcast(WorkItemEvent::Moved {
                 id: item.id.clone(),
                 status: item.status.clone(),
                 sort_order: item.sort_order,
             });
             self.broadcast(WorkItemEvent::Updated { item: item.clone() });
-            Ok(Some((item, run)))
+            Ok(Some((item, run, attachment)))
         } else {
             Ok(None)
         }
@@ -1002,6 +1012,47 @@ mod tests {
                 event: WorkItemRunEvent { kind: WorkItemRunEventKind::StatusChanged, .. }
             }
         ));
+    }
+
+    #[test]
+    fn request_changes_does_not_attach_feedback_when_transition_is_rejected() {
+        let handle = WorkItemHandle::in_memory();
+        let item = handle.create(input("Task")).unwrap();
+        let run = handle.create_run(&item.id, Some("sess-1"), None, None, None, None).unwrap();
+        handle
+            .set_run_status(
+                &run.id,
+                WorkItemRunStatus::Done,
+                serde_json::json!({ "reason": "alreadyDone" }),
+            )
+            .unwrap()
+            .unwrap();
+
+        let result = handle
+            .request_changes(
+                &run.id,
+                WorkItemStatus::Doing,
+                serde_json::json!({ "reason": "changesRequested" }),
+                Some(AttachmentInput {
+                    target_kind: AttachmentTargetKind::WorkItem,
+                    target_id: item.id.clone(),
+                    title: Some("Review feedback".into()),
+                    content_kind: AttachmentContentKind::Text,
+                    content: "Please add coverage.".into(),
+                    mime_type: Some("text/markdown".into()),
+                    source_path: None,
+                }),
+            )
+            .unwrap();
+
+        assert!(result.is_none());
+        assert!(
+            handle
+                .list_attachments(Some(AttachmentTargetKind::WorkItem), Some(&item.id))
+                .unwrap()
+                .is_empty(),
+            "rejected review transition must not leave feedback behind"
+        );
     }
 
     #[test]

@@ -29,7 +29,9 @@ import {
   workItemReviewAccept as tauriWorkItemReviewAccept,
   workItemReviewRequestChanges as tauriWorkItemReviewRequestChanges,
   workItemStart as tauriWorkItemStart,
+  workItemRunsList as tauriWorkItemRunsList,
   workItemRunStop as tauriWorkItemRunStop,
+  workItemRunEvents as tauriWorkItemRunEvents,
   workItemList as tauriWorkItemList,
 } from "$lib/tauri";
 import type { WorkItem } from "$lib/bindings";
@@ -37,6 +39,7 @@ import type {
   Attachment,
   WorkItemDecision,
   WorkItemRun,
+  WorkItemRunEvent,
 } from "$lib/types/workItems";
 
 vi.mock("$lib/tauri", () => ({
@@ -54,6 +57,7 @@ vi.mock("$lib/tauri", () => ({
   documentList: vi.fn().mockResolvedValue([]),
   documentGet: vi.fn(),
   workItemRunsList: vi.fn().mockResolvedValue([]),
+  workItemRunEvents: vi.fn().mockResolvedValue([]),
   workItemDecisionsList: vi.fn().mockResolvedValue([]),
   workItemDecisionResolve: vi.fn(),
 }));
@@ -145,6 +149,17 @@ function makeDecision(
   };
 }
 
+function makeRunEvent(overrides: Partial<WorkItemRunEvent> = {}): WorkItemRunEvent {
+  return {
+    id: "event-1",
+    runId: "run-1",
+    kind: "result",
+    payload: { summary: "Implemented review package." },
+    createdAt: 2,
+    ...overrides,
+  };
+}
+
 describe("workItems store", () => {
   beforeEach(() => {
     workItems.set([]);
@@ -154,6 +169,7 @@ describe("workItems store", () => {
     workItemAttachments.set([]);
     vi.clearAllMocks();
     vi.mocked(tauriDocumentList).mockResolvedValue([]);
+    vi.mocked(tauriWorkItemRunEvents).mockResolvedValue([]);
   });
 
   describe("applyWorkItemEvent - created", () => {
@@ -412,6 +428,33 @@ describe("workItems store", () => {
       expect(tauriDocumentList).toHaveBeenCalledWith("workItem", null);
       expect(get(workItemAttachments)).toEqual([attachment]);
       expect(get(attachmentsByWorkItem).get("wi-1")).toEqual([attachment]);
+    });
+
+    it("loads run events for review runs during hydration", async () => {
+      const item = makeItem({ id: "wi-1", status: "review" });
+      const reviewRun = makeRun({
+        id: "run-review",
+        workItemId: "wi-1",
+        status: "review",
+      });
+      const doingRun = makeRun({
+        id: "run-doing",
+        workItemId: "wi-1",
+        status: "running",
+      });
+      const event = makeRunEvent({ id: "event-review", runId: "run-review" });
+      vi.mocked(tauriWorkItemList).mockResolvedValueOnce([item]);
+      vi.mocked(tauriWorkItemRunsList).mockResolvedValueOnce([
+        reviewRun,
+        doingRun,
+      ]);
+      vi.mocked(tauriWorkItemRunEvents).mockResolvedValueOnce([event]);
+
+      await hydrateWorkItems();
+
+      expect(tauriWorkItemRunEvents).toHaveBeenCalledTimes(1);
+      expect(tauriWorkItemRunEvents).toHaveBeenCalledWith("run-review");
+      expect(get(workItemRunEvents)).toEqual([event]);
     });
 
     it("upserts attached documents from daemon events", () => {

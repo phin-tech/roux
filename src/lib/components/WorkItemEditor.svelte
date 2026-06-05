@@ -174,6 +174,7 @@
   });
 
   function resetTransientState() {
+    documentRefreshSeq += 1;
     error = "";
     saving = false;
     deleteDialogOpen = false;

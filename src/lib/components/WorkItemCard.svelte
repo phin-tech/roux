@@ -143,6 +143,7 @@
   const hasMenuActions = $derived(
     !!onEdit || !!onPlan || !!onDelete || canForceStartPlanning,
   );
+  const reviewSessionId = $derived(reviewPackage?.sessionId ?? null);
   const canOpenReviewWorktree = $derived(
     !!reviewPackage?.worktreePath && !!onOpenWorktree,
   );
@@ -274,6 +275,18 @@
     void onOpenWorktree?.(path);
   }
 
+  function handleOpenItemWorktree(): void {
+    const path = item.worktreePath;
+    if (!path) return;
+    void onOpenWorktree?.(path);
+  }
+
+  function handleOpenReviewTerminal(): void {
+    menuOpen = false;
+    if (!reviewSessionId) return;
+    onOpen?.(reviewSessionId);
+  }
+
   function handleOpenReviewAgent(): void {
     menuOpen = false;
     if (!reviewPackage) return;
@@ -288,9 +301,13 @@
   async function handleSubmitRequestChanges(): Promise<void> {
     const note = requestChangesNote.trim();
     if (!note || requestChangesPending) return;
-    await onRequestChanges?.(item.id, item, note);
-    requestChangesNote = "";
-    requestChangesOpen = false;
+    try {
+      await onRequestChanges?.(item.id, item, note);
+      requestChangesNote = "";
+      requestChangesOpen = false;
+    } catch {
+      // Parent surfaces the error on the card; keep the note editable.
+    }
   }
 
   function handleAttentionOpen(event: MouseEvent): void {
@@ -454,12 +471,24 @@
         </span>
       {/if}
       {#if targetLabel}
-        <span
-          class={chipClass}
-          title={item.worktreePath ?? item.repoPath ?? undefined}
-        >
-          <span class="truncate font-mono">{targetLabel}</span>
-        </span>
+        {#if item.worktreePath && onOpenWorktree}
+          <button
+            type="button"
+            class={chipClass + " transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"}
+            title={item.worktreePath}
+            aria-label="Open worktree"
+            onclick={handleOpenItemWorktree}
+          >
+            <span class="truncate font-mono">{targetLabel}</span>
+          </button>
+        {:else}
+          <span
+            class={chipClass}
+            title={item.worktreePath ?? item.repoPath ?? undefined}
+          >
+            <span class="truncate font-mono">{targetLabel}</span>
+          </span>
+        {/if}
       {/if}
       {#if branchLabel}
         <span class={chipClass}>
@@ -513,6 +542,17 @@
         {#if reviewPackage.branch}
           <span class="text-text-subtle">Branch</span>
           <span class="truncate font-mono">{reviewPackage.branch}</span>
+        {/if}
+        {#if reviewSessionId && onOpen}
+          <span class="text-text-subtle">Session</span>
+          <button
+            type="button"
+            class="min-w-0 truncate text-left font-mono text-text-secondary transition-colors hover:text-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
+            aria-label="Open terminal"
+            onclick={handleOpenReviewTerminal}
+          >
+            {reviewSessionId}
+          </button>
         {/if}
         {#if reviewPackage.prUrl}
           <span class="text-text-subtle">PR</span>

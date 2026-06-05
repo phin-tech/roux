@@ -25,9 +25,10 @@ import { closeMainView } from "$lib/stores/mainView";
 import { openSessionById } from "$lib/panes/openSession";
 import { WORK_ITEM_DRAG_MIME } from "$lib/board/drag";
 import type { WorkItem } from "$lib/bindings";
-import type { Notification } from "$lib/types";
+import type { Notification, Project } from "$lib/types";
 import type { Attachment, WorkItemRun } from "$lib/types/workItems";
 import { notifications } from "$lib/stores/notifications";
+import { projects } from "$lib/stores/projects";
 import { createSessionShell, openPathInFinder } from "$lib/tauri";
 import { addSession, setActiveSession } from "$lib/stores/sessions";
 import { initSessionWithProfile } from "$lib/panes/actions";
@@ -235,6 +236,18 @@ function notification(overrides: Partial<Notification> = {}): Notification {
   };
 }
 
+function project(overrides: Partial<Project> = {}): Project {
+  return {
+    id: "proj-1",
+    name: "Test project",
+    repoRoots: ["/repo"],
+    contextPaths: [],
+    sessionBlueprints: [],
+    projectPrompt: "",
+    ...overrides,
+  };
+}
+
 function seedColumns(items: WorkItem[]) {
   const map = new Map<string, WorkItem[]>();
   for (const col of ["todo", "ready", "doing", "review", "done"])
@@ -284,6 +297,7 @@ describe("BoardMainView", () => {
     (workItemRunEvents as ReturnType<typeof import("svelte/store").writable>).set(
       [],
     );
+    projects.set([project()]);
     notifications.set([]);
   });
 
@@ -324,6 +338,19 @@ describe("BoardMainView", () => {
       "ready",
       expect.any(Number),
     );
+  });
+
+  it("accepts a review card when it is dropped on Done", async () => {
+    seedColumns([workItem({ id: "wi-review", status: "review" })]);
+    render(BoardMainView);
+
+    const doneColumn = document.querySelector('[data-column="done"]')!;
+    await fireEvent.drop(doneColumn, {
+      dataTransfer: dragData({ itemId: "wi-review", fromStatus: "review" }),
+    });
+
+    expect(acceptWorkItemReview).toHaveBeenCalledWith("wi-review");
+    expect(moveWorkItem).not.toHaveBeenCalled();
   });
 
   it("ignores a drop that skips workflow columns", async () => {
@@ -634,7 +661,8 @@ describe("BoardMainView", () => {
         id: "wi-review",
         title: "Review me",
         status: "review",
-        repoPath: "/repo",
+        projectId: "proj-1",
+        repoPath: null,
         sessionId: null,
         pinnedPrUrl: "https://github.com/phin-tech/roux/pull/90",
       }),
@@ -721,13 +749,18 @@ describe("BoardMainView", () => {
       "/repo/.worktrees/review-card",
     );
 
+    await fireEvent.click(
+      within(reviewPackage).getByRole("button", { name: "Open terminal" }),
+    );
+    expect(openSessionById).toHaveBeenCalledWith("sess-review");
+
     await fireEvent.click(screen.getByText("Open agent"));
     await vi.waitFor(() =>
       expect(createSessionShell).toHaveBeenCalledWith(
         "/repo",
         "Review me review",
         "/repo/.worktrees/review-card",
-        "feature/review-card",
+        null,
         { profile: "claude" },
       ),
     );
@@ -756,6 +789,55 @@ describe("BoardMainView", () => {
       "wi-review",
       "Add retry coverage.",
     );
+  });
+
+  it("keeps request-changes note open when the request fails", async () => {
+    vi.mocked(requestWorkItemChanges).mockRejectedValueOnce(
+      new Error("run is no longer in review"),
+    );
+    seedColumns([
+      workItem({
+        id: "wi-review",
+        title: "Review me",
+        status: "review",
+        repoPath: "/repo",
+        sessionId: null,
+      }),
+    ]);
+    (runsByItem as ReturnType<typeof import("svelte/store").writable>).set(
+      new Map([
+        [
+          "wi-review",
+          [
+            workItemRun({
+              id: "run-review",
+              workItemId: "wi-review",
+              status: "review",
+              sessionId: "sess-review",
+              worktreePath: "/repo/.worktrees/review-card",
+            }),
+          ],
+        ],
+      ]),
+    );
+    render(BoardMainView);
+
+    await fireEvent.click(screen.getByText("Request changes"));
+    const form = screen.getByTestId("work-item-request-changes-form");
+    await fireEvent.input(screen.getByPlaceholderText("Requested changes"), {
+      target: { value: "Keep this note." },
+    });
+    await fireEvent.click(
+      within(form).getByRole("button", { name: "Request changes" }),
+    );
+
+    await vi.waitFor(() =>
+      expect(screen.getByRole("alert").textContent).toContain(
+        "Failed to request changes.",
+      ),
+    );
+    expect(screen.getByTestId("work-item-request-changes-form")).toBeTruthy();
+    expect(screen.getByDisplayValue("Keep this note.")).toBeTruthy();
   });
 
   it("shows Open planning terminal for an active planning run", async () => {

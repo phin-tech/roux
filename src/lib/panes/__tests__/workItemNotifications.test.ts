@@ -151,6 +151,22 @@ describe("workItemNotifications", () => {
     expect(notificationsPush).not.toHaveBeenCalled();
   });
 
+  it("fires a suppressed pending decision after leaving the bound session", async () => {
+    sessionState.set({ sessions: [], activeSessionId: "sess-1" });
+    workItemRuns.set([makeRun()]);
+    workItemDecisions.set([makeDecision()]);
+    await waitTick();
+    expect(notificationsPush).not.toHaveBeenCalled();
+
+    sessionState.set({ sessions: [], activeSessionId: null });
+    await waitTick();
+
+    expect(notificationsPush).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(notificationsPush).mock.calls[0][0].dedupKey).toBe(
+      "work-item-decision:dec-1",
+    );
+  });
+
   it("does not fire when notifications are disabled", async () => {
     settings.set({ ...DEFAULT_SETTINGS, notificationsEnabled: false });
     workItemRuns.set([makeRun()]);

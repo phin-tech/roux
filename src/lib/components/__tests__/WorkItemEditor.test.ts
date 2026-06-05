@@ -206,6 +206,20 @@ function attachment(overrides: Partial<Attachment> = {}): Attachment {
   };
 }
 
+function deferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+  reject: (reason?: unknown) => void;
+} {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 describe("WorkItemEditor", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -421,5 +435,40 @@ describe("WorkItemEditor", () => {
 
     expect(getDocument).toHaveBeenCalledWith("wi-1.plan");
     expect(await screen.findByText("Use the approved plan.")).toBeTruthy();
+  });
+
+  it("ignores attachment loads that resolve after switching cards", async () => {
+    const staleLoad = deferred<AttachmentDocument>();
+    const plan = attachment({
+      id: "att-plan-1",
+      documentId: "wi-1.plan",
+      targetId: "wi-1",
+    });
+    (
+      workItems as ReturnType<typeof import("svelte/store").writable>
+    ).set([
+      workItem({ id: "wi-1", title: "First card" }),
+      workItem({ id: "wi-2", title: "Second card" }),
+    ]);
+    (
+      attachmentsByWorkItem as ReturnType<typeof import("svelte/store").writable>
+    ).set(new Map([["wi-1", [plan]], ["wi-2", []]]));
+    vi.mocked(getDocument).mockReturnValueOnce(staleLoad.promise);
+
+    render(WorkItemEditor);
+    editingWorkItemId.set("wi-1");
+    await screen.findByDisplayValue("First card");
+    await fireEvent.click(screen.getByRole("button", { name: "Implementation Plan" }));
+
+    editingWorkItemId.set("wi-2");
+    await screen.findByDisplayValue("Second card");
+    staleLoad.resolve({
+      attachment: plan,
+      content: "Stale plan body",
+    });
+    await Promise.resolve();
+
+    expect(screen.queryByText("Stale plan body")).toBeNull();
+    expect(screen.getByText("Select an attachment to read it.")).toBeTruthy();
   });
 });

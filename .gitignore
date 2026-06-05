@@ -42,3 +42,6 @@ docs/.venv/
 docs/__pycache__/
 # roborev snapshots
 /.roborev/
+
+# codebase-memory-mcp local graph artifacts
+/.codebase-memory/

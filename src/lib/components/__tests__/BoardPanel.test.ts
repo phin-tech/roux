@@ -18,9 +18,12 @@ import { deleteWorkItemWithMode } from "$lib/workItems/deleteFlow";
 import { openWorkItemEditor, openWorkItemSessionStart } from "$lib/stores/ui";
 import { openMainView } from "$lib/stores/mainView";
 import type { WorkItem } from "$lib/bindings";
+import type { Project } from "$lib/types";
 import type { Attachment, WorkItemRun } from "$lib/types/workItems";
+import { projects } from "$lib/stores/projects";
 import { createSessionShell, openPathInFinder } from "$lib/tauri";
 import { addSession, setActiveSession } from "$lib/stores/sessions";
+import { openSessionById } from "$lib/panes/openSession";
 import { initSessionWithProfile } from "$lib/panes/actions";
 import { connectPaneTerminal } from "$lib/panes/terminals";
 import { runProfileInPane } from "$lib/panes/profileRunner";
@@ -208,6 +211,18 @@ function attachment(overrides: Partial<Attachment> = {}): Attachment {
   };
 }
 
+function project(overrides: Partial<Project> = {}): Project {
+  return {
+    id: "proj-1",
+    name: "Test project",
+    repoRoots: ["/repo"],
+    contextPaths: [],
+    sessionBlueprints: [],
+    projectPrompt: "",
+    ...overrides,
+  };
+}
+
 function seedColumns(items: WorkItem[]) {
   const map = new Map<string, WorkItem[]>();
   for (const col of ["todo", "ready", "doing", "review", "done"])
@@ -240,6 +255,7 @@ describe("BoardPanel", () => {
     (workItemRunEvents as ReturnType<typeof import("svelte/store").writable>).set(
       [],
     );
+    projects.set([project()]);
   });
 
   it("Approve and start delegates to daemon start without issuing a second move", async () => {
@@ -431,7 +447,8 @@ describe("BoardPanel", () => {
       id: "wi-review",
       title: "Review me",
       status: "review",
-      repoPath: "/repo",
+      projectId: "proj-1",
+      repoPath: null,
       sessionId: null,
     });
     seedColumns([item]);
@@ -484,13 +501,18 @@ describe("BoardPanel", () => {
       "/repo/.worktrees/review-card",
     );
 
+    await fireEvent.click(
+      within(reviewPackage).getByRole("button", { name: "Open terminal" }),
+    );
+    expect(openSessionById).toHaveBeenCalledWith("sess-review");
+
     await fireEvent.click(screen.getByText("Open agent"));
     await vi.waitFor(() =>
       expect(createSessionShell).toHaveBeenCalledWith(
         "/repo",
         "Review me review",
         "/repo/.worktrees/review-card",
-        "main",
+        null,
         { profile: "claude" },
       ),
     );

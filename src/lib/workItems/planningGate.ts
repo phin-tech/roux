@@ -9,19 +9,13 @@ function basename(path: string): string {
   return parts[parts.length - 1] ?? path;
 }
 
-function isPlanLabel(value: string): boolean {
-  if (!value) return false;
-  return value === "plan" || /\bplan\b/.test(value);
+function tokens(value: string): Set<string> {
+  return new Set(value.split(/[^a-z0-9]+/).filter(Boolean));
 }
 
-function isMarkdownAttachment(attachment: Attachment): boolean {
-  const mimeType = normalize(attachment.mimeType);
-  const sourcePath = normalize(attachment.sourcePath);
-  return (
-    mimeType === "text/markdown" ||
-    sourcePath.endsWith(".md") ||
-    sourcePath.endsWith(".markdown")
-  );
+function isPlanLabel(value: string): boolean {
+  if (!value) return false;
+  return tokens(value).has("plan");
 }
 
 export function isPlanAttachment(attachment: Attachment): boolean {
@@ -29,7 +23,7 @@ export function isPlanAttachment(attachment: Attachment): boolean {
   if (isPlanLabel(normalize(attachment.title))) return true;
 
   const sourceName = basename(normalize(attachment.sourcePath));
-  return isMarkdownAttachment(attachment) && isPlanLabel(sourceName);
+  return isPlanLabel(sourceName);
 }
 
 export function hasAttachedPlan(attachments: Attachment[]): boolean {

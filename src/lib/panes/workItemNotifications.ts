@@ -1,4 +1,4 @@
-import { get } from "svelte/store";
+import { derived, get } from "svelte/store";
 import {
   pendingDecisionByItem,
   latestRunByItem,
@@ -43,11 +43,19 @@ let unsubscribe: (() => void) | null = null;
  */
 export function initWorkItemNotifications(): void {
   if (unsubscribe) return;
-  unsubscribe = pendingDecisionByItem.subscribe((pending) => {
+  const source = derived(
+    [pendingDecisionByItem, activeSessionId, settings],
+    ([$pending, $activeSessionId, $settings]) => ({
+      pending: $pending,
+      activeSessionId: $activeSessionId,
+      notificationsEnabled: $settings.notificationsEnabled,
+    }),
+  );
+  unsubscribe = source.subscribe((state) => {
     // Dismiss notifications for items whose decision resolved, timed out, or
     // was replaced by a different decision.
     for (const [itemId, tracked] of [...trackedByItem]) {
-      const current = pending.get(itemId);
+      const current = state.pending.get(itemId);
       if (!current || current.id !== tracked.decisionId) {
         trackedByItem.delete(itemId);
         void dismissDecisionNotification(tracked);
@@ -55,11 +63,15 @@ export function initWorkItemNotifications(): void {
     }
 
     // Fire for newly-pending decisions.
-    for (const [itemId, decision] of pending) {
+    for (const [itemId, decision] of state.pending) {
       const tracked = trackedByItem.get(itemId);
       if (tracked && tracked.decisionId === decision.id) continue;
-      // Mark synchronously so a re-emission before the push resolves does not
-      // double-fire. The async push fills in the notification id.
+      const run = get(latestRunByItem).get(itemId);
+      const sessionId = run?.sessionId ?? null;
+      if (!state.notificationsEnabled) continue;
+      if (sessionId && state.activeSessionId === sessionId) continue;
+      // Mark synchronously only after suppression checks pass so a later
+      // settings/focus change can still notify for the same pending decision.
       const entry: TrackedDecision = {
         decisionId: decision.id,
         notificationId: null,
@@ -84,14 +96,8 @@ async function fireDecisionNotification(
   decision: WorkItemDecision,
   entry: TrackedDecision,
 ): Promise<void> {
-  if (!get(settings).notificationsEnabled) return;
-
   const run = get(latestRunByItem).get(itemId);
   const sessionId = run?.sessionId ?? null;
-
-  // Suppress when the blocked session is already the active one — the user is
-  // looking at the question.
-  if (sessionId && get(activeSessionId) === sessionId) return;
 
   const item = get(workItems).find((i) => i.id === itemId);
   const title = item?.title ? `Decision needed: ${item.title}` : "Decision needed";
@@ -140,6 +146,9 @@ async function fireDecisionNotification(
     }
     log(`workItemNotifications: fired blocked notification for item ${itemId}`);
   } catch (e) {
+    if (trackedByItem.get(itemId) === entry) {
+      trackedByItem.delete(itemId);
+    }
     logError("workItemNotifications: notificationsPush failed", e);
   }
 }

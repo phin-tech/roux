@@ -43,6 +43,25 @@ describe("planning gate", () => {
     ).toBe(true);
   });
 
+  it("matches daemon plan tokens across common file names", () => {
+    expect(
+      isPlanAttachment(
+        attachment({
+          sourcePath: "/tmp/implementation_plan.md",
+          mimeType: "text/markdown",
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      isPlanAttachment(
+        attachment({
+          sourcePath: "/tmp/plan.txt",
+          mimeType: "text/plain",
+        }),
+      ),
+    ).toBe(true);
+  });
+
   it("does not treat unrelated markdown attachments as plans", () => {
     expect(
       isPlanAttachment(

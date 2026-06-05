@@ -497,7 +497,7 @@ pub(super) async fn handle_work_item_review_request_changes(
 
     let title =
         optional_string_arg(&req.args, &["title"]).unwrap_or_else(|| "Review feedback".to_string());
-    let attachment = match host.work_item_handle.create_attachment(roux_core::AttachmentInput {
+    let attachment_input = roux_core::AttachmentInput {
         target_kind: roux_core::AttachmentTargetKind::WorkItem,
         target_id: run.work_item_id.clone(),
         title: Some(title),
@@ -505,9 +505,6 @@ pub(super) async fn handle_work_item_review_request_changes(
         content: note.clone(),
         mime_type: Some("text/markdown".to_string()),
         source_path: None,
-    }) {
-        Ok(attachment) => attachment,
-        Err(err) => return Response::err(err),
     };
 
     let payload = serde_json::json!({
@@ -515,11 +512,15 @@ pub(super) async fn handle_work_item_review_request_changes(
         "requestedBy": optional_string_arg(&req.args, &["requestedBy", "requested_by"])
             .unwrap_or_else(|| "user".to_string()),
         "note": note,
-        "feedbackDocumentId": attachment.document_id,
         "targetStatus": target_status.as_str(),
     });
-    match host.work_item_handle.request_changes(&run.id, target_status, payload) {
-        Ok(Some((item, run))) => {
+    match host.work_item_handle.request_changes(
+        &run.id,
+        target_status,
+        payload,
+        Some(attachment_input),
+    ) {
+        Ok(Some((item, run, Some(attachment)))) => {
             match serde_json::to_value(roux_core::WorkItemReviewRequestChangesResult {
                 item,
                 run,
@@ -530,6 +531,9 @@ pub(super) async fn handle_work_item_review_request_changes(
                     "failed to serialize work item review request changes: {err}"
                 )),
             }
+        }
+        Ok(Some((_item, _run, None))) => {
+            Response::err("work item review run cannot request changes without feedback")
         }
         Ok(None) => Response::err("work item review run cannot request changes"),
         Err(err) => Response::err(err),

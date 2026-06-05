@@ -44,6 +44,7 @@
   import type { WorkItem } from "$lib/bindings";
   import { createSessionShell, openPathInFinder } from "$lib/tauri";
   import { addSession, setActiveSession } from "$lib/stores/sessions";
+  import { projects } from "$lib/stores/projects";
   import { defaultAgentProfileId } from "$lib/panes/defaultAgent";
   import SidebarPanelHeader from "./SidebarPanelHeader.svelte";
   import CollapseSidebarButton from "./CollapseSidebarButton.svelte";
@@ -168,7 +169,7 @@
     }
   }
 
-  async function handleAcceptReview(id: string, _item: WorkItem) {
+  async function handleAcceptReview(id: string, _item?: WorkItem) {
     if (acceptingItemIds[id]) return;
     acceptingItemIds = { ...acceptingItemIds, [id]: true };
     startErrors = withoutKey(startErrors, id);
@@ -191,6 +192,7 @@
     } catch (err) {
       startErrors = { ...startErrors, [id]: "Failed to request changes." };
       console.error("Failed to request work item changes", err);
+      throw err;
     } finally {
       requestingChangesItemIds = withoutKey(requestingChangesItemIds, id);
     }
@@ -213,6 +215,14 @@
     openingAgentItemIds = { ...openingAgentItemIds, [item.id]: true };
     startErrors = withoutKey(startErrors, item.id);
     try {
+      const projectRepoPath = item.projectId
+        ? (get(projects).find((project) => project.id === item.projectId)
+            ?.repoRoots?.[0] ?? null)
+        : null;
+      const repoPath = item.repoPath ?? projectRepoPath;
+      if (!repoPath) {
+        throw new Error("review worktree repo root is not configured");
+      }
       const profileId = item.agentProfile ?? defaultAgentProfileId();
       const profileRef = { kind: "registered" as const, id: profileId };
       const [{ resolveProfileRef }, { runProfileInPane }, { initSessionWithProfile }, { connectPaneTerminal }] =
@@ -222,12 +232,11 @@
           import("$lib/panes/actions"),
           import("$lib/panes/terminals"),
         ]);
-      const repoPath = item.repoPath ?? worktreePath;
       const session = await createSessionShell(
         repoPath,
         `${item.title} review`,
-        item.repoPath ? worktreePath : null,
-        reviewPackage.branch ?? item.branch,
+        worktreePath,
+        null,
         { profile: profileId },
       );
       addSession(session);
