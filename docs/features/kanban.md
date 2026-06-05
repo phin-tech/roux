@@ -85,7 +85,7 @@ roux work-item create "Fix login" --project <project-id> --agent-profile claude 
 roux work-item plan <card-id>
 roux work-item move <card-id> ready
 roux work-item start <card-id>
-roux work-item review request <run-id>
+roux work-item review request <run-id> --summary "Implemented retry coverage" --test "npm run test" --changed-file src/lib/retry.ts
 roux work-item review request-changes <run-id-or-card-id> --note "Add the missing retry coverage"
 roux work-item review accept <card-id>
 roux work-item accept <card-id>

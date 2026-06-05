@@ -772,9 +772,11 @@ a run exists leave the card in its current column and record `startError`.
 `work-item-review-request`
 
 Daemon-owned review request. Requires `args.runId` (also accepts `id` /
-`run_id`). The daemon validates that the run is an implementation run, moves the
-run to `review`, appends a status-change event with
-`reason: "reviewRequested"`, moves the associated card to `review`, and returns:
+`run_id`). Optional `summary`, `tests`, and `changedFiles` / `changed_files`
+args persist the agent's review handoff as a `result` run event. The daemon
+validates that the run is an implementation run, moves the run to `review`,
+appends a status-change event with `reason: "reviewRequested"`, moves the
+associated card to `review`, and returns:
 
 ```json
 {

@@ -1169,10 +1169,19 @@ impl WorkItemStore {
         run_id: &str,
         event_id: String,
         payload: Value,
+        result_event: Option<(String, Value)>,
         now: u64,
-    ) -> SqlResult<Option<(WorkItem, WorkItemRun, WorkItemRunEvent)>> {
+    ) -> SqlResult<Option<(WorkItem, WorkItemRun, WorkItemRunEvent, Option<WorkItemRunEvent>)>>
+    {
         let payload = serde_json::to_string(&payload)
             .map_err(|err| rusqlite::Error::ToSqlConversionFailure(Box::new(err)))?;
+        let result_event = result_event
+            .map(|(id, payload)| {
+                serde_json::to_string(&payload)
+                    .map(|payload| (id, payload))
+                    .map_err(|err| rusqlite::Error::ToSqlConversionFailure(Box::new(err)))
+            })
+            .transpose()?;
         let tx = self.conn.transaction()?;
         let run_row = tx
             .query_row(
@@ -1232,12 +1241,33 @@ impl WorkItemStore {
                 now as i64,
             ],
         )?;
+        if let Some((result_event_id, result_payload)) = result_event.as_ref() {
+            tx.execute(
+                "INSERT INTO work_item_run_events (id, run_id, kind, payload, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![
+                    result_event_id,
+                    run_id,
+                    WorkItemRunEventKind::Result.as_str(),
+                    result_payload,
+                    now as i64,
+                ],
+            )?;
+        }
         tx.commit()?;
 
         let item = self.get(&work_item_id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
         let run = self.get_run(run_id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
         let event = self.get_run_event(&event_id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
-        Ok(Some((item, run, event)))
+        let result_event = if let Some((result_event_id, _)) = result_event {
+            Some(
+                self.get_run_event(&result_event_id)?
+                    .ok_or(rusqlite::Error::QueryReturnedNoRows)?,
+            )
+        } else {
+            None
+        };
+        Ok(Some((item, run, event, result_event)))
     }
 
     pub fn request_changes(
@@ -1391,11 +1421,13 @@ impl WorkItemStore {
             "UPDATE work_item_runs
              SET status = ?2, updated_at = ?3
              WHERE id = ?1
-               AND status NOT IN (?4, ?5, ?6)",
+               AND status NOT IN (?4, ?5, ?6, ?7, ?8)",
             params![
                 run_id,
                 WorkItemRunStatus::Blocked.as_str(),
                 now as i64,
+                WorkItemRunStatus::Review.as_str(),
+                WorkItemRunStatus::ChangesRequested.as_str(),
                 WorkItemRunStatus::Done.as_str(),
                 WorkItemRunStatus::Failed.as_str(),
                 WorkItemRunStatus::Stopped.as_str(),
@@ -2594,6 +2626,89 @@ mod tests {
         assert!(matches!(err, rusqlite::Error::QueryReturnedNoRows));
         let run = store.get_run("run-1").unwrap().unwrap();
         assert_eq!(run.status, roux_core::WorkItemRunStatus::Done);
+        assert!(store.list_pending_decisions(None).unwrap().is_empty());
+    }
+
+    #[test]
+    fn create_decision_does_not_revive_review_handoff_run() {
+        let mut store = WorkItemStore::open_in_memory().unwrap();
+        store.create("i-1".into(), input("Task"), 1000).unwrap();
+        store
+            .create_run("run-1".into(), "i-1", Some("sess-1"), None, None, None, None, 1100)
+            .unwrap();
+        store
+            .request_review(
+                "run-1",
+                "event-1".into(),
+                serde_json::json!({ "status": "review" }),
+                None,
+                1200,
+            )
+            .unwrap()
+            .expect("run should request review");
+
+        let err = store
+            .create_decision(
+                "dec-1".into(),
+                "run-1",
+                "Choose path?",
+                vec![WorkItemDecisionOption { value: "a".into(), label: "A".into() }],
+                None,
+                None,
+                1300,
+            )
+            .unwrap_err();
+
+        assert!(matches!(err, rusqlite::Error::QueryReturnedNoRows));
+        let run = store.get_run("run-1").unwrap().unwrap();
+        assert_eq!(run.status, roux_core::WorkItemRunStatus::Review);
+        assert!(store.list_pending_decisions(None).unwrap().is_empty());
+    }
+
+    #[test]
+    fn create_decision_does_not_revive_changes_requested_run() {
+        let mut store = WorkItemStore::open_in_memory().unwrap();
+        store.create("i-1".into(), input("Task"), 1000).unwrap();
+        store
+            .create_run("run-1".into(), "i-1", Some("sess-1"), None, None, None, None, 1100)
+            .unwrap();
+        store
+            .request_review(
+                "run-1",
+                "event-1".into(),
+                serde_json::json!({ "status": "review" }),
+                None,
+                1200,
+            )
+            .unwrap()
+            .expect("run should request review");
+        store
+            .request_changes(
+                "run-1",
+                roux_core::WorkItemStatus::Doing,
+                "event-2".into(),
+                serde_json::json!({ "status": "changes_requested" }),
+                None,
+                1250,
+            )
+            .unwrap()
+            .expect("run should request changes");
+
+        let err = store
+            .create_decision(
+                "dec-1".into(),
+                "run-1",
+                "Choose path?",
+                vec![WorkItemDecisionOption { value: "a".into(), label: "A".into() }],
+                None,
+                None,
+                1300,
+            )
+            .unwrap_err();
+
+        assert!(matches!(err, rusqlite::Error::QueryReturnedNoRows));
+        let run = store.get_run("run-1").unwrap().unwrap();
+        assert_eq!(run.status, roux_core::WorkItemRunStatus::ChangesRequested);
         assert!(store.list_pending_decisions(None).unwrap().is_empty());
     }
 

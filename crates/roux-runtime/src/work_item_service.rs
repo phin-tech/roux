@@ -629,6 +629,7 @@ impl WorkItemHandle {
         &self,
         run_id: &str,
         mut payload: serde_json::Value,
+        result_payload: Option<serde_json::Value>,
     ) -> Result<Option<(WorkItem, WorkItemRun)>, String> {
         let now = now_secs();
         if let serde_json::Value::Object(ref mut object) = payload {
@@ -637,15 +638,19 @@ impl WorkItemHandle {
             });
         }
         let event_id = Uuid::new_v4().to_string();
+        let result_event = result_payload.map(|payload| (Uuid::new_v4().to_string(), payload));
         let result = self
             .inner
             .lock()
             .unwrap()
-            .request_review(run_id, event_id, payload, now)
+            .request_review(run_id, event_id, payload, result_event, now)
             .map_err(|e| format!("work-item review request: {e}"))?;
-        if let Some((item, run, event)) = result {
+        if let Some((item, run, event, result_event)) = result {
             self.broadcast(WorkItemEvent::RunUpdated { run: run.clone() });
             self.broadcast(WorkItemEvent::RunEventAppended { event });
+            if let Some(result_event) = result_event {
+                self.broadcast(WorkItemEvent::RunEventAppended { event: result_event });
+            }
             self.broadcast(WorkItemEvent::Moved {
                 id: item.id.clone(),
                 status: item.status.clone(),

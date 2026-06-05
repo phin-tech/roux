@@ -456,7 +456,8 @@ pub(super) async fn handle_work_item_review_request(req: Request, host: &Runtime
         "requestedBy": optional_string_arg(&req.args, &["requestedBy", "requested_by"])
             .unwrap_or_else(|| "agent".to_string()),
     });
-    match host.work_item_handle.request_review(&run_id, payload) {
+    let result_payload = review_request_result_payload(&req.args);
+    match host.work_item_handle.request_review(&run_id, payload, result_payload) {
         Ok(Some((item, run))) => {
             match serde_json::to_value(roux_core::WorkItemReviewRequestResult { item, run }) {
                 Ok(value) => Response::success(value),
@@ -468,6 +469,64 @@ pub(super) async fn handle_work_item_review_request(req: Request, host: &Runtime
         Ok(None) => Response::err("work item implementation run cannot request review"),
         Err(err) => Response::err(err),
     }
+}
+
+fn review_request_result_payload(args: &serde_json::Value) -> Option<serde_json::Value> {
+    let mut payload = serde_json::Map::new();
+    if let Some(summary) = optional_string_arg(args, &["summary", "agentSummary", "agent_summary"])
+    {
+        if !summary.trim().is_empty() {
+            payload.insert("summary".into(), serde_json::Value::String(summary));
+        }
+    }
+    let tests = optional_string_list_arg(args, &["tests", "test"]);
+    if !tests.is_empty() {
+        payload.insert(
+            "tests".into(),
+            serde_json::Value::Array(tests.into_iter().map(serde_json::Value::String).collect()),
+        );
+    }
+    let changed_files =
+        optional_string_list_arg(args, &["changedFiles", "changed_files", "files", "file"]);
+    if !changed_files.is_empty() {
+        payload.insert(
+            "changedFiles".into(),
+            serde_json::Value::Array(
+                changed_files.into_iter().map(serde_json::Value::String).collect(),
+            ),
+        );
+    }
+    (!payload.is_empty()).then_some(serde_json::Value::Object(payload))
+}
+
+fn optional_string_list_arg(args: &serde_json::Value, keys: &[&str]) -> Vec<String> {
+    for key in keys {
+        let Some(value) = args.get(*key) else {
+            continue;
+        };
+        let values = string_list_arg(value);
+        if !values.is_empty() {
+            return values;
+        }
+    }
+    Vec::new()
+}
+
+fn string_list_arg(value: &serde_json::Value) -> Vec<String> {
+    if let Some(value) = value.as_str() {
+        let value = value.trim();
+        return (!value.is_empty()).then(|| value.to_string()).into_iter().collect();
+    }
+    let Some(values) = value.as_array() else {
+        return Vec::new();
+    };
+    values
+        .iter()
+        .filter_map(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .collect()
 }
 
 pub(super) async fn handle_work_item_review_request_changes(
@@ -2645,7 +2704,7 @@ fn render_work_item_task_prompt(
     prompt.push_str(" work-item review request ");
     prompt.push_str(if run_id.is_empty() { "<run-id>" } else { &run_id });
     prompt.push_str(
-        "` to move this card to Review, then report the summary, tests, risks, and changed files. If that command fails, report the error. Do not mark the card done yourself.",
+        "` with `--summary`, repeated `--test`, and repeated `--changed-file` flags to move this card to Review and persist the review package. Then report the summary, tests, risks, and changed files. If that command fails, report the error. Do not mark the card done yourself.",
     );
     append_custom_prompt_section(
         &mut prompt,
@@ -3420,6 +3479,9 @@ mod tests {
         assert!(!prompt.contains("\"type\":\"decision\""));
         assert!(prompt.contains("Run the relevant tests/checks"));
         assert!(prompt.contains("work-item review request run-1"));
+        assert!(prompt.contains("--summary"));
+        assert!(prompt.contains("--test"));
+        assert!(prompt.contains("--changed-file"));
         assert!(prompt.contains("Do not mark the card done yourself"));
         assert!(!prompt.contains('\u{0007}'));
         assert!(!prompt.contains('\u{0003}'));
@@ -4825,7 +4887,15 @@ mod tests {
             .unwrap();
 
         let resp = handle_request(
-            req("work-item-review-request", serde_json::json!({ "runId": run.id })),
+            req(
+                "work-item-review-request",
+                serde_json::json!({
+                    "runId": run.id,
+                    "summary": "Implemented review package.",
+                    "tests": ["npm run test"],
+                    "changedFiles": ["src/lib/workItems/reviewPackage.ts"],
+                }),
+            ),
             &host,
             &identity,
         )
@@ -4844,6 +4914,12 @@ mod tests {
                 && event.payload["status"] == "review"
                 && event.payload["reason"] == "reviewRequested"
                 && event.payload["requestedBy"] == "agent"
+        }));
+        assert!(events.iter().any(|event| {
+            event.kind == roux_core::WorkItemRunEventKind::Result
+                && event.payload["summary"] == "Implemented review package."
+                && event.payload["tests"][0] == "npm run test"
+                && event.payload["changedFiles"][0] == "src/lib/workItems/reviewPackage.ts"
         }));
 
         shutdown_host(host, joins).await;

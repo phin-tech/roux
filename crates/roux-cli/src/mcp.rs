@@ -271,6 +271,20 @@ pub struct WorkItemRunIdParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
+pub struct WorkItemReviewRequestParams {
+    pub run_id: String,
+    /// Short implementation summary to show in the review package.
+    pub summary: Option<String>,
+    /// Test/check commands that were run.
+    #[serde(default)]
+    pub tests: Vec<String>,
+    /// Changed file paths to show in the review package.
+    #[serde(default)]
+    pub changed_files: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct WorkItemReviewRequestChangesParams {
     /// Work item run id, or work item id when the latest review run should be used.
     pub id: String,
@@ -770,11 +784,26 @@ impl RouxMcpServer {
     )]
     async fn roux_request_work_item_review(
         &self,
-        Parameters(params): Parameters<WorkItemRunIdParams>,
+        Parameters(params): Parameters<WorkItemReviewRequestParams>,
     ) -> Result<CallToolResult, ErrorData> {
+        let mut args = serde_json::Map::new();
+        args.insert("runId".into(), Value::String(params.run_id));
+        insert_optional_string(&mut args, "summary", params.summary);
+        if !params.tests.is_empty() {
+            args.insert(
+                "tests".into(),
+                Value::Array(params.tests.into_iter().map(Value::String).collect()),
+            );
+        }
+        if !params.changed_files.is_empty() {
+            args.insert(
+                "changedFiles".into(),
+                Value::Array(params.changed_files.into_iter().map(Value::String).collect()),
+            );
+        }
         call_socket(json!({
             "command": "work-item-review-request",
-            "args": { "runId": params.run_id },
+            "args": Value::Object(args),
         }))
         .await
     }
