@@ -625,6 +625,39 @@ impl WorkItemHandle {
         }
     }
 
+    pub fn request_review(
+        &self,
+        run_id: &str,
+        mut payload: serde_json::Value,
+    ) -> Result<Option<(WorkItem, WorkItemRun)>, String> {
+        let now = now_secs();
+        if let serde_json::Value::Object(ref mut object) = payload {
+            object.entry("status").or_insert_with(|| {
+                serde_json::Value::String(WorkItemRunStatus::Review.as_str().to_string())
+            });
+        }
+        let event_id = Uuid::new_v4().to_string();
+        let result = self
+            .inner
+            .lock()
+            .unwrap()
+            .request_review(run_id, event_id, payload, now)
+            .map_err(|e| format!("work-item review request: {e}"))?;
+        if let Some((item, run, event)) = result {
+            self.broadcast(WorkItemEvent::RunUpdated { run: run.clone() });
+            self.broadcast(WorkItemEvent::RunEventAppended { event });
+            self.broadcast(WorkItemEvent::Moved {
+                id: item.id.clone(),
+                status: item.status.clone(),
+                sort_order: item.sort_order,
+            });
+            self.broadcast(WorkItemEvent::Updated { item: item.clone() });
+            Ok(Some((item, run)))
+        } else {
+            Ok(None)
+        }
+    }
+
     pub fn create_decision(
         &self,
         run_id: &str,

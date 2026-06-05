@@ -66,7 +66,7 @@ vi.mock("$lib/stores/workItems", async () => {
     WORK_ITEM_COLUMNS: ["todo", "ready", "doing", "review", "done"],
     COLUMN_LABELS: {
       todo: "To Do",
-      ready: "Ready",
+      ready: "Planning",
       doing: "In Progress",
       review: "Review",
       done: "Done",

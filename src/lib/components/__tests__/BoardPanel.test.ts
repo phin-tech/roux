@@ -7,13 +7,16 @@ import {
   moveWorkItem,
   planWorkItem,
   startWorkItem,
+  stopWorkItemRun,
   activePlanningRunByItem,
+  attachmentsByWorkItem,
   runsByItem,
 } from "$lib/stores/workItems";
 import { deleteWorkItemWithMode } from "$lib/workItems/deleteFlow";
 import { openWorkItemSessionStart } from "$lib/stores/ui";
 import { openMainView } from "$lib/stores/mainView";
 import type { WorkItem } from "$lib/bindings";
+import type { Attachment, WorkItemRun } from "$lib/types/workItems";
 
 // jsdom lacks the Web Animations API that Svelte's transition:fade/scale use.
 if (typeof Element !== "undefined" && !Element.prototype.animate) {
@@ -37,7 +40,7 @@ vi.mock("$lib/stores/workItems", async () => {
     WORK_ITEM_COLUMNS: ["todo", "ready", "doing", "review", "done"],
     COLUMN_LABELS: {
       todo: "To Do",
-      ready: "Ready",
+      ready: "Planning",
       doing: "In Progress",
       review: "Review",
       done: "Done",
@@ -45,11 +48,13 @@ vi.mock("$lib/stores/workItems", async () => {
     itemsByColumn: writable(new Map()),
     pendingDecisionByItem: writable(new Map()),
     activePlanningRunByItem: writable(new Map()),
+    attachmentsByWorkItem: writable(new Map()),
     runsByItem: writable(new Map()),
     acceptWorkItemReview: vi.fn().mockResolvedValue({}),
     moveWorkItem: vi.fn().mockResolvedValue({}),
     planWorkItem: vi.fn().mockResolvedValue("plan-sess-1"),
     startWorkItem: vi.fn().mockResolvedValue("sess-1"),
+    stopWorkItemRun: vi.fn().mockResolvedValue({}),
     createWorkItem: vi.fn().mockResolvedValue({}),
   };
 });
@@ -105,6 +110,45 @@ function workItem(overrides: Partial<WorkItem> = {}): WorkItem {
   } as WorkItem;
 }
 
+function workItemRun(overrides: Partial<WorkItemRun> = {}): WorkItemRun {
+  return {
+    id: "run-1",
+    workItemId: "wi-1",
+    kind: "implementation",
+    sessionId: "sess-1",
+    ptyId: "sess-1",
+    provider: "claude",
+    profileId: "claude",
+    status: "running",
+    worktreePath: "/repo",
+    branch: "main",
+    cost: null,
+    createdAt: 1,
+    startedAt: 1,
+    endedAt: null,
+    updatedAt: 1,
+    ...overrides,
+  };
+}
+
+function attachment(overrides: Partial<Attachment> = {}): Attachment {
+  return {
+    id: "att-1",
+    documentId: "wi-1.att-1",
+    targetKind: "workItem",
+    targetId: "wi-1",
+    title: "Plan",
+    contentKind: "text",
+    mimeType: "text/markdown",
+    sourcePath: null,
+    byteLen: 12,
+    sha256: "sha",
+    createdAt: 1,
+    updatedAt: 1,
+    ...overrides,
+  };
+}
+
 function seedColumns(items: WorkItem[]) {
   const map = new Map<string, WorkItem[]>();
   for (const col of ["todo", "ready", "doing", "review", "done"])
@@ -113,6 +157,12 @@ function seedColumns(items: WorkItem[]) {
   (itemsByColumn as ReturnType<typeof import("svelte/store").writable>).set(
     map,
   );
+}
+
+function seedWorkItemAttachments(entries: Array<[string, Attachment[]]>): void {
+  (
+    attachmentsByWorkItem as ReturnType<typeof import("svelte/store").writable>
+  ).set(new Map(entries));
 }
 
 describe("BoardPanel", () => {
@@ -124,25 +174,27 @@ describe("BoardPanel", () => {
         typeof import("svelte/store").writable
       >
     ).set(new Map());
+    seedWorkItemAttachments([]);
     (runsByItem as ReturnType<typeof import("svelte/store").writable>).set(
       new Map(),
     );
   });
 
-  it("Start delegates to daemon start without issuing a second move", async () => {
+  it("Approve and start delegates to daemon start without issuing a second move", async () => {
     seedColumns(
       [
         workItem({
           id: "wi-1",
-          status: "todo",
+          status: "ready",
           projectId: "proj-1",
           sessionId: null,
         }),
       ].map((item) => ({ ...item, agentProfile: "claude" }) as WorkItem),
     );
+    seedWorkItemAttachments([["wi-1", [attachment({ targetId: "wi-1" })]]]);
     render(BoardPanel, { visible: true, onclose: vi.fn() });
 
-    await fireEvent.click(screen.getByLabelText("Start work item"));
+    await fireEvent.click(screen.getByLabelText("Approve and start work item"));
 
     expect(startWorkItem).toHaveBeenCalledWith("wi-1");
     expect(moveWorkItem).not.toHaveBeenCalled();
@@ -164,15 +216,16 @@ describe("BoardPanel", () => {
       [
         workItem({
           id: "wi-1",
-          status: "todo",
+          status: "ready",
           projectId: "proj-1",
           sessionId: null,
         }),
       ].map((item) => ({ ...item, agentProfile: "claude" }) as WorkItem),
     );
+    seedWorkItemAttachments([["wi-1", [attachment({ targetId: "wi-1" })]]]);
     render(BoardPanel, { visible: true, onclose: vi.fn() });
 
-    await fireEvent.click(screen.getByLabelText("Start work item"));
+    await fireEvent.click(screen.getByLabelText("Approve and start work item"));
 
     expect(startWorkItem).toHaveBeenCalledWith("wi-1");
     await vi.waitFor(() =>
@@ -183,10 +236,85 @@ describe("BoardPanel", () => {
     expect(moveWorkItem).not.toHaveBeenCalled();
   });
 
+  it("keeps a planning card in its planning terminal until a plan is attached", async () => {
+    seedColumns([
+      workItem({
+        id: "wi-plan",
+        status: "ready",
+        projectId: "proj-1",
+        sessionId: null,
+        agentProfile: "claude",
+      }),
+    ]);
+    (
+      activePlanningRunByItem as ReturnType<
+        typeof import("svelte/store").writable
+      >
+    ).set(
+      new Map([
+        [
+          "wi-plan",
+          workItemRun({
+            id: "run-plan",
+            workItemId: "wi-plan",
+            kind: "planning",
+            sessionId: "plan-sess-1",
+          }),
+        ],
+      ]),
+    );
+    render(BoardPanel, { visible: true, onclose: vi.fn() });
+
+    expect(screen.queryByLabelText("Approve and start work item")).toBeNull();
+    expect(screen.getByLabelText("Open planning terminal")).toBeTruthy();
+    expect(startWorkItem).not.toHaveBeenCalled();
+  });
+
+  it("force starts a planning card without an attached plan from the menu", async () => {
+    seedColumns([
+      workItem({
+        id: "wi-plan",
+        status: "ready",
+        projectId: "proj-1",
+        sessionId: null,
+        agentProfile: "claude",
+      }),
+    ]);
+    (
+      activePlanningRunByItem as ReturnType<
+        typeof import("svelte/store").writable
+      >
+    ).set(
+      new Map([
+        [
+          "wi-plan",
+          workItemRun({
+            id: "run-plan",
+            workItemId: "wi-plan",
+            kind: "planning",
+            sessionId: "plan-sess-1",
+          }),
+        ],
+      ]),
+    );
+    render(BoardPanel, { visible: true, onclose: vi.fn() });
+
+    await fireEvent.contextMenu(screen.getByTestId("work-item-card"));
+    await fireEvent.click(
+      screen.getByRole("menuitem", { name: "Approve & start anyway" }),
+    );
+
+    expect(stopWorkItemRun).toHaveBeenCalledWith("run-plan");
+    expect(startWorkItem).toHaveBeenCalledWith("wi-plan", {
+      forceStart: true,
+    });
+  });
+
   it("opens the session prompt when Start is clicked on an unprojected card", async () => {
     const item = workItem({
       id: "wi-1",
       title: "Wire task start",
+      status: "ready",
       projectId: null,
       sessionId: null,
     });
@@ -194,7 +322,7 @@ describe("BoardPanel", () => {
     render(BoardPanel, { visible: true, onclose: vi.fn() });
 
     expect(screen.getByText("Configure")).toBeTruthy();
-    await fireEvent.click(screen.getByLabelText("Start work item"));
+    await fireEvent.click(screen.getByLabelText("Configure work item"));
 
     expect(openWorkItemSessionStart).toHaveBeenCalledWith({
       itemId: "wi-1",
@@ -210,13 +338,13 @@ describe("BoardPanel", () => {
     render(BoardPanel, { visible: true, onclose: vi.fn() });
 
     await fireEvent.contextMenu(screen.getByTestId("work-item-card"));
-    await fireEvent.click(screen.getByText("Plan"));
+    await fireEvent.click(screen.getByRole("menuitem", { name: "Plan" }));
 
     expect(planWorkItem).toHaveBeenCalledWith("wi-1");
     expect(moveWorkItem).not.toHaveBeenCalled();
   });
 
-  it("accepts review from the card actions menu without directly moving the card", async () => {
+  it("accepts review from the card primary action without directly moving the card", async () => {
     const item = workItem({
       id: "wi-review",
       title: "Review me",
@@ -226,8 +354,7 @@ describe("BoardPanel", () => {
     seedColumns([item]);
     render(BoardPanel, { visible: true, onclose: vi.fn() });
 
-    await fireEvent.contextMenu(screen.getByTestId("work-item-card"));
-    await fireEvent.click(screen.getByText("Accept done"));
+    await fireEvent.click(screen.getByLabelText("Accept work item review"));
 
     expect(acceptWorkItemReview).toHaveBeenCalledWith("wi-review");
     expect(moveWorkItem).not.toHaveBeenCalledWith(

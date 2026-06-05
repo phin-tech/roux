@@ -52,7 +52,7 @@ export const WORK_ITEM_COLUMNS: WorkItemStatus[] = [
 
 export const COLUMN_LABELS: Record<WorkItemStatus, string> = {
   todo: "To Do",
-  ready: "Ready",
+  ready: "Planning",
   doing: "In Progress",
   review: "Review",
   done: "Done",
@@ -62,6 +62,7 @@ export const workItems = writable<WorkItem[]>([]);
 export const workItemRuns = writable<WorkItemRun[]>([]);
 export const workItemRunEvents = writable<WorkItemRunEvent[]>([]);
 export const workItemDecisions = writable<WorkItemDecision[]>([]);
+export const workItemAttachments = writable<Attachment[]>([]);
 const TERMINAL_RUN_STATUSES = new Set<WorkItemRun["status"]>([
   "review",
   "failed",
@@ -117,6 +118,20 @@ export const activePlanningRunByItem = derived(workItemRuns, ($runs) => {
   return map;
 });
 
+export const attachmentsByWorkItem = derived(
+  workItemAttachments,
+  ($attachments) => {
+    const map = new Map<string, Attachment[]>();
+    for (const attachment of $attachments) {
+      if (attachment.targetKind !== "workItem") continue;
+      const bucket = map.get(attachment.targetId) ?? [];
+      bucket.push(attachment);
+      map.set(attachment.targetId, bucket);
+    }
+    return map;
+  },
+);
+
 export const pendingDecisionByRun = derived(workItemDecisions, ($decisions) => {
   const map = new Map<string, WorkItemDecision>();
   for (const decision of $decisions) {
@@ -154,14 +169,16 @@ function upsertItem(item: WorkItem): void {
 
 export async function hydrateWorkItems(): Promise<void> {
   try {
-    const [items, runs, decisions] = await Promise.all([
+    const [items, runs, decisions, attachments] = await Promise.all([
       tauriWorkItemList(null),
       tauriWorkItemRunsList(null),
       tauriWorkItemDecisionsList(null),
+      tauriDocumentList("workItem", null),
     ]);
     workItems.set(items);
     workItemRuns.set(runs);
     workItemDecisions.set(decisions);
+    workItemAttachments.set(attachments);
   } catch (err) {
     console.error("Failed to hydrate work items", err);
     throw err;
@@ -199,6 +216,7 @@ export function applyWorkItemEvent(event: WorkItemEvent): void {
       });
       break;
     case "documentAttached":
+      upsertAttachment(event.attachment);
       break;
     case "sessionBound":
       bindSessionToWorkItem(event.id, event.sessionId);
@@ -244,6 +262,31 @@ function upsertDecision(decision: WorkItemDecision): void {
       ? decisions.map((d) => (d.id === decision.id ? decision : d))
       : [...decisions, decision],
   );
+}
+
+function upsertAttachment(attachment: Attachment): void {
+  if (attachment.targetKind !== "workItem") return;
+  workItemAttachments.update((attachments) =>
+    attachments.some((a) => a.id === attachment.id)
+      ? attachments.map((a) => (a.id === attachment.id ? attachment : a))
+      : [...attachments, attachment],
+  );
+}
+
+function replaceWorkItemAttachments(
+  targetId: string | null,
+  attachments: Attachment[],
+): void {
+  const workItemAttachmentsFromList = attachments.filter(
+    (attachment) => attachment.targetKind === "workItem",
+  );
+  workItemAttachments.update((current) => {
+    const kept =
+      targetId === null
+        ? []
+        : current.filter((attachment) => attachment.targetId !== targetId);
+    return [...kept, ...workItemAttachmentsFromList];
+  });
 }
 
 function markRunStatus(runId: string, status: WorkItemRun["status"]): void {
@@ -304,6 +347,7 @@ export interface WorkItemStartOptions {
   branch?: string | null;
   base?: string | null;
   fetchFirst?: boolean | null;
+  forceStart?: boolean | null;
 }
 
 export async function startWorkItem(
@@ -369,14 +413,23 @@ export async function stopWorkItemRun(runId: string): Promise<WorkItemRun> {
 export async function attachDocument(
   input: AttachmentInput,
 ): Promise<Attachment> {
-  return tauriDocumentAttach(input);
+  const attachment = await tauriDocumentAttach(input);
+  upsertAttachment(attachment);
+  return attachment;
 }
 
 export async function listDocuments(
   targetKind: AttachmentTargetKind | null = null,
   targetId: string | null = null,
 ): Promise<Attachment[]> {
-  return tauriDocumentList(targetKind, targetId);
+  const attachments = await tauriDocumentList(targetKind, targetId);
+  if (targetKind === "workItem" || targetKind === null) {
+    replaceWorkItemAttachments(
+      targetKind === "workItem" ? targetId : null,
+      attachments,
+    );
+  }
+  return attachments;
 }
 
 export async function getDocument(id: string): Promise<AttachmentDocument> {

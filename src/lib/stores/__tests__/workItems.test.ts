@@ -5,25 +5,37 @@ import {
   workItemRuns,
   workItemRunEvents,
   workItemDecisions,
+  workItemAttachments,
+  attachmentsByWorkItem,
   itemsByColumn,
   latestRunByItem,
   pendingDecisionByItem,
   runsByItem,
+  hydrateWorkItems,
   applyWorkItemEvent,
   acceptWorkItemReview,
+  attachDocument,
+  listDocuments,
   planWorkItem,
   startWorkItem,
   stopWorkItemRun,
   WORK_ITEM_COLUMNS,
 } from "../workItems";
 import {
+  documentAttach as tauriDocumentAttach,
+  documentList as tauriDocumentList,
   workItemPlan as tauriWorkItemPlan,
   workItemReviewAccept as tauriWorkItemReviewAccept,
   workItemStart as tauriWorkItemStart,
   workItemRunStop as tauriWorkItemRunStop,
+  workItemList as tauriWorkItemList,
 } from "$lib/tauri";
 import type { WorkItem } from "$lib/bindings";
-import type { WorkItemDecision, WorkItemRun } from "$lib/types/workItems";
+import type {
+  Attachment,
+  WorkItemDecision,
+  WorkItemRun,
+} from "$lib/types/workItems";
 
 vi.mock("$lib/tauri", () => ({
   workItemList: vi.fn(),
@@ -35,6 +47,9 @@ vi.mock("$lib/tauri", () => ({
   workItemReviewAccept: vi.fn(),
   workItemStart: vi.fn(),
   workItemRunStop: vi.fn(),
+  documentAttach: vi.fn(),
+  documentList: vi.fn().mockResolvedValue([]),
+  documentGet: vi.fn(),
   workItemRunsList: vi.fn().mockResolvedValue([]),
   workItemDecisionsList: vi.fn().mockResolvedValue([]),
   workItemDecisionResolve: vi.fn(),
@@ -89,6 +104,24 @@ function makeRun(overrides: Partial<WorkItemRun> = {}): WorkItemRun {
   };
 }
 
+function makeAttachment(overrides: Partial<Attachment> = {}): Attachment {
+  return {
+    id: "att-1",
+    documentId: "wi-1.att-1",
+    targetKind: "workItem",
+    targetId: "wi-1",
+    title: "Plan",
+    contentKind: "text",
+    mimeType: "text/markdown",
+    sourcePath: null,
+    byteLen: 12,
+    sha256: "sha",
+    createdAt: 1,
+    updatedAt: 1,
+    ...overrides,
+  };
+}
+
 function makeDecision(
   overrides: Partial<WorkItemDecision> = {},
 ): WorkItemDecision {
@@ -115,7 +148,9 @@ describe("workItems store", () => {
     workItemRuns.set([]);
     workItemRunEvents.set([]);
     workItemDecisions.set([]);
+    workItemAttachments.set([]);
     vi.clearAllMocks();
+    vi.mocked(tauriDocumentList).mockResolvedValue([]);
   });
 
   describe("applyWorkItemEvent - created", () => {
@@ -362,6 +397,52 @@ describe("workItems store", () => {
     });
   });
 
+  describe("attachments", () => {
+    it("loads work item attachments during hydration", async () => {
+      const item = makeItem({ id: "wi-1" });
+      const attachment = makeAttachment({ targetId: "wi-1" });
+      vi.mocked(tauriWorkItemList).mockResolvedValueOnce([item]);
+      vi.mocked(tauriDocumentList).mockResolvedValueOnce([attachment]);
+
+      await hydrateWorkItems();
+
+      expect(tauriDocumentList).toHaveBeenCalledWith("workItem", null);
+      expect(get(workItemAttachments)).toEqual([attachment]);
+      expect(get(attachmentsByWorkItem).get("wi-1")).toEqual([attachment]);
+    });
+
+    it("upserts attached documents from daemon events", () => {
+      const first = makeAttachment({ id: "att-1", title: "Old Plan" });
+      const next = makeAttachment({ id: "att-1", title: "Plan" });
+      workItemAttachments.set([first]);
+
+      applyWorkItemEvent({ type: "documentAttached", attachment: next });
+
+      expect(get(workItemAttachments)).toEqual([next]);
+      expect(get(attachmentsByWorkItem).get("wi-1")).toEqual([next]);
+    });
+
+    it("upserts attachments returned by attach and list commands", async () => {
+      const plan = makeAttachment({ id: "att-plan", title: "Plan" });
+      vi.mocked(tauriDocumentAttach).mockResolvedValueOnce(plan);
+      vi.mocked(tauriDocumentList).mockResolvedValueOnce([plan]);
+
+      await expect(
+        attachDocument({
+          targetKind: "workItem",
+          targetId: "wi-1",
+          title: "Plan",
+          contentKind: "text",
+          content: "Plan body",
+          mimeType: "text/markdown",
+        }),
+      ).resolves.toEqual(plan);
+      await expect(listDocuments("workItem", "wi-1")).resolves.toEqual([plan]);
+
+      expect(get(attachmentsByWorkItem).get("wi-1")).toEqual([plan]);
+    });
+  });
+
   describe("startWorkItem", () => {
     it("binds the returned session id immediately", async () => {
       const item = makeItem({ id: "wi-1", sessionId: null });
@@ -378,6 +459,24 @@ describe("workItems store", () => {
       expect(get(workItemRuns)).toHaveLength(1);
       expect(get(workItems)[0].sessionId).toBe("sess-1");
       expect(get(workItems)[0].status).toBe("doing");
+    });
+
+    it("passes forced starts through to the daemon adapter", async () => {
+      const item = makeItem({ id: "wi-1", sessionId: null });
+      workItems.set([item]);
+      vi.mocked(tauriWorkItemStart).mockResolvedValueOnce({
+        item: makeItem({ id: "wi-1", sessionId: "sess-1", status: "doing" }),
+        run: makeRun(),
+        session: {} as never,
+      });
+
+      await expect(startWorkItem("wi-1", { forceStart: true })).resolves.toBe(
+        "sess-1",
+      );
+
+      expect(tauriWorkItemStart).toHaveBeenCalledWith("wi-1", {
+        forceStart: true,
+      });
     });
 
     it("rejects when the daemon returns a run without a session id", async () => {

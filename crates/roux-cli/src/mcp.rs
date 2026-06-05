@@ -27,6 +27,7 @@ const MCP_TOOL_NAMES: &[&str] = &[
     "roux_delete_work_item",
     "roux_plan_work_item",
     "roux_start_work_item",
+    "roux_request_work_item_review",
     "roux_accept_work_item_review",
     "roux_list_work_item_runs",
     "roux_list_work_item_run_events",
@@ -239,6 +240,8 @@ pub struct WorkItemStartParams {
     pub base: Option<String>,
     #[serde(default)]
     pub fetch_first: bool,
+    #[serde(default)]
+    pub force_start: bool,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -748,6 +751,20 @@ impl RouxMcpServer {
         Parameters(params): Parameters<WorkItemStartParams>,
     ) -> Result<CallToolResult, ErrorData> {
         call_socket(build_work_item_start_request(params)).await
+    }
+
+    #[tool(
+        description = "Request review for a Kanban implementation run by run id. Moves the run and card to Review."
+    )]
+    async fn roux_request_work_item_review(
+        &self,
+        Parameters(params): Parameters<WorkItemRunIdParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        call_socket(json!({
+            "command": "work-item-review-request",
+            "args": { "runId": params.run_id },
+        }))
+        .await
     }
 
     #[tool(
@@ -1636,6 +1653,9 @@ fn build_work_item_start_request(params: WorkItemStartParams) -> Value {
     if params.fetch_first {
         args.insert("fetchFirst".into(), Value::Bool(true));
     }
+    if params.force_start {
+        args.insert("forceStart".into(), Value::Bool(true));
+    }
     json!({
         "command": "work-item-start",
         "args": Value::Object(args),
@@ -1773,6 +1793,7 @@ mod tests {
         assert!(MCP_TOOL_NAMES.contains(&"roux_send_text"));
         assert!(MCP_TOOL_NAMES.contains(&"roux_get_latest_output"));
         assert!(MCP_TOOL_NAMES.contains(&"roux_start_work_item"));
+        assert!(MCP_TOOL_NAMES.contains(&"roux_request_work_item_review"));
         assert!(MCP_TOOL_NAMES.contains(&"roux_accept_work_item_review"));
         assert!(MCP_TOOL_NAMES.contains(&"roux_resolve_work_item_decision"));
         assert!(!MCP_TOOL_NAMES.contains(&"roux_run_command"));
@@ -1838,6 +1859,7 @@ mod tests {
             branch: Some("feat/login".into()),
             base: Some("origin/main".into()),
             fetch_first: true,
+            force_start: true,
         });
 
         assert_eq!(request["command"], "work-item-start");
@@ -1848,6 +1870,7 @@ mod tests {
         assert_eq!(request["args"]["branch"], "feat/login");
         assert_eq!(request["args"]["base"], "origin/main");
         assert_eq!(request["args"]["fetchFirst"], true);
+        assert_eq!(request["args"]["forceStart"], true);
     }
 
     #[test]

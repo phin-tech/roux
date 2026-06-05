@@ -14,6 +14,9 @@ export default defineConfig({
   server: {
     port: 1420,
     strictPort: true,
+    watch: {
+      ignored: ["**/.codebase-memory/**"],
+    },
   },
   build: {
     // esbuild's minifier mangles a variable reference inside @xterm/xterm's

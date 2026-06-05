@@ -61,9 +61,9 @@ pub use watch::*;
 pub use work_item::{
     decide_work_item_session_attach, ExternalRef, WorkItem, WorkItemDecision,
     WorkItemDecisionOption, WorkItemDecisionStatus, WorkItemEvent, WorkItemInput,
-    WorkItemInputPresence, WorkItemPlanResult, WorkItemReviewAcceptResult, WorkItemRun,
-    WorkItemRunEvent, WorkItemRunEventKind, WorkItemRunKind, WorkItemRunStatus,
-    WorkItemSessionAttachDecision, WorkItemSessionAttachError, WorkItemSessionAttachInput,
-    WorkItemStartResult, WorkItemStatus,
+    WorkItemInputPresence, WorkItemPlanResult, WorkItemReviewAcceptResult,
+    WorkItemReviewRequestResult, WorkItemRun, WorkItemRunEvent, WorkItemRunEventKind,
+    WorkItemRunKind, WorkItemRunStatus, WorkItemSessionAttachDecision, WorkItemSessionAttachError,
+    WorkItemSessionAttachInput, WorkItemStartResult, WorkItemStatus,
 };
 pub use worktree::{Worktree, WorktrunkMetadata};

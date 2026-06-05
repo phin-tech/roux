@@ -575,6 +575,13 @@ pub struct WorkItemPlanResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
+pub struct WorkItemReviewRequestResult {
+    pub item: WorkItem,
+    pub run: WorkItemRun,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
 pub struct WorkItemReviewAcceptResult {
     pub item: WorkItem,
     pub run: WorkItemRun,

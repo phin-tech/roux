@@ -216,6 +216,7 @@ fn main() {
         commands::work_items::work_item_detach_session,
         commands::work_items::work_item_plan,
         commands::work_items::work_item_review_accept,
+        commands::work_items::work_item_review_request,
         commands::work_items::work_item_start,
         // Document attachment commands are intentionally omitted from Specta:
         // the frontend hand-types them and calls raw invoke() wrappers.
@@ -426,6 +427,7 @@ fn main() {
             commands::work_items::work_item_detach_session,
             commands::work_items::work_item_plan,
             commands::work_items::work_item_review_accept,
+            commands::work_items::work_item_review_request,
             commands::work_items::work_item_start,
             commands::work_items::work_item_runs_list,
             commands::work_items::work_item_run_events,

@@ -953,6 +953,7 @@ export interface WorkItemStartOptions {
   branch?: string | null;
   base?: string | null;
   fetchFirst?: boolean | null;
+  forceStart?: boolean | null;
 }
 
 export async function workItemStart(
@@ -969,6 +970,7 @@ export async function workItemStart(
     options.branch ?? null,
     options.base ?? null,
     options.fetchFirst ?? null,
+    options.forceStart ?? null,
   );
   if (r.status === "error") throw new Error(r.error);
   return r.data;
@@ -1004,6 +1006,15 @@ export async function workItemReviewAccept(
 ): Promise<import("$lib/bindings").WorkItemReviewAcceptResult> {
   const { commands } = await import("$lib/bindings");
   const r = await commands.workItemReviewAccept(id);
+  if (r.status === "error") throw new Error(r.error);
+  return r.data;
+}
+
+export async function workItemReviewRequest(
+  runId: string,
+): Promise<import("$lib/bindings").WorkItemReviewRequestResult> {
+  const { commands } = await import("$lib/bindings");
+  const r = await commands.workItemReviewRequest(runId);
   if (r.status === "error") throw new Error(r.error);
   return r.data;
 }

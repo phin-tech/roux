@@ -446,6 +446,11 @@ enum WorkItemAction {
     /// Start a work item as a daemon-owned run
     #[command(alias = "dispatch")]
     Start(WorkItemStartArgs),
+    /// Manage work item review handoff
+    Review {
+        #[command(subcommand)]
+        action: WorkItemReviewAction,
+    },
     /// Accept a reviewed work item and move it to done
     Accept {
         /// Work item id
@@ -483,6 +488,20 @@ enum WorkItemAction {
     },
     /// Stream work item board events as JSON lines
     Watch,
+}
+
+#[derive(Subcommand)]
+enum WorkItemReviewAction {
+    /// Request review for an implementation run and move the card to Review
+    Request {
+        /// Work item run id
+        run_id: String,
+    },
+    /// Accept a reviewed work item and move it to Done
+    Accept {
+        /// Work item id
+        id: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -647,6 +666,9 @@ struct WorkItemStartArgs {
     /// Fetch before creating/checking out the worktree
     #[arg(long)]
     fetch_first: bool,
+    /// Start without an attached plan
+    #[arg(long)]
+    force_start: bool,
 }
 
 #[derive(Args)]
@@ -1694,9 +1716,26 @@ fn build_work_item_start_request(params: WorkItemStartArgs) -> Value {
     if params.fetch_first {
         args.insert("fetchFirst".into(), Value::Bool(true));
     }
+    if params.force_start {
+        args.insert("forceStart".into(), Value::Bool(true));
+    }
     serde_json::json!({
         "command": "work-item-start",
         "args": Value::Object(args),
+    })
+}
+
+fn build_work_item_review_request(run_id: String) -> Value {
+    serde_json::json!({
+        "command": "work-item-review-request",
+        "args": { "runId": run_id },
+    })
+}
+
+fn build_work_item_review_accept_request(id: String) -> Value {
+    serde_json::json!({
+        "command": "work-item-review-accept",
+        "args": { "id": id },
     })
 }
 
@@ -1907,11 +1946,16 @@ fn handle_work_item(action: WorkItemAction) {
         }
         WorkItemAction::Plan(params) => run_socket_command(build_work_item_plan_request(params)),
         WorkItemAction::Start(params) => run_socket_command(build_work_item_start_request(params)),
+        WorkItemAction::Review { action } => match action {
+            WorkItemReviewAction::Request { run_id } => {
+                run_socket_command(build_work_item_review_request(run_id));
+            }
+            WorkItemReviewAction::Accept { id } => {
+                run_socket_command(build_work_item_review_accept_request(id));
+            }
+        },
         WorkItemAction::Accept { id } => {
-            run_socket_command(serde_json::json!({
-                "command": "work-item-review-accept",
-                "args": { "id": id },
-            }));
+            run_socket_command(build_work_item_review_accept_request(id));
         }
         WorkItemAction::Runs { work_item } => {
             let mut args = serde_json::Map::new();
@@ -3404,6 +3448,7 @@ mod tests {
             branch: Some("feat/login".into()),
             base: Some("origin/main".into()),
             fetch_first: true,
+            force_start: true,
         });
 
         assert_eq!(request["command"], "work-item-start");
@@ -3414,6 +3459,7 @@ mod tests {
         assert_eq!(request["args"]["branch"], "feat/login");
         assert_eq!(request["args"]["base"], "origin/main");
         assert_eq!(request["args"]["fetchFirst"], true);
+        assert_eq!(request["args"]["forceStart"], true);
     }
 
     #[test]
@@ -3427,6 +3473,7 @@ mod tests {
             branch: None,
             base: None,
             fetch_first: false,
+            force_start: false,
         });
 
         assert_eq!(request["args"]["repoPath"], resolve_path("."));
@@ -3462,6 +3509,27 @@ mod tests {
             }
             _ => panic!("expected WorkItem::Accept"),
         }
+    }
+
+    #[test]
+    fn cli_parses_work_item_review_request() {
+        let cli = Cli::try_parse_from(["roux", "work-item", "review", "request", "run-1"]).unwrap();
+        match cli.command {
+            Commands::WorkItem {
+                action: WorkItemAction::Review { action: WorkItemReviewAction::Request { run_id } },
+            } => {
+                assert_eq!(run_id, "run-1");
+            }
+            _ => panic!("expected WorkItem::Review::Request"),
+        }
+    }
+
+    #[test]
+    fn work_item_review_request_uses_socket_command() {
+        let request = build_work_item_review_request("run-1".into());
+
+        assert_eq!(request["command"], "work-item-review-request");
+        assert_eq!(request["args"]["runId"], "run-1");
     }
 
     #[test]

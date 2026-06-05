@@ -1,15 +1,16 @@
 <script lang="ts">
-  import { derived } from "svelte/store";
+  import { derived, get } from "svelte/store";
   import {
     itemsByColumn,
     WORK_ITEM_COLUMNS,
     COLUMN_LABELS,
-    moveWorkItem,
     startWorkItem,
+    stopWorkItemRun,
     planWorkItem,
     acceptWorkItemReview,
     pendingDecisionByItem,
     activePlanningRunByItem,
+    attachmentsByWorkItem,
     runsByItem,
     type WorkItemStatus,
     type WorkItemRun,
@@ -29,6 +30,11 @@
     deleteWorkItemWithMode,
     type WorkItemDeleteMode,
   } from "$lib/workItems/deleteFlow";
+  import {
+    canStartImplementationFromPlanning,
+    hasAttachedPlan,
+  } from "$lib/workItems/planningGate";
+  import { workItemPhase } from "$lib/workItems/phase";
   import type { WorkItem } from "$lib/bindings";
   import SidebarPanelHeader from "./SidebarPanelHeader.svelte";
   import CollapseSidebarButton from "./CollapseSidebarButton.svelte";
@@ -60,10 +66,6 @@
     return m;
   });
 
-  async function handleMove(id: string, status: WorkItemStatus) {
-    await moveWorkItem(id, status, Date.now());
-  }
-
   function withoutKey<T>(
     record: Record<string, T>,
     key: string,
@@ -90,7 +92,7 @@
     return [...ids];
   }
 
-  async function handleStart(id: string, item: WorkItem) {
+  async function handleStart(id: string, item: WorkItem, forceStart = false) {
     if (needsStartConfig(item)) {
       openWorkItemSessionStart({ itemId: item.id, title: item.title });
       return;
@@ -101,7 +103,26 @@
 
     // Start creates the session/worktree and moves the card after prompt dispatch.
     try {
-      await startWorkItem(id);
+      const planningRun = get(activePlanningRunByItem).get(id);
+      const attachments = get(attachmentsByWorkItem).get(id) ?? [];
+      if (
+        item.status === "ready" &&
+        !canStartImplementationFromPlanning(attachments, forceStart)
+      ) {
+        if (planningRun?.sessionId) await handleOpen(planningRun.sessionId);
+        else {
+          startErrors = {
+            ...startErrors,
+            [id]: "Attach a plan before starting implementation.",
+          };
+        }
+        return;
+      }
+      if (item.status === "ready" && planningRun) {
+        await stopWorkItemRun(planningRun.id);
+      }
+      if (forceStart) await startWorkItem(id, { forceStart: true });
+      else await startWorkItem(id);
     } catch (err) {
       startErrors = { ...startErrors, [id]: formatWorkItemStartError(err) };
       console.error("Failed to start work item", err);
@@ -237,18 +258,26 @@
               {@const planningRun =
                 $activePlanningRunByItem.get(item.id) ?? null}
               {@const itemRuns = $runsByItem.get(item.id) ?? []}
+              {@const itemAttachments =
+                $attachmentsByWorkItem.get(item.id) ?? []}
               {@const attachedSessionIds = attachedSessionIdsForItem(
                 item,
                 itemRuns,
                 planningRun?.sessionId ?? null,
               )}
+              {@const phase = workItemPhase({
+                status: item.status,
+                sessionId: item.sessionId,
+                activePlanningRun: planningRun,
+                hasAttachedPlan: hasAttachedPlan(itemAttachments),
+                pendingDecision,
+                isStartable: !needsStartConfig(item),
+              })}
               <WorkItemCard
                 {item}
                 {sessionStatus}
-                {pendingDecision}
-                planningSessionId={planningRun?.sessionId ?? null}
+                {phase}
                 {attachedSessionIds}
-                onMove={handleMove}
                 onStart={handleStart}
                 onPlan={handlePlan}
                 onOpen={handleOpen}

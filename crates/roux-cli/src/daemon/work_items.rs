@@ -1,6 +1,6 @@
 use serde::Serialize;
 use std::future::Future;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::io::AsyncWriteExt;
@@ -447,6 +447,29 @@ pub(super) async fn handle_work_item_review_accept(req: Request, host: &RuntimeH
     }
 }
 
+pub(super) async fn handle_work_item_review_request(req: Request, host: &RuntimeHost) -> Response {
+    let Some(run_id) = optional_string_arg(&req.args, &["id", "runId", "run_id"]) else {
+        return Response::err("runId required");
+    };
+    let payload = serde_json::json!({
+        "reason": "reviewRequested",
+        "requestedBy": optional_string_arg(&req.args, &["requestedBy", "requested_by"])
+            .unwrap_or_else(|| "agent".to_string()),
+    });
+    match host.work_item_handle.request_review(&run_id, payload) {
+        Ok(Some((item, run))) => {
+            match serde_json::to_value(roux_core::WorkItemReviewRequestResult { item, run }) {
+                Ok(value) => Response::success(value),
+                Err(err) => {
+                    Response::err(format!("failed to serialize work item review request: {err}"))
+                }
+            }
+        }
+        Ok(None) => Response::err("work item implementation run cannot request review"),
+        Err(err) => Response::err(err),
+    }
+}
+
 type ProfileDispatchFuture<'a> = Pin<Box<dyn Future<Output = Result<String, String>> + Send + 'a>>;
 type ProfileDispatcher = for<'a> fn(
     &'a RuntimeHost,
@@ -455,6 +478,7 @@ type ProfileDispatcher = for<'a> fn(
     &'a str,
     &'a str,
     &'a DaemonIdentity,
+    bool,
 ) -> ProfileDispatchFuture<'a>;
 type AfterSessionCreatedHook = fn(&RuntimeHost, &str, &roux_core::Session);
 
@@ -465,8 +489,17 @@ fn real_profile_dispatcher<'a>(
     session_id: &'a str,
     profile_id: &'a str,
     identity: &'a DaemonIdentity,
+    force_start: bool,
 ) -> ProfileDispatchFuture<'a> {
-    Box::pin(run_dispatched_profile(host, item, run_id, session_id, profile_id, identity))
+    Box::pin(run_dispatched_profile(
+        host,
+        item,
+        run_id,
+        session_id,
+        profile_id,
+        identity,
+        force_start,
+    ))
 }
 
 fn real_planning_profile_dispatcher<'a>(
@@ -476,6 +509,7 @@ fn real_planning_profile_dispatcher<'a>(
     session_id: &'a str,
     profile_id: &'a str,
     identity: &'a DaemonIdentity,
+    _force_start: bool,
 ) -> ProfileDispatchFuture<'a> {
     Box::pin(run_dispatched_planning_profile(host, item, run_id, session_id, profile_id, identity))
 }
@@ -536,18 +570,46 @@ async fn plan_work_item_run_with_hooks(
     }
 
     let repo_path = resolve_planning_repo_path(&req, host, &item).await?;
-    let name = optional_string_arg(&req.args, &["name"])
-        .unwrap_or_else(|| format!("Planning: {}", item.title));
+    let name = optional_string_arg(&req.args, &["name"]).unwrap_or_else(|| item.title.clone());
+    let explicit_worktree_path =
+        optional_nullable_string_arg(&req.args, &["worktreePath", "worktree_path"]);
+    let requested_branch =
+        optional_nullable_string_arg(&req.args, &["branch", "worktreeBranch", "worktree_branch"])
+            .or_else(|| item.branch.clone());
+    let base = optional_nullable_string_arg(&req.args, &["base", "startPoint", "start_point"])
+        .or_else(|| item.base_branch.clone())
+        .or_else(|| Some("main".to_string()));
+    let fetch_first = bool_arg(&req.args, &["fetchFirst", "fetch_first"]).or(item.fetch_first);
+    let worktree_path = explicit_worktree_path.or_else(|| {
+        if requested_branch.is_none() {
+            item.worktree_path.clone()
+        } else {
+            None
+        }
+    });
+    let branch = if worktree_path.is_some() {
+        requested_branch
+    } else {
+        requested_branch.or_else(|| Some(default_work_item_branch(&item)))
+    };
+    let base_branch = base.clone();
     let mut session_args = serde_json::json!({
         "repoPath": repo_path.clone(),
         "name": name,
         "projectId": item.project_id.clone(),
         "profile": profile_id.clone(),
     });
-    if let Some(worktree_path) =
-        optional_nullable_string_arg(&req.args, &["worktreePath", "worktree_path"])
-    {
-        session_args["worktreePath"] = serde_json::Value::String(worktree_path);
+    if let Some(worktree_path) = worktree_path.as_deref() {
+        session_args["worktreePath"] = serde_json::Value::String(worktree_path.to_string());
+    }
+    if let Some(branch) = branch.as_deref() {
+        session_args["branch"] = serde_json::Value::String(branch.to_string());
+    }
+    if let Some(base) = base.as_deref() {
+        session_args["base"] = serde_json::Value::String(base.to_string());
+    }
+    if let Some(fetch_first) = fetch_first {
+        session_args["fetchFirst"] = serde_json::Value::Bool(fetch_first);
     }
 
     let session_create_req = Request {
@@ -595,6 +657,16 @@ async fn plan_work_item_run_with_hooks(
             )));
         }
     };
+    let item = persist_work_item_planning_target(
+        host,
+        &item,
+        &repo_path,
+        &profile_id,
+        base_branch.as_deref(),
+        worktree_path,
+        branch,
+        fetch_first,
+    )?;
 
     let _ = host.work_item_handle.append_run_event(
         &run.id,
@@ -609,24 +681,31 @@ async fn plan_work_item_run_with_hooks(
     let mut dispatch_item = item.clone();
     dispatch_item.repo_path = Some(repo_path);
     dispatch_item.agent_profile = Some(profile_id.clone());
-    let pty_id =
-        match dispatch_profile(host, &dispatch_item, &run.id, &session_id, &profile_id, identity)
-            .await
-        {
-            Ok(pty_id) => pty_id,
-            Err(err) => {
-                let _ = host.work_item_handle.set_run_status(
-                    &run.id,
-                    roux_core::WorkItemRunStatus::Failed,
-                    serde_json::json!({
-                        "reason": "promptDispatchFailed",
-                        "message": err.clone(),
-                        "sessionId": session_id.clone(),
-                    }),
-                );
-                return Err(Response::err(err));
-            }
-        };
+    let pty_id = match dispatch_profile(
+        host,
+        &dispatch_item,
+        &run.id,
+        &session_id,
+        &profile_id,
+        identity,
+        false,
+    )
+    .await
+    {
+        Ok(pty_id) => pty_id,
+        Err(err) => {
+            let _ = host.work_item_handle.set_run_status(
+                &run.id,
+                roux_core::WorkItemRunStatus::Failed,
+                serde_json::json!({
+                    "reason": "promptDispatchFailed",
+                    "message": err.clone(),
+                    "sessionId": session_id.clone(),
+                }),
+            );
+            return Err(Response::err(err));
+        }
+    };
     let run = persist_work_item_run_pty_id(host, &run.id, &pty_id)?;
     start_work_item_run_output_monitor(host.clone(), run.id.clone(), pty_id);
 
@@ -652,6 +731,44 @@ async fn plan_work_item_run_with_hooks(
     };
 
     Ok(roux_core::WorkItemPlanResult { item, session, run })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn persist_work_item_planning_target(
+    host: &RuntimeHost,
+    item: &roux_core::WorkItem,
+    repo_path: &str,
+    profile_id: &str,
+    base_branch: Option<&str>,
+    worktree_path: Option<&str>,
+    branch: Option<&str>,
+    fetch_first: Option<bool>,
+) -> Result<roux_core::WorkItem, Response> {
+    let input = roux_core::WorkItemInput {
+        title: item.title.clone(),
+        body: item.body.clone(),
+        status: Some(roux_core::WorkItemStatus::Ready),
+        repo_path: Some(repo_path.to_string()),
+        agent_profile: Some(profile_id.to_string()),
+        base_branch: base_branch.map(str::to_string),
+        worktree_path: worktree_path.map(str::to_string),
+        branch: branch.map(str::to_string),
+        fetch_first,
+        start_error: None,
+        project_id: item.project_id.clone(),
+        parent_id: item.parent_id.clone(),
+        external_ref: None,
+        sort_order: Some(item.sort_order),
+        field_presence: roux_core::WorkItemInputPresence {
+            start_error: true,
+            ..roux_core::WorkItemInputPresence::default()
+        },
+    };
+    match host.work_item_handle.update(&item.id, input) {
+        Ok(Some(item)) => Ok(item),
+        Ok(None) => Err(Response::err("work item not found after planning session creation")),
+        Err(err) => Err(Response::err(err)),
+    }
 }
 
 async fn stop_planning_run_for_replacement(
@@ -746,6 +863,7 @@ async fn start_work_item_run_with_hooks(
         Ok(None) => return Err(Response::err("work item not found")),
         Err(err) => return Err(Response::err(err)),
     };
+    let force_start = bool_arg(&req.args, &["forceStart", "force_start"]).unwrap_or(false);
 
     if item.session_id.is_none() {
         match host.work_item_handle.has_active_run(&item_id) {
@@ -926,6 +1044,7 @@ async fn start_work_item_run_with_hooks(
             &session_id,
             &profile_id,
             identity,
+            force_start,
         )
         .await
         {
@@ -1117,33 +1236,40 @@ async fn start_work_item_run_with_hooks(
     dispatch_item.repo_path = Some(repo_path.clone());
     dispatch_item.base_branch = base_branch.clone();
 
-    let pty_id =
-        match dispatch_profile(host, &dispatch_item, &run.id, &session_id, &profile_id, identity)
-            .await
-        {
-            Ok(pty_id) => pty_id,
-            Err(err) => {
-                let _ = host.work_item_handle.set_run_status(
-                    &run.id,
-                    roux_core::WorkItemRunStatus::Failed,
-                    serde_json::json!({
-                        "reason": "promptDispatchFailed",
-                        "message": err.clone(),
-                        "sessionId": session_id.clone(),
-                    }),
-                );
-                let _ = host.work_item_handle.record_start_failure(
-                    &item_id,
-                    &err,
-                    Some(&session_id),
-                    worktree_path,
-                    Some(&profile_id),
-                    Some(&repo_path),
-                    base_branch.as_deref(),
-                );
-                return Err(Response::err(err));
-            }
-        };
+    let pty_id = match dispatch_profile(
+        host,
+        &dispatch_item,
+        &run.id,
+        &session_id,
+        &profile_id,
+        identity,
+        force_start,
+    )
+    .await
+    {
+        Ok(pty_id) => pty_id,
+        Err(err) => {
+            let _ = host.work_item_handle.set_run_status(
+                &run.id,
+                roux_core::WorkItemRunStatus::Failed,
+                serde_json::json!({
+                    "reason": "promptDispatchFailed",
+                    "message": err.clone(),
+                    "sessionId": session_id.clone(),
+                }),
+            );
+            let _ = host.work_item_handle.record_start_failure(
+                &item_id,
+                &err,
+                Some(&session_id),
+                worktree_path,
+                Some(&profile_id),
+                Some(&repo_path),
+                base_branch.as_deref(),
+            );
+            return Err(Response::err(err));
+        }
+    };
     let run = persist_work_item_run_pty_id(host, &run.id, &pty_id)?;
     start_work_item_run_output_monitor(host.clone(), run.id.clone(), pty_id);
 
@@ -1947,10 +2073,18 @@ async fn run_dispatched_profile(
     session_id: &str,
     profile_id: &str,
     identity: &DaemonIdentity,
+    force_start: bool,
 ) -> Result<String, String> {
     let session = host.session_handle.get(session_id).await.ok().flatten();
     let settings = load_daemon_settings();
-    let task_prompt = render_work_item_task_prompt(item, run_id, session.as_ref(), &settings);
+    let plan_context = load_work_item_plan_prompt_context(host, &item.id, force_start);
+    let task_prompt = render_work_item_task_prompt(
+        item,
+        run_id,
+        session.as_ref(),
+        &settings,
+        plan_context.as_ref(),
+    );
     run_dispatched_profile_with_task_prompt(
         host,
         item,
@@ -2156,12 +2290,21 @@ fn render_work_item_planning_prompt(
     prompt.push_str(
         "\n\nInstructions:\n\
          - Do not implement the task yet unless the user explicitly asks you to.\n\
-         - Clarify the problem statement and likely acceptance criteria.\n\
-         - Identify likely files, systems, risks, and test strategy.\n\
-         - Suggest project/repo, autonomous agent profile, and base branch when they are missing.\n\
-         - Produce a concise plan that can be copied back onto the card.\n\
-         - If you need a human decision, ask in this session and wait for the answer here.\n\
-         - For structured decisions that must be tracked on the card, the Roux CLI is still available: `<Roux CLI path> work-item decision create <Roux run id> \"Question?\" --option yes=Yes --option no=No`.",
+	         - Clarify the problem statement and likely acceptance criteria.\n\
+	         - Before planning, inspect attached context with `roux document list --work-item ",
+    );
+    prompt.push_str(if item_id.is_empty() { "<work-item-id>" } else { &item_id });
+    prompt.push_str(
+        "` and read relevant entries with `roux document get <document-id>`.\n\
+	         - Identify likely files, systems, risks, and test strategy.\n\
+	         - Suggest project/repo, autonomous agent profile, and base branch when they are missing.\n\
+	         - Produce a concise plan that can be copied back onto the card, and attach it with `roux document attach --work-item ",
+    );
+    prompt.push_str(if item_id.is_empty() { "<work-item-id>" } else { &item_id });
+    prompt.push_str(
+        " --title \"Plan\" --text \"...\"`.\n\
+	         - If you need a human decision, ask in this session and wait for the answer here.\n\
+	         - For structured decisions that must be tracked on the card, the Roux CLI is still available: `<Roux CLI path> work-item decision create <Roux run id> \"Question?\" --option yes=Yes --option no=No`.",
     );
     append_custom_prompt_section(
         &mut prompt,
@@ -2171,11 +2314,78 @@ fn render_work_item_planning_prompt(
     prompt
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum WorkItemPlanPromptContext {
+    Attached { title: String, document_id: String, source_path: Option<String>, content: String },
+    ForceStartedWithoutPlan,
+}
+
+fn load_work_item_plan_prompt_context(
+    host: &RuntimeHost,
+    item_id: &str,
+    force_start: bool,
+) -> Option<WorkItemPlanPromptContext> {
+    let attachments = host
+        .work_item_handle
+        .list_attachments(Some(roux_core::AttachmentTargetKind::WorkItem), Some(item_id))
+        .ok()?;
+    if let Some(attachment) = select_latest_work_item_plan_attachment(attachments.iter()) {
+        let document = host
+            .work_item_handle
+            .get_attachment_document(&attachment.document_id)
+            .ok()
+            .flatten()?;
+        return Some(WorkItemPlanPromptContext::Attached {
+            title: document.attachment.title.unwrap_or_else(|| "Untitled".to_string()),
+            document_id: document.attachment.document_id,
+            source_path: document.attachment.source_path,
+            content: document.content,
+        });
+    }
+    force_start.then_some(WorkItemPlanPromptContext::ForceStartedWithoutPlan)
+}
+
+fn select_latest_work_item_plan_attachment<'a>(
+    attachments: impl IntoIterator<Item = &'a roux_core::Attachment>,
+) -> Option<&'a roux_core::Attachment> {
+    attachments
+        .into_iter()
+        .filter(|attachment| {
+            attachment.target_kind == roux_core::AttachmentTargetKind::WorkItem
+                && is_plan_like_attachment(attachment)
+        })
+        .max_by(|left, right| {
+            (left.updated_at, left.created_at, left.document_id.as_str(), left.id.as_str()).cmp(&(
+                right.updated_at,
+                right.created_at,
+                right.document_id.as_str(),
+                right.id.as_str(),
+            ))
+        })
+}
+
+fn is_plan_like_attachment(attachment: &roux_core::Attachment) -> bool {
+    attachment.title.as_deref().is_some_and(contains_plan_word)
+        || attachment.source_path.as_deref().is_some_and(|path| {
+            Path::new(path)
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(contains_plan_word)
+        })
+}
+
+fn contains_plan_word(value: &str) -> bool {
+    value
+        .split(|ch: char| !ch.is_ascii_alphanumeric())
+        .any(|part| part.eq_ignore_ascii_case("plan"))
+}
+
 fn render_work_item_task_prompt(
     item: &roux_core::WorkItem,
     run_id: &str,
     session: Option<&roux_core::Session>,
     settings: &roux_core::RouxSettings,
+    plan_context: Option<&WorkItemPlanPromptContext>,
 ) -> String {
     let item_id = sanitize_card_prompt_field(&item.id);
     let run_id = sanitize_card_prompt_field(run_id);
@@ -2208,6 +2418,7 @@ fn render_work_item_task_prompt(
         prompt.push_str("\n\nExternal link:\n");
         prompt.push_str(&external_url);
     }
+    append_plan_prompt_context(&mut prompt, plan_context);
     prompt.push_str("\n\nExecution context:\n");
     prompt.push_str("- Roux work item id: ");
     prompt.push_str(if item_id.is_empty() { "unknown" } else { &item_id });
@@ -2233,14 +2444,26 @@ fn render_work_item_task_prompt(
 
     prompt.push_str(
         "\n\nInstructions:\n\
-         - Work in the worktree path above.\n\
-         - Treat the card description as the source of acceptance criteria when it includes them; otherwise infer the smallest useful acceptance criteria from the card.\n\
-         - Make the necessary code and documentation changes.\n\
+	         - Work in the worktree path above.\n\
+	         - Before coding, inspect attached context with `roux document list --work-item ",
+    );
+    prompt.push_str(if item_id.is_empty() { "<work-item-id>" } else { &item_id });
+    prompt.push_str(
+        "` and read relevant entries with `roux document get <document-id>`.\n\
+	         - Treat the attached plan as the source of truth when an approved implementation plan is included above. If it conflicts with the card description, prefer the attached plan unless the user explicitly says otherwise.\n\
+	         - Treat the card description as the source of acceptance criteria when no approved implementation plan is included above and it includes acceptance criteria; otherwise infer the smallest useful acceptance criteria from the card.\n\
+	         - Make the necessary code and documentation changes.\n\
          - Commit changes unless the repository or user instructions clearly say not to.\n\
          - Run the relevant tests/checks and report what passed, failed, or was not run.\n\
          - If you need a human decision, ask in this session and wait for the answer here.\n\
          - For structured decisions that must be tracked on the card, the Roux CLI is still available: `<Roux CLI path> work-item decision create <Roux run id> \"Question?\" --option yes=Yes --option no=No`.\n\
-         - When the work is complete, report the summary, tests, risks, and changed files, then request review. Do not mark the card done yourself.",
+         - When the work is complete, run `",
+    );
+    prompt.push_str(&roux_cli_path);
+    prompt.push_str(" work-item review request ");
+    prompt.push_str(if run_id.is_empty() { "<run-id>" } else { &run_id });
+    prompt.push_str(
+        "` to move this card to Review, then report the summary, tests, risks, and changed files. If that command fails, report the error. Do not mark the card done yourself.",
     );
     append_custom_prompt_section(
         &mut prompt,
@@ -2253,6 +2476,39 @@ fn render_work_item_task_prompt(
         &settings.kanban.review_prompt_append,
     );
     prompt
+}
+
+fn append_plan_prompt_context(
+    prompt: &mut String,
+    plan_context: Option<&WorkItemPlanPromptContext>,
+) {
+    match plan_context {
+        Some(WorkItemPlanPromptContext::Attached { title, document_id, source_path, content }) => {
+            let title = sanitize_card_prompt_field(title);
+            let document_id = sanitize_card_prompt_field(document_id);
+            let source_path = source_path.as_deref().map(sanitize_card_prompt_field);
+            let content = sanitize_card_prompt_field(content);
+            prompt.push_str("\n\nApproved implementation plan:\n");
+            prompt.push_str("Title: ");
+            prompt.push_str(if title.is_empty() { "Untitled" } else { &title });
+            prompt.push_str("\nDocument id: ");
+            prompt.push_str(if document_id.is_empty() { "unknown" } else { &document_id });
+            if let Some(source_path) = source_path.as_deref().filter(|value| !value.is_empty()) {
+                prompt.push_str("\nSource path: ");
+                prompt.push_str(source_path);
+            }
+            prompt.push_str("\nContent:\n");
+            prompt.push_str(&content);
+            prompt
+                .push_str("\n\nTreat the attached plan as the source of truth for implementation.");
+        }
+        Some(WorkItemPlanPromptContext::ForceStartedWithoutPlan) => {
+            prompt.push_str(
+                "\n\nPlanning gate override:\nNo approved plan was attached; implementation was force-started.",
+            );
+        }
+        None => {}
+    }
 }
 
 fn append_custom_prompt_section(prompt: &mut String, heading: &str, value: &str) {
@@ -2726,6 +2982,7 @@ mod tests {
         _session_id: &'a str,
         _profile_id: &'a str,
         _identity: &'a DaemonIdentity,
+        _force_start: bool,
     ) -> ProfileDispatchFuture<'a> {
         Box::pin(async { Err("simulated prompt dispatch failure".to_string()) })
     }
@@ -2737,6 +2994,7 @@ mod tests {
         session_id: &'a str,
         _profile_id: &'a str,
         _identity: &'a DaemonIdentity,
+        _force_start: bool,
     ) -> ProfileDispatchFuture<'a> {
         Box::pin(async { Ok(session_id.to_string()) })
     }
@@ -2756,6 +3014,7 @@ mod tests {
         session_id: &'a str,
         _profile_id: &'a str,
         _identity: &'a DaemonIdentity,
+        _force_start: bool,
     ) -> ProfileDispatchFuture<'a> {
         Box::pin(dispatch_dummy_agent(host, item, run_id, session_id))
     }
@@ -2938,6 +3197,7 @@ mod tests {
             "run-1",
             Some(&session),
             &roux_core::RouxSettings::default(),
+            None,
         );
 
         assert!(prompt.contains("Title:\nFix tests"));
@@ -2957,11 +3217,150 @@ mod tests {
         assert!(prompt.contains("work-item decision create"));
         assert!(!prompt.contains("\"type\":\"decision\""));
         assert!(prompt.contains("Run the relevant tests/checks"));
-        assert!(prompt.contains("request review"));
+        assert!(prompt.contains("work-item review request run-1"));
         assert!(prompt.contains("Do not mark the card done yourself"));
         assert!(!prompt.contains('\u{0007}'));
         assert!(!prompt.contains('\u{0003}'));
         assert!(!prompt.contains('\u{001b}'));
+    }
+
+    #[test]
+    fn work_item_task_prompt_includes_attached_plan_as_source_of_truth() {
+        let item = roux_core::WorkItem {
+            id: "wi-1".into(),
+            project_id: None,
+            parent_id: None,
+            title: "Fix tests".into(),
+            body: Some("Original card notes".into()),
+            status: roux_core::WorkItemStatus::Ready,
+            repo_path: Some("/repo/main".into()),
+            agent_profile: Some("claude".into()),
+            base_branch: Some("main".into()),
+            worktree_path: Some("/repo/.worktrees/card".into()),
+            branch: Some("roux/card".into()),
+            fetch_first: Some(false),
+            start_error: None,
+            session_id: Some("sess-1".into()),
+            provider: None,
+            external_id: None,
+            external_url: None,
+            sort_order: 0.0,
+            pinned_pr_url: None,
+            cost: None,
+            created_at: 0,
+            updated_at: 0,
+        };
+        let plan = WorkItemPlanPromptContext::Attached {
+            title: "Plan".into(),
+            document_id: "wi-1.att-plan".into(),
+            source_path: Some("/tmp/plan.md".into()),
+            content: "1. Add the failing test.\n2. Implement the narrow fix.".into(),
+        };
+
+        let prompt = render_work_item_task_prompt(
+            &item,
+            "run-1",
+            None,
+            &roux_core::RouxSettings::default(),
+            Some(&plan),
+        );
+
+        assert!(prompt.contains("Approved implementation plan:"));
+        assert!(prompt.contains("Title: Plan"));
+        assert!(prompt.contains("Document id: wi-1.att-plan"));
+        assert!(prompt.contains("Source path: /tmp/plan.md"));
+        assert!(prompt.contains("1. Add the failing test."));
+        assert!(prompt.contains("Treat the attached plan as the source of truth"));
+    }
+
+    #[test]
+    fn work_item_task_prompt_notes_force_start_without_attached_plan() {
+        let item = roux_core::WorkItem {
+            id: "wi-1".into(),
+            project_id: None,
+            title: "Fix tests".into(),
+            body: None,
+            status: roux_core::WorkItemStatus::Ready,
+            parent_id: None,
+            agent_profile: Some("claude".into()),
+            repo_path: Some("/repo/main".into()),
+            base_branch: Some("main".into()),
+            worktree_path: None,
+            branch: None,
+            fetch_first: None,
+            start_error: None,
+            session_id: None,
+            provider: None,
+            external_id: None,
+            external_url: None,
+            sort_order: 0.0,
+            pinned_pr_url: None,
+            cost: None,
+            created_at: 0,
+            updated_at: 0,
+        };
+
+        let prompt = render_work_item_task_prompt(
+            &item,
+            "run-1",
+            None,
+            &roux_core::RouxSettings::default(),
+            Some(&WorkItemPlanPromptContext::ForceStartedWithoutPlan),
+        );
+
+        assert!(prompt.contains("No approved plan was attached; implementation was force-started."));
+    }
+
+    #[test]
+    fn newest_plan_like_attachment_wins_plan_selection() {
+        let older = roux_core::Attachment {
+            id: "att-old".into(),
+            document_id: "wi-1.att-old".into(),
+            target_kind: roux_core::AttachmentTargetKind::WorkItem,
+            target_id: "wi-1".into(),
+            title: Some("Plan".into()),
+            content_kind: roux_core::AttachmentContentKind::Text,
+            mime_type: Some("text/markdown".into()),
+            source_path: None,
+            byte_len: 10,
+            sha256: "old".into(),
+            created_at: 1,
+            updated_at: 1,
+        };
+        let notes = roux_core::Attachment {
+            id: "att-notes".into(),
+            document_id: "wi-1.att-notes".into(),
+            target_kind: roux_core::AttachmentTargetKind::WorkItem,
+            target_id: "wi-1".into(),
+            title: Some("Notes".into()),
+            content_kind: roux_core::AttachmentContentKind::Text,
+            mime_type: Some("text/markdown".into()),
+            source_path: Some("/tmp/notes.md".into()),
+            byte_len: 10,
+            sha256: "notes".into(),
+            created_at: 3,
+            updated_at: 3,
+        };
+        let newer = roux_core::Attachment {
+            id: "att-new".into(),
+            document_id: "wi-1.att-new".into(),
+            target_kind: roux_core::AttachmentTargetKind::WorkItem,
+            target_id: "wi-1".into(),
+            title: Some("Implementation Plan".into()),
+            content_kind: roux_core::AttachmentContentKind::Text,
+            mime_type: Some("text/markdown".into()),
+            source_path: None,
+            byte_len: 10,
+            sha256: "new".into(),
+            created_at: 2,
+            updated_at: 4,
+        };
+        let attachments = vec![older, notes, newer];
+
+        let selected = select_latest_work_item_plan_attachment(attachments.iter())
+            .expect("plan attachment should be selected");
+
+        assert_eq!(selected.id, "att-new");
     }
 
     #[test]
@@ -3009,9 +3408,14 @@ mod tests {
         assert!(plan_prompt.contains("Roux CLI path:"));
         assert!(plan_prompt.contains("ask in this session"));
         assert!(plan_prompt.contains("work-item decision create"));
+        assert!(plan_prompt.contains("roux document list --work-item wi-1"));
+        assert!(plan_prompt.contains("roux document get <document-id>"));
+        assert!(plan_prompt.contains("roux document attach --work-item wi-1"));
         assert!(!plan_prompt.contains("\"type\":\"decision\""));
 
-        let task_prompt = render_work_item_task_prompt(&item, "run-1", None, &settings);
+        let task_prompt = render_work_item_task_prompt(&item, "run-1", None, &settings, None);
+        assert!(task_prompt.contains("roux document list --work-item wi-1"));
+        assert!(task_prompt.contains("roux document get <document-id>"));
         assert!(
             task_prompt.contains("Additional implementation instructions:\nUse narrow commits.")
         );
@@ -3222,6 +3626,7 @@ mod tests {
             "work-item-attach-session",
             "work-item-detach-session",
             "work-item-start",
+            "work-item-review-request",
             "work-item-events",
         ] {
             assert!(caps.contains(&serde_json::json!(cap)), "missing capability: {cap}");
@@ -3448,6 +3853,80 @@ mod tests {
             "agent command should include seeded work-item prompt: {:?}",
             pty.command
         );
+        let _ = host.pty_handle.kill(&session_id).await;
+
+        shutdown_host(host, joins).await;
+    }
+
+    #[cfg(not(windows))]
+    #[tokio::test]
+    async fn daemon_work_item_start_includes_latest_attached_plan_in_agent_prompt() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path().join("repo");
+        init_repo(&repo);
+        let (host, identity, joins) = make_host_and_identity(&dir).await;
+
+        let item = host
+            .work_item_handle
+            .create(roux_core::WorkItemInput {
+                title: "Implement workflow gate".into(),
+                repo_path: Some(repo.to_string_lossy().into_owned()),
+                agent_profile: Some("claude".into()),
+                status: Some(roux_core::WorkItemStatus::Ready),
+                field_presence: roux_core::WorkItemInputPresence {
+                    repo_path: true,
+                    agent_profile: true,
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+            .unwrap();
+        host.work_item_handle
+            .create_attachment(roux_core::AttachmentInput {
+                target_kind: roux_core::AttachmentTargetKind::WorkItem,
+                target_id: item.id.clone(),
+                title: Some("Plan".into()),
+                content_kind: roux_core::AttachmentContentKind::Text,
+                content: "Older plan body".into(),
+                mime_type: Some("text/markdown".into()),
+                source_path: None,
+            })
+            .unwrap();
+        let latest_plan = host
+            .work_item_handle
+            .create_attachment(roux_core::AttachmentInput {
+                target_kind: roux_core::AttachmentTargetKind::WorkItem,
+                target_id: item.id.clone(),
+                title: Some("Implementation Plan".into()),
+                content_kind: roux_core::AttachmentContentKind::Text,
+                content: "Use the attached plan as the execution source of truth.".into(),
+                mime_type: Some("text/markdown".into()),
+                source_path: Some("/tmp/workflow-plan.md".into()),
+            })
+            .unwrap();
+
+        let resp = handle_request(
+            req("work-item-start", serde_json::json!({ "id": item.id })),
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(resp.ok, "start failed: {:?}", resp.error);
+        let item = host.work_item_handle.get(&item.id).unwrap().unwrap();
+        let session_id = item.session_id.clone().expect("started card session");
+        let ptys = host.pty_handle.list().await.unwrap();
+        let pty = ptys
+            .iter()
+            .find(|pty| pty.info.session_id.as_deref() == Some(session_id.as_str()))
+            .expect("started card pty");
+        let command = pty.command.as_deref().unwrap_or_default();
+        assert!(command.contains("Approved implementation plan:"), "{command}");
+        assert!(command.contains(&latest_plan.document_id), "{command}");
+        assert!(
+            command.contains("Use the attached plan as the execution source of truth."),
+            "{command}"
+        );
+        assert!(!command.contains("Older plan body"), "{command}");
         let _ = host.pty_handle.kill(&session_id).await;
 
         shutdown_host(host, joins).await;
@@ -3817,7 +4296,7 @@ mod tests {
 
     #[cfg(not(windows))]
     #[tokio::test]
-    async fn daemon_work_item_plan_creates_planning_session_without_moving_card() {
+    async fn daemon_work_item_plan_creates_session_and_moves_card_to_planning() {
         let dir = tempfile::tempdir().unwrap();
         let repo = dir.path().join("repo");
         init_repo(&repo);
@@ -3854,13 +4333,22 @@ mod tests {
         let session_id = resp.run.session_id.clone().expect("planning run session id");
         assert_eq!(resp.run.kind, roux_core::WorkItemRunKind::Planning);
         assert_eq!(resp.run.status, roux_core::WorkItemRunStatus::Running);
-        assert_eq!(resp.item.status, roux_core::WorkItemStatus::Todo);
+        assert_eq!(resp.item.status, roux_core::WorkItemStatus::Ready);
         assert!(resp.item.session_id.is_none());
+        assert_eq!(resp.item.branch.as_deref(), resp.run.branch.as_deref());
+        assert_eq!(resp.item.worktree_path.as_deref(), resp.run.worktree_path.as_deref());
+        let planned_branch = resp.item.branch.as_deref().unwrap();
+        assert!(planned_branch.starts_with("roux/card-"));
+        assert!(planned_branch.ends_with("-clarify-card"));
+        assert!(resp.item.worktree_path.as_deref().unwrap().contains("roux-card"));
         assert_eq!(resp.session.id, session_id);
+        assert_eq!(resp.session.name, "Clarify card");
 
         let item = host.work_item_handle.get(&item_id).unwrap().unwrap();
-        assert_eq!(item.status, roux_core::WorkItemStatus::Todo);
+        assert_eq!(item.status, roux_core::WorkItemStatus::Ready);
         assert!(item.session_id.is_none());
+        assert_eq!(item.branch.as_deref(), resp.run.branch.as_deref());
+        assert_eq!(item.worktree_path.as_deref(), resp.run.worktree_path.as_deref());
         let events = host.work_item_handle.list_run_events(&run_id).unwrap();
         assert!(events.iter().any(|event| {
             event.kind == roux_core::WorkItemRunEventKind::Lifecycle
@@ -4075,6 +4563,82 @@ mod tests {
                 && event.payload["reason"] == "ptyExit"
                 && event.payload["reviewRequested"] == true
         }));
+
+        shutdown_host(host, joins).await;
+    }
+
+    #[tokio::test]
+    async fn daemon_work_item_review_request_moves_run_and_card_to_review() {
+        let dir = tempfile::tempdir().unwrap();
+        let (host, identity, joins) = make_host_and_identity(&dir).await;
+
+        let item = host
+            .work_item_handle
+            .create(roux_core::WorkItemInput {
+                title: "Request review".into(),
+                status: Some(roux_core::WorkItemStatus::Doing),
+                ..Default::default()
+            })
+            .unwrap();
+        let run = host
+            .work_item_handle
+            .create_run(&item.id, Some("sess-1"), Some("claude"), Some("claude"), None, None)
+            .unwrap();
+
+        let resp = handle_request(
+            req("work-item-review-request", serde_json::json!({ "runId": run.id })),
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(resp.ok, "review request failed: {:?}", resp.error);
+        assert_eq!(resp.data.as_ref().unwrap()["item"]["status"], "review");
+        assert_eq!(resp.data.as_ref().unwrap()["run"]["status"], "review");
+
+        let item = host.work_item_handle.get(&item.id).unwrap().unwrap();
+        assert_eq!(item.status, roux_core::WorkItemStatus::Review);
+        let run = host.work_item_handle.get_run(&run.id).unwrap().unwrap();
+        assert_eq!(run.status, roux_core::WorkItemRunStatus::Review);
+        let events = host.work_item_handle.list_run_events(&run.id).unwrap();
+        assert!(events.iter().any(|event| {
+            event.kind == roux_core::WorkItemRunEventKind::StatusChanged
+                && event.payload["status"] == "review"
+                && event.payload["reason"] == "reviewRequested"
+                && event.payload["requestedBy"] == "agent"
+        }));
+
+        shutdown_host(host, joins).await;
+    }
+
+    #[tokio::test]
+    async fn daemon_work_item_review_request_rejects_planning_run() {
+        let dir = tempfile::tempdir().unwrap();
+        let (host, identity, joins) = make_host_and_identity(&dir).await;
+
+        let item = host
+            .work_item_handle
+            .create(roux_core::WorkItemInput { title: "Plan only".into(), ..Default::default() })
+            .unwrap();
+        let run = host
+            .work_item_handle
+            .create_planning_run(
+                &item.id,
+                Some("sess-1"),
+                Some("claude"),
+                Some("claude"),
+                None,
+                None,
+            )
+            .unwrap();
+
+        let resp = handle_request(
+            req("work-item-review-request", serde_json::json!({ "runId": run.id })),
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(!resp.ok);
+        assert!(resp.error.as_deref().unwrap_or_default().contains("review can only be requested"));
 
         shutdown_host(host, joins).await;
     }

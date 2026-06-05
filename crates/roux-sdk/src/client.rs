@@ -880,6 +880,7 @@ impl Roux {
         branch: Option<String>,
         base: Option<String>,
         fetch_first: Option<bool>,
+        force_start: Option<bool>,
     ) -> RouxResult<roux_core::WorkItemStartResult> {
         let args = work_item_start_args(
             id.into(),
@@ -890,6 +891,7 @@ impl Roux {
             branch,
             base,
             fetch_first,
+            force_start,
         );
         self.command(CommandRequest::new("work-item-start").args(args)).await
     }
@@ -913,6 +915,17 @@ impl Roux {
         id: impl Into<String>,
     ) -> RouxResult<roux_core::WorkItemReviewAcceptResult> {
         self.command(CommandRequest::new("work-item-review-accept").args(id_arg(id.into()))).await
+    }
+
+    pub async fn work_item_review_request(
+        &self,
+        run_id: impl Into<String>,
+    ) -> RouxResult<roux_core::WorkItemReviewRequestResult> {
+        self.command(
+            CommandRequest::new("work-item-review-request")
+                .args(serde_json::json!({ "runId": run_id.into() })),
+        )
+        .await
     }
 
     pub async fn work_item_runs_list(
@@ -1202,6 +1215,7 @@ fn work_item_start_args(
     branch: Option<String>,
     base: Option<String>,
     fetch_first: Option<bool>,
+    force_start: Option<bool>,
 ) -> Value {
     let mut args = serde_json::json!({ "id": id });
     if let Some(profile) = profile {
@@ -1224,6 +1238,9 @@ fn work_item_start_args(
     }
     if let Some(fetch_first) = fetch_first {
         args["fetchFirst"] = Value::Bool(fetch_first);
+    }
+    if let Some(force_start) = force_start {
+        args["forceStart"] = Value::Bool(force_start);
     }
     args
 }

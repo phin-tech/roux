@@ -1157,6 +1157,81 @@ impl WorkItemStore {
         Ok(Some((item, run, event)))
     }
 
+    pub fn request_review(
+        &mut self,
+        run_id: &str,
+        event_id: String,
+        payload: Value,
+        now: u64,
+    ) -> SqlResult<Option<(WorkItem, WorkItemRun, WorkItemRunEvent)>> {
+        let payload = serde_json::to_string(&payload)
+            .map_err(|err| rusqlite::Error::ToSqlConversionFailure(Box::new(err)))?;
+        let tx = self.conn.transaction()?;
+        let run_row = tx
+            .query_row(
+                "SELECT work_item_id, kind
+                 FROM work_item_runs
+                 WHERE id = ?1",
+                params![run_id],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )
+            .optional()?;
+        let Some((work_item_id, kind)) = run_row else {
+            tx.rollback()?;
+            return Ok(None);
+        };
+        if kind != WorkItemRunKind::Implementation.as_str() {
+            tx.rollback()?;
+            return Err(rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CONSTRAINT),
+                Some("work item review can only be requested for implementation runs".into()),
+            ));
+        }
+        let changed = tx.execute(
+            "UPDATE work_item_runs
+             SET status = ?2,
+                 updated_at = ?3,
+                 ended_at = COALESCE(ended_at, ?3)
+             WHERE id = ?1
+               AND status NOT IN (?4, ?5, ?6)",
+            params![
+                run_id,
+                WorkItemRunStatus::Review.as_str(),
+                now as i64,
+                WorkItemRunStatus::Done.as_str(),
+                WorkItemRunStatus::Failed.as_str(),
+                WorkItemRunStatus::Stopped.as_str(),
+            ],
+        )?;
+        if changed == 0 {
+            tx.rollback()?;
+            return Ok(None);
+        }
+        tx.execute(
+            "UPDATE work_items
+             SET status = ?2, updated_at = ?3
+             WHERE id = ?1",
+            params![work_item_id, WorkItemStatus::Review.as_str(), now as i64],
+        )?;
+        tx.execute(
+            "INSERT INTO work_item_run_events (id, run_id, kind, payload, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                event_id,
+                run_id,
+                WorkItemRunEventKind::StatusChanged.as_str(),
+                payload,
+                now as i64,
+            ],
+        )?;
+        tx.commit()?;
+
+        let item = self.get(&work_item_id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+        let run = self.get_run(run_id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+        let event = self.get_run_event(&event_id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+        Ok(Some((item, run, event)))
+    }
+
     pub fn create_decision(
         &mut self,
         id: String,

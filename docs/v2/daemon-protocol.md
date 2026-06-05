@@ -727,7 +727,8 @@ includes `settings.kanban.planningPromptAppend` when configured.
 
 Daemon-owned autonomous Start action. Requires `args.id`. Optional args:
 `repoPath`, `profile`, `name`, `worktreePath`, `branch`, `base`, and
-`fetchFirst`.
+`fetchFirst`. `forceStart: true` records that implementation was started
+without an attached approved plan.
 
 The daemon rejects cards that already have an active run and cards without a
 repo path or project repo to derive from. Start profile resolution is request
@@ -750,9 +751,12 @@ to `doing`, clears `startError`, and returns:
 }
 ```
 
-The generated implementation prompt includes
+The generated implementation prompt includes the newest plan-like attached
+document when one exists, preferring work-item attachments whose title or source
+filename contains `plan`. It also includes
 `settings.kanban.implementationPromptAppend` when configured. The review
-handoff prompt includes `settings.kanban.reviewPromptAppend`.
+handoff prompt includes `settings.kanban.reviewPromptAppend` and tells the
+agent to request review with `roux work-item review request <run-id>`.
 
 If the card already has a bound implementation `sessionId`, Start reuses that
 session and creates an additional implementation run/PTY in it instead of
@@ -764,6 +768,23 @@ If session/worktree creation succeeds but prompt dispatch fails, the daemon
 marks the run `failed`, records `startError` on the card, preserves the
 session/worktree for inspection, and returns an error response. Failures before
 a run exists leave the card in its current column and record `startError`.
+
+`work-item-review-request`
+
+Daemon-owned review request. Requires `args.runId` (also accepts `id` /
+`run_id`). The daemon validates that the run is an implementation run, moves the
+run to `review`, appends a status-change event with
+`reason: "reviewRequested"`, moves the associated card to `review`, and returns:
+
+```json
+{
+  "item": {},
+  "run": {}
+}
+```
+
+This is the preferred explicit handoff for implementation agents. The daemon
+also keeps the successful PTY-exit fallback for implementation runs.
 
 `work-item-review-accept`
 

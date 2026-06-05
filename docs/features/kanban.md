@@ -82,6 +82,8 @@ roux work-item create "Fix login" --project <project-id> --agent-profile claude 
 roux work-item plan <card-id>
 roux work-item move <card-id> ready
 roux work-item start <card-id>
+roux work-item review request <run-id>
+roux work-item review accept <card-id>
 roux work-item accept <card-id>
 roux work-item runs --work-item <card-id>
 roux work-item events <run-id>
@@ -108,7 +110,7 @@ use run events for chronological execution history.
 The MCP server exposes the same daemon-backed board surface with tools such as
 `roux_list_work_items`, `roux_create_work_item`, `roux_plan_work_item`,
 `roux_start_work_item`, `roux_accept_work_item_review`,
-`roux_list_work_item_runs`, and
+`roux_request_work_item_review`, `roux_list_work_item_runs`, and
 `roux_resolve_work_item_decision`. It also exposes document tools:
 `roux_attach_document`, `roux_list_documents`, and `roux_get_document`.
 
