@@ -1381,9 +1381,106 @@ fn mailbox_recv_args(
 }
 
 pub async fn run_stdio_server() -> anyhow::Result<()> {
+    run_stdio_startup_checks()?;
+    let original_parent_pid = current_parent_pid();
     let service = RouxMcpServer.serve(stdio()).await?;
-    service.waiting().await?;
+    tokio::select! {
+        result = service.waiting() => {
+            result?;
+        }
+        _ = wait_for_original_parent_exit(original_parent_pid), if should_monitor_parent(original_parent_pid) => {}
+    }
     Ok(())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct McpStdioPolicy {
+    stdin_is_terminal: bool,
+    stdout_is_terminal: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum McpLifecycleError {
+    InteractiveStdio,
+}
+
+impl std::fmt::Display for McpLifecycleError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            McpLifecycleError::InteractiveStdio => {
+                write!(f, "roux mcp requires piped stdio from an MCP host")
+            }
+        }
+    }
+}
+
+impl std::error::Error for McpLifecycleError {}
+
+fn run_stdio_startup_checks() -> Result<(), McpLifecycleError> {
+    use std::io::IsTerminal;
+
+    mcp_stdio_startup_decision(McpStdioPolicy {
+        stdin_is_terminal: std::io::stdin().is_terminal(),
+        stdout_is_terminal: std::io::stdout().is_terminal(),
+    })
+}
+
+fn mcp_stdio_startup_decision(policy: McpStdioPolicy) -> Result<(), McpLifecycleError> {
+    if policy.stdin_is_terminal || policy.stdout_is_terminal {
+        Err(McpLifecycleError::InteractiveStdio)
+    } else {
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct McpParentSnapshot {
+    original_parent_pid: u32,
+    current_parent_pid: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum McpParentLifecycleDecision {
+    Continue,
+    Exit,
+}
+
+fn mcp_parent_lifecycle_decision(snapshot: McpParentSnapshot) -> McpParentLifecycleDecision {
+    if should_monitor_parent(snapshot.original_parent_pid)
+        && snapshot.current_parent_pid != snapshot.original_parent_pid
+    {
+        McpParentLifecycleDecision::Exit
+    } else {
+        McpParentLifecycleDecision::Continue
+    }
+}
+
+fn should_monitor_parent(parent_pid: u32) -> bool {
+    parent_pid > 1
+}
+
+async fn wait_for_original_parent_exit(original_parent_pid: u32) {
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
+    loop {
+        interval.tick().await;
+        let decision = mcp_parent_lifecycle_decision(McpParentSnapshot {
+            original_parent_pid,
+            current_parent_pid: current_parent_pid(),
+        });
+        if decision == McpParentLifecycleDecision::Exit {
+            return;
+        }
+    }
+}
+
+#[cfg(unix)]
+fn current_parent_pid() -> u32 {
+    unsafe { libc::getppid() as u32 }
+}
+
+#[cfg(not(unix))]
+fn current_parent_pid() -> u32 {
+    0
 }
 
 async fn call_socket(request: Value) -> Result<CallToolResult, ErrorData> {
@@ -1779,6 +1876,41 @@ mod tests {
         assert!(!MCP_TOOL_NAMES.contains(&"roux_kill_pty"));
         assert!(!MCP_TOOL_NAMES.contains(&"roux_remove_worktree"));
         assert!(!MCP_TOOL_NAMES.contains(&"roux_delete_session_permanently"));
+    }
+
+    #[test]
+    fn mcp_stdio_policy_allows_piped_stdio() {
+        let policy = McpStdioPolicy { stdin_is_terminal: false, stdout_is_terminal: false };
+
+        assert_eq!(mcp_stdio_startup_decision(policy), Ok(()));
+    }
+
+    #[test]
+    fn mcp_stdio_policy_rejects_terminal_stdin() {
+        let policy = McpStdioPolicy { stdin_is_terminal: true, stdout_is_terminal: false };
+
+        assert_eq!(mcp_stdio_startup_decision(policy), Err(McpLifecycleError::InteractiveStdio));
+    }
+
+    #[test]
+    fn mcp_stdio_policy_rejects_terminal_stdout() {
+        let policy = McpStdioPolicy { stdin_is_terminal: false, stdout_is_terminal: true };
+
+        assert_eq!(mcp_stdio_startup_decision(policy), Err(McpLifecycleError::InteractiveStdio));
+    }
+
+    #[test]
+    fn mcp_parent_lifecycle_exits_when_original_parent_is_gone() {
+        let snapshot = McpParentSnapshot { original_parent_pid: 42, current_parent_pid: 1 };
+
+        assert_eq!(mcp_parent_lifecycle_decision(snapshot), McpParentLifecycleDecision::Exit);
+    }
+
+    #[test]
+    fn mcp_parent_lifecycle_continues_while_original_parent_is_alive() {
+        let snapshot = McpParentSnapshot { original_parent_pid: 42, current_parent_pid: 42 };
+
+        assert_eq!(mcp_parent_lifecycle_decision(snapshot), McpParentLifecycleDecision::Continue);
     }
 
     #[test]

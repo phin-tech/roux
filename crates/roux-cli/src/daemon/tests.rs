@@ -2959,6 +2959,80 @@ async fn daemon_socket_serves_status_request() {
 
 #[cfg(not(windows))]
 #[tokio::test]
+async fn daemon_socket_server_refuses_second_owner_even_if_socket_file_was_removed() {
+    let dir = tempfile::tempdir().unwrap();
+    let socket_path = dir.path().join("roux.sock");
+    let services = RuntimeHostConfig {
+        initial_sessions: Vec::new(),
+        session_persist_path: dir.path().join("sessions.json"),
+        initial_projects: Vec::new(),
+        project_persist_path: dir.path().join("projects.json"),
+        initial_watches: Vec::new(),
+        watch_persist_path: Some(dir.path().join("watches.json")),
+        work_item_db_path: dir.path().join("board.db"),
+    }
+    .build();
+    let (host, joins) = services.spawn_with(tokio::spawn);
+    let watch_runner = WatchRunner::new(
+        host.watch_handle.clone(),
+        AutomationHookManager::from_config_root(dir.path()),
+    );
+    let log_path = dir.path().join("roux-daemon.log");
+
+    let first = start_socket_server(
+        host.clone(),
+        watch_runner.clone(),
+        DaemonIdentity::new(
+            platform::SocketEndpoint::Unix(socket_path.clone()),
+            log_path.clone(),
+            None,
+        ),
+        DaemonLog::new_for_test(log_path.clone()),
+    )
+    .await
+    .unwrap();
+
+    std::fs::remove_file(&socket_path).expect("test must simulate a lost socket path");
+
+    let second = start_socket_server(
+        host.clone(),
+        watch_runner,
+        DaemonIdentity::new(
+            platform::SocketEndpoint::Unix(socket_path.clone()),
+            log_path.clone(),
+            None,
+        ),
+        DaemonLog::new_for_test(log_path),
+    )
+    .await;
+
+    let failure = match second {
+        Ok(second) => {
+            second.shutdown();
+            Some("second daemon socket server unexpectedly started".to_string())
+        }
+        Err(err) if err.contains("already running") => None,
+        Err(err) => Some(format!("unexpected second-start error: {err}")),
+    };
+
+    first.shutdown();
+    host.process_handle.shutdown().await;
+    host.pty_handle.shutdown().await;
+    host.watch_handle.shutdown().await;
+    host.session_handle.shutdown().await;
+    host.project_handle.shutdown().await;
+    drop(host);
+    for join in joins {
+        join.await.unwrap();
+    }
+
+    if let Some(failure) = failure {
+        panic!("{failure}");
+    }
+}
+
+#[cfg(not(windows))]
+#[tokio::test]
 async fn daemon_socket_stop_requests_shutdown_after_response() {
     use tokio::io::AsyncReadExt;
 

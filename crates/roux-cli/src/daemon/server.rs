@@ -22,6 +22,7 @@ use super::work_items::handle_work_item_events_stream;
 pub(super) struct SocketServerHandle {
     join: tokio::task::JoinHandle<()>,
     cleanup: SocketCleanup,
+    _owner_guard: Option<SocketOwnerGuard>,
     pub(super) endpoint: platform::SocketEndpoint,
 }
 
@@ -29,6 +30,22 @@ impl SocketServerHandle {
     pub(super) fn shutdown(self) {
         self.join.abort();
         self.cleanup.remove();
+    }
+}
+
+#[cfg(not(windows))]
+struct SocketOwnerGuard {
+    _file: std::fs::File,
+    path: PathBuf,
+}
+
+#[cfg(windows)]
+struct SocketOwnerGuard;
+
+#[cfg(not(windows))]
+impl Drop for SocketOwnerGuard {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
     }
 }
 
@@ -54,6 +71,7 @@ pub(super) async fn start_socket_server(
         platform::SocketEndpoint::Unix(path) => {
             #[cfg(not(windows))]
             {
+                let owner_guard = acquire_unix_socket_owner(&path)?;
                 let listener = bind_unix_listener(&path)?;
                 log.write(&format!("Socket server listening on {}", path.display()));
                 let cleanup_paths = vec![path.clone()];
@@ -89,6 +107,7 @@ pub(super) async fn start_socket_server(
                 Ok(SocketServerHandle {
                     join,
                     cleanup: SocketCleanup { paths: cleanup_paths },
+                    _owner_guard: Some(owner_guard),
                     endpoint,
                 })
             }
@@ -144,10 +163,46 @@ pub(super) async fn start_socket_server(
             Ok(SocketServerHandle {
                 join,
                 cleanup: SocketCleanup { paths: cleanup_paths },
+                _owner_guard: None,
                 endpoint,
             })
         }
     }
+}
+
+#[cfg(not(windows))]
+fn acquire_unix_socket_owner(path: &Path) -> Result<SocketOwnerGuard, String> {
+    use std::os::fd::AsRawFd;
+
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|err| format!("create socket directory {}: {err}", parent.display()))?;
+    }
+
+    let lock_path = unix_socket_lock_path(path);
+    let file =
+        std::fs::OpenOptions::new().create(true).read(true).write(true).open(&lock_path).map_err(
+            |err| format!("open daemon socket owner lock {}: {err}", lock_path.display()),
+        )?;
+    let result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+    if result == -1 {
+        let err = std::io::Error::last_os_error();
+        if err.kind() == std::io::ErrorKind::WouldBlock {
+            return Err(format!("Roux daemon already running for socket {}", path.display()));
+        }
+        return Err(format!("lock daemon socket owner {}: {err}", lock_path.display()));
+    }
+
+    Ok(SocketOwnerGuard { _file: file, path: lock_path })
+}
+
+#[cfg(not(windows))]
+fn unix_socket_lock_path(path: &Path) -> PathBuf {
+    let mut lock_path = path.to_path_buf();
+    let mut file_name = path.file_name().map(std::ffi::OsString::from).unwrap_or_default();
+    file_name.push(".lock");
+    lock_path.set_file_name(file_name);
+    lock_path
 }
 
 #[cfg(not(windows))]
