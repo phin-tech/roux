@@ -1030,16 +1030,25 @@ describe("BoardMainView", () => {
     });
   });
 
-  it("opens the new card editor for the selected column", async () => {
+  it("opens the new card editor for the To Do column", async () => {
     render(BoardMainView);
 
-    // The Review column's add button (4 columns → 4 add buttons).
-    const reviewColumn = document.querySelector('[data-column="review"]')!;
-    const addButton = reviewColumn.querySelector(
+    // Add card only appears on the To Do column.
+    const todoColumn = document.querySelector('[data-column="todo"]')!;
+    const addButton = todoColumn.querySelector(
       '[aria-label="Add card"]',
     ) as HTMLButtonElement;
     await fireEvent.click(addButton);
 
-    expect(openNewWorkItemEditor).toHaveBeenCalledWith({ status: "review" });
+    expect(openNewWorkItemEditor).toHaveBeenCalledWith({ status: "todo" });
+  });
+
+  it("does not show an add card button on non–To Do columns", () => {
+    render(BoardMainView);
+
+    const reviewColumn = document.querySelector('[data-column="review"]')!;
+    expect(
+      reviewColumn.querySelector('[aria-label="Add card"]'),
+    ).toBeNull();
   });
 });

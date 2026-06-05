@@ -426,9 +426,11 @@
           {/if}
         </div>
 
-        <div class="shrink-0 px-2 pb-2 pt-1">
-          <AddCardInput onCreate={() => handleCreate(col)} />
-        </div>
+        {#if col === "todo"}
+          <div class="shrink-0 px-2 pb-2 pt-1">
+            <AddCardInput onCreate={() => handleCreate(col)} />
+          </div>
+        {/if}
       </section>
     {/each}
   </div>

@@ -408,9 +408,11 @@
         {:else}
           <p class="px-1 text-xs text-text-muted/50">Empty</p>
         {/if}
-        <div class="mt-1.5">
-          <AddCardInput onCreate={() => handleCreate(col)} />
-        </div>
+        {#if col === "todo"}
+          <div class="mt-1.5">
+            <AddCardInput onCreate={() => handleCreate(col)} />
+          </div>
+        {/if}
       </section>
     {/each}
   </div>
