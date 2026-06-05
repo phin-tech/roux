@@ -675,7 +675,9 @@
               <div
                 class="grid min-h-[280px] overflow-hidden rounded-md border border-border-subtle bg-bg-base md:grid-cols-[220px_minmax(0,1fr)]"
               >
-                <div class="min-h-0 border-b border-border-subtle md:border-b-0 md:border-r">
+                <div
+                  class="min-h-0 border-b border-border-subtle md:border-b-0 md:border-r"
+                >
                   {#if documentsLoading}
                     <div class="px-3 py-3 text-xs text-text-muted">
                       Loading attachments...
@@ -695,7 +697,9 @@
                           onclick={() => handleOpenAttachment(attachment)}
                           aria-label={attachmentTitle(attachment)}
                         >
-                          <span class="line-clamp-2 text-xs font-medium text-text-primary">
+                          <span
+                            class="line-clamp-2 text-xs font-medium text-text-primary"
+                          >
                             {attachmentTitle(attachment)}
                           </span>
                           <span class="font-mono text-[10px] text-text-muted">

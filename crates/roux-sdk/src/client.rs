@@ -919,11 +919,11 @@ impl Roux {
 
     pub async fn work_item_review_request(
         &self,
-        run_id: impl Into<String>,
+        payload: impl Into<serde_json::Value>,
     ) -> RouxResult<roux_core::WorkItemReviewRequestResult> {
         self.command(
             CommandRequest::new("work-item-review-request")
-                .args(serde_json::json!({ "runId": run_id.into() })),
+                .args(work_item_review_request_args(payload.into())),
         )
         .await
     }
@@ -932,17 +932,11 @@ impl Roux {
         &self,
         id: impl Into<String>,
         note: impl Into<String>,
-        status: Option<impl Into<String>>,
+        status: Option<String>,
     ) -> RouxResult<roux_core::WorkItemReviewRequestChangesResult> {
-        let mut args = serde_json::Map::new();
-        args.insert("id".into(), serde_json::Value::String(id.into()));
-        args.insert("note".into(), serde_json::Value::String(note.into()));
-        if let Some(status) = status {
-            args.insert("status".into(), serde_json::Value::String(status.into()));
-        }
         self.command(
             CommandRequest::new("work-item-review-request-changes")
-                .args(serde_json::Value::Object(args)),
+                .args(work_item_review_request_changes_args(id.into(), note.into(), status)),
         )
         .await
     }
@@ -1291,6 +1285,27 @@ fn work_item_plan_args(
     args
 }
 
+fn work_item_review_request_args(payload: Value) -> Value {
+    match payload {
+        Value::String(run_id) => serde_json::json!({ "runId": run_id }),
+        payload => payload,
+    }
+}
+
+fn work_item_review_request_changes_args(
+    id: String,
+    note: String,
+    status: Option<String>,
+) -> Value {
+    let mut args = serde_json::Map::new();
+    args.insert("id".into(), Value::String(id));
+    args.insert("note".into(), Value::String(note));
+    if let Some(status) = status {
+        args.insert("status".into(), Value::String(status));
+    }
+    Value::Object(args)
+}
+
 fn work_item_attach_session_args(id: String, session_id: String) -> Value {
     serde_json::json!({ "id": id, "sessionId": session_id })
 }
@@ -1510,6 +1525,32 @@ mod tests {
         assert_eq!(args["id"], "wi-1");
         assert_eq!(args["profile"], "claude");
         assert_eq!(args["replaceActive"], true);
+    }
+
+    #[test]
+    fn work_item_review_request_args_preserve_payload_metadata() {
+        let args = work_item_review_request_args(serde_json::json!({
+            "runId": "run-1",
+            "summary": "Implemented review package",
+            "tests": ["npm run test"],
+            "changedFiles": ["src/lib/workItems/reviewPackage.ts"],
+        }));
+
+        assert_eq!(args["runId"], "run-1");
+        assert_eq!(args["summary"], "Implemented review package");
+        assert_eq!(args["tests"][0], "npm run test");
+        assert_eq!(args["changedFiles"][0], "src/lib/workItems/reviewPackage.ts");
+    }
+
+    #[test]
+    fn work_item_review_request_changes_args_accepts_bare_none_status() {
+        let args = work_item_review_request_changes_args(
+            "run-1".to_string(),
+            "Add coverage".to_string(),
+            None,
+        );
+
+        assert_eq!(args, serde_json::json!({ "id": "run-1", "note": "Add coverage" }));
     }
 
     #[test]

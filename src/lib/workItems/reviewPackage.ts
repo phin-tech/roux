@@ -1,5 +1,9 @@
 import type { WorkItem } from "$lib/bindings";
-import type { Attachment, WorkItemRun, WorkItemRunEvent } from "$lib/types/workItems";
+import type {
+  Attachment,
+  WorkItemRun,
+  WorkItemRunEvent,
+} from "$lib/types/workItems";
 import { isPlanAttachment } from "$lib/workItems/planningGate";
 
 export interface WorkItemReviewPackageAttachment {
@@ -21,11 +25,14 @@ export interface WorkItemReviewPackage {
   prUrl: string | null;
 }
 
-function compareUpdated(left: { updatedAt: number; createdAt: number; id: string }, right: {
-  updatedAt: number;
-  createdAt: number;
-  id: string;
-}): number {
+function compareUpdated(
+  left: { updatedAt: number; createdAt: number; id: string },
+  right: {
+    updatedAt: number;
+    createdAt: number;
+    id: string;
+  },
+): number {
   return (
     left.updatedAt - right.updatedAt ||
     left.createdAt - right.createdAt ||
@@ -33,16 +40,18 @@ function compareUpdated(left: { updatedAt: number; createdAt: number; id: string
   );
 }
 
-function latestByTimestamp<T extends { updatedAt: number; createdAt: number; id: string }>(
-  values: T[],
-): T | null {
+function latestByTimestamp<
+  T extends { updatedAt: number; createdAt: number; id: string },
+>(values: T[]): T | null {
   return values.reduce<T | null>((latest, value) => {
     if (!latest) return value;
     return compareUpdated(value, latest) >= 0 ? value : latest;
   }, null);
 }
 
-function attachmentLabel(attachment: Attachment): WorkItemReviewPackageAttachment {
+function attachmentLabel(
+  attachment: Attachment,
+): WorkItemReviewPackageAttachment {
   return {
     title: attachment.title?.trim() || attachment.documentId,
     documentId: attachment.documentId,
@@ -61,12 +70,12 @@ function titleWords(value: string | null): Set<string> {
 function isReviewFeedbackAttachment(attachment: Attachment): boolean {
   if (attachment.targetKind !== "workItem") return false;
   const words = titleWords(attachment.title);
-  return (
-    words.has("feedback") && (words.has("review") || words.has("changes"))
-  );
+  return words.has("feedback") && (words.has("review") || words.has("changes"));
 }
 
-function latestImplementationReviewRun(runs: WorkItemRun[]): WorkItemRun | null {
+function latestImplementationReviewRun(
+  runs: WorkItemRun[],
+): WorkItemRun | null {
   return latestByTimestamp(
     runs.filter(
       (run) => run.kind === "implementation" && run.status === "review",
@@ -90,7 +99,10 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-function firstString(record: Record<string, unknown>, keys: string[]): string | null {
+function firstString(
+  record: Record<string, unknown>,
+  keys: string[],
+): string | null {
   for (const key of keys) {
     const value = record[key];
     if (typeof value === "string" && value.trim()) return value.trim();
@@ -100,7 +112,9 @@ function firstString(record: Record<string, unknown>, keys: string[]): string | 
 
 function stringsFrom(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
-  return value.filter((entry): entry is string => typeof entry === "string" && !!entry.trim());
+  return value.filter(
+    (entry): entry is string => typeof entry === "string" && !!entry.trim(),
+  );
 }
 
 function testsFrom(value: unknown): string | null {
@@ -121,8 +135,10 @@ function extractEventDetails(
     if (runId && event.runId !== runId) continue;
     const payload = asRecord(event.payload);
     if (!payload) continue;
-    agentSummary ??= firstString(payload, ["agentSummary", "summary"]);
-    tests ??= testsFrom(payload.tests);
+    const nextSummary = firstString(payload, ["agentSummary", "summary"]);
+    if (nextSummary) agentSummary = nextSummary;
+    const nextTests = testsFrom(payload.tests);
+    if (nextTests) tests = nextTests;
     for (const file of [
       ...stringsFrom(payload.changedFiles),
       ...stringsFrom(payload.files),
@@ -140,7 +156,8 @@ export function buildWorkItemReviewPackage(
   attachments: Attachment[],
   events: WorkItemRunEvent[] = [],
 ): WorkItemReviewPackage {
-  const run = latestImplementationReviewRun(runs) ?? latestImplementationRun(runs);
+  const run =
+    latestImplementationReviewRun(runs) ?? latestImplementationRun(runs);
   const plan = latestByTimestamp(attachments.filter(isPlanAttachment));
   const feedback = latestByTimestamp(
     attachments.filter(isReviewFeedbackAttachment),

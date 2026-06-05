@@ -474,7 +474,8 @@
         {#if item.worktreePath && onOpenWorktree}
           <button
             type="button"
-            class={chipClass + " transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"}
+            class={chipClass +
+              " transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"}
             title={item.worktreePath}
             aria-label="Open worktree"
             onclick={handleOpenItemWorktree}
@@ -504,14 +505,18 @@
       class="mt-0.5 flex flex-col gap-1.5 border-t border-border-subtle/55 pt-1.5 text-[10px] leading-4 text-text-muted"
       data-testid="work-item-review-package"
     >
-      <div class="grid min-w-0 grid-cols-[3.5rem_minmax(0,1fr)] gap-x-1 gap-y-0.5">
+      <div
+        class="grid min-w-0 grid-cols-[3.5rem_minmax(0,1fr)] gap-x-1 gap-y-0.5"
+      >
         {#if reviewPackage.agentSummary}
           <span class="text-text-subtle">Summary</span>
           <span class="line-clamp-2">{reviewPackage.agentSummary}</span>
         {/if}
         {#if reviewPackage.tests}
           <span class="text-text-subtle">Tests</span>
-          <span class="line-clamp-2 whitespace-pre-line">{reviewPackage.tests}</span>
+          <span class="line-clamp-2 whitespace-pre-line"
+            >{reviewPackage.tests}</span
+          >
         {/if}
         {#if reviewPackage.changedFiles.length > 0}
           <span class="text-text-subtle">Files</span>
@@ -572,7 +577,7 @@
     <p class="text-[11px] leading-snug text-red" role="alert">{startError}</p>
   {/if}
 
-  {#if requestChangesOpen && onRequestChanges}
+  {#if requestChangesOpen && onRequestChanges && item.status === "review"}
     <form
       class="flex flex-col gap-1.5 border-t border-border-subtle/55 pt-1.5"
       onsubmit={(event) => {
@@ -619,7 +624,9 @@
           disabled={openAgentPending}
         >
           <Bot size={12} strokeWidth={2.2} />
-          <span class="truncate">{openAgentPending ? "Opening..." : "Open agent"}</span>
+          <span class="truncate"
+            >{openAgentPending ? "Opening..." : "Open agent"}</span
+          >
         </button>
       {/if}
       {#if onRequestChanges}
@@ -632,7 +639,9 @@
           disabled={requestChangesPending}
         >
           <MessageSquareWarning size={12} strokeWidth={2.2} />
-          <span class="truncate">{requestChangesPending ? "Requesting..." : "Request changes"}</span>
+          <span class="truncate"
+            >{requestChangesPending ? "Requesting..." : "Request changes"}</span
+          >
         </button>
       {/if}
       {#if onAcceptReview}
@@ -645,7 +654,9 @@
           disabled={acceptPending}
         >
           <Check size={12} strokeWidth={2.2} />
-          <span class="truncate">{acceptPending ? "Accepting..." : "Accept done"}</span>
+          <span class="truncate"
+            >{acceptPending ? "Accepting..." : "Accept done"}</span
+          >
         </button>
       {/if}
     </div>

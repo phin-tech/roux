@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { WorkItem } from "$lib/bindings";
-import type { Attachment, WorkItemRun, WorkItemRunEvent } from "$lib/types/workItems";
+import type {
+  Attachment,
+  WorkItemRun,
+  WorkItemRunEvent,
+} from "$lib/types/workItems";
 import { buildWorkItemReviewPackage } from "../reviewPackage";
 
 function workItem(overrides: Partial<WorkItem> = {}): WorkItem {
@@ -115,5 +119,35 @@ describe("buildWorkItemReviewPackage", () => {
       branch: "feature/review-card",
       prUrl: "https://github.com/phin-tech/roux/pull/90",
     });
+  });
+
+  it("uses the latest non-empty run result details", () => {
+    const pkg = buildWorkItemReviewPackage(
+      workItem(),
+      [run()],
+      [],
+      [
+        event({
+          id: "event-1",
+          payload: {
+            summary: "First summary.",
+            tests: ["npm run old"],
+            changedFiles: ["src/old.ts"],
+          },
+        }),
+        event({
+          id: "event-2",
+          payload: {
+            summary: "Latest summary.",
+            tests: ["npm run new"],
+            changedFiles: ["src/new.ts"],
+          },
+        }),
+      ],
+    );
+
+    expect(pkg.agentSummary).toBe("Latest summary.");
+    expect(pkg.tests).toBe("npm run new");
+    expect(pkg.changedFiles).toEqual(["src/old.ts", "src/new.ts"]);
   });
 });

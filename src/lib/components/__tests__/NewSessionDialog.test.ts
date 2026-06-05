@@ -208,7 +208,9 @@ describe("NewSessionDialog profile defaults", () => {
       workItemStart: { itemId: "wi-1", title: "Add more tests" },
     });
 
-    await waitFor(() => expect(screen.getByDisplayValue("Add more tests")).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByDisplayValue("Add more tests")).toBeTruthy(),
+    );
     await fireEvent.click(screen.getByRole("button", { name: "Start Task" }));
 
     await waitFor(() =>

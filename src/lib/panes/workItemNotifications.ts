@@ -100,7 +100,9 @@ async function fireDecisionNotification(
   const sessionId = run?.sessionId ?? null;
 
   const item = get(workItems).find((i) => i.id === itemId);
-  const title = item?.title ? `Decision needed: ${item.title}` : "Decision needed";
+  const title = item?.title
+    ? `Decision needed: ${item.title}`
+    : "Decision needed";
 
   const actions = sessionId
     ? [

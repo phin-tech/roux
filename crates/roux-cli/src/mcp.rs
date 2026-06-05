@@ -1544,7 +1544,7 @@ fn mcp_parent_monitor() -> Result<McpParentMonitor, McpLifecycleError> {
 
     #[cfg(unix)]
     {
-        return Ok(McpParentMonitor::UnixPid(parent_pid));
+        Ok(McpParentMonitor::UnixPid(parent_pid))
     }
 
     #[cfg(windows)]
@@ -2123,6 +2123,7 @@ mod tests {
         assert!(MCP_TOOL_NAMES.contains(&"roux_get_latest_output"));
         assert!(MCP_TOOL_NAMES.contains(&"roux_start_work_item"));
         assert!(MCP_TOOL_NAMES.contains(&"roux_request_work_item_review"));
+        assert!(MCP_TOOL_NAMES.contains(&"roux_request_work_item_review_changes"));
         assert!(MCP_TOOL_NAMES.contains(&"roux_accept_work_item_review"));
         assert!(MCP_TOOL_NAMES.contains(&"roux_resolve_work_item_decision"));
         assert!(!MCP_TOOL_NAMES.contains(&"roux_run_command"));

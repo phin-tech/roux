@@ -51,7 +51,9 @@ function makeRun(overrides: Partial<WorkItemRun> = {}): WorkItemRun {
   };
 }
 
-function makeDecision(overrides: Partial<WorkItemDecision> = {}): WorkItemDecision {
+function makeDecision(
+  overrides: Partial<WorkItemDecision> = {},
+): WorkItemDecision {
   return {
     id: "dec-1",
     runId: "run-1",
@@ -139,7 +141,9 @@ describe("workItemNotifications", () => {
     workItemDecisions.set([makeDecision({ status: "resolved" })]);
     await waitTick();
 
-    expect(notificationsRemove).toHaveBeenCalledWith("notif:work-item-decision:dec-1");
+    expect(notificationsRemove).toHaveBeenCalledWith(
+      "notif:work-item-decision:dec-1",
+    );
   });
 
   it("suppresses the notification when the bound session is active", async () => {

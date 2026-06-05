@@ -1,10 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { WorkItemStatus } from "$lib/bindings";
 import type { WorkItemDecision, WorkItemRun } from "$lib/types/workItems";
-import {
-  workItemPhase,
-  type WorkItemPhaseInput,
-} from "../phase";
+import { workItemPhase, type WorkItemPhaseInput } from "../phase";
 
 function planningRun(sessionId: string | null): WorkItemRun {
   return {
@@ -43,7 +40,9 @@ function decision(): WorkItemDecision {
   };
 }
 
-function input(overrides: Partial<WorkItemPhaseInput> = {}): WorkItemPhaseInput {
+function input(
+  overrides: Partial<WorkItemPhaseInput> = {},
+): WorkItemPhaseInput {
   return {
     status: "todo",
     sessionId: null,
@@ -98,7 +97,10 @@ describe("workItemPhase", () => {
       input({ status: "doing", sessionId: "sess-impl" }),
     );
     expect(phase.name).toBe("implementing");
-    expect(phase.action).toEqual({ kind: "open-session", sessionId: "sess-impl" });
+    expect(phase.action).toEqual({
+      kind: "open-session",
+      sessionId: "sess-impl",
+    });
   });
 
   it("review lane offers Accept done", () => {
@@ -131,32 +133,51 @@ describe("workItemPhase", () => {
     expect(withPlanning.attentionSessionId).toBe("sess-plan");
 
     const sessionOnly = workItemPhase(
-      input({ status: "doing", sessionId: "sess-impl", pendingDecision: decision() }),
+      input({
+        status: "doing",
+        sessionId: "sess-impl",
+        pendingDecision: decision(),
+      }),
     );
     expect(sessionOnly.attentionSessionId).toBe("sess-impl");
   });
 
   it("computes the action independent of a pending decision", () => {
     const blocked = workItemPhase(
-      input({ status: "doing", sessionId: "sess-impl", pendingDecision: decision() }),
+      input({
+        status: "doing",
+        sessionId: "sess-impl",
+        pendingDecision: decision(),
+      }),
     );
     // The action area still shows Open terminal; the attention button is separate.
-    expect(blocked.action).toEqual({ kind: "open-session", sessionId: "sess-impl" });
+    expect(blocked.action).toEqual({
+      kind: "open-session",
+      sessionId: "sess-impl",
+    });
   });
 
   it("offers force-start only for a startable, plan-less planning item", () => {
     expect(workItemPhase(input({ status: "ready" })).canForceStart).toBe(true);
     expect(
-      workItemPhase(input({ status: "ready", hasAttachedPlan: true })).canForceStart,
+      workItemPhase(input({ status: "ready", hasAttachedPlan: true }))
+        .canForceStart,
     ).toBe(false);
     expect(
-      workItemPhase(input({ status: "ready", isStartable: false })).canForceStart,
+      workItemPhase(input({ status: "ready", isStartable: false }))
+        .canForceStart,
     ).toBe(false);
     expect(workItemPhase(input({ status: "todo" })).canForceStart).toBe(false);
   });
 
   it("always mirrors status onto lane (placement authority)", () => {
-    const statuses: WorkItemStatus[] = ["todo", "ready", "doing", "review", "done"];
+    const statuses: WorkItemStatus[] = [
+      "todo",
+      "ready",
+      "doing",
+      "review",
+      "done",
+    ];
     for (const status of statuses) {
       expect(workItemPhase(input({ status })).lane).toBe(status);
     }

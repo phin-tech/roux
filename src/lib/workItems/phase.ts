@@ -130,7 +130,6 @@ export function workItemPhase(input: WorkItemPhaseInput): WorkItemPhase {
     hasAttachedPlan,
     isPlanning,
     isStartable,
-    canForceStart:
-      isPlanning && isStartable && !hasSession && !hasAttachedPlan,
+    canForceStart: isPlanning && isStartable && !hasSession && !hasAttachedPlan,
   };
 }

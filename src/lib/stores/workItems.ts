@@ -179,12 +179,14 @@ export async function hydrateWorkItems(): Promise<void> {
       tauriDocumentList("workItem", null),
     ]);
     const reviewRunEvents = (
-      await Promise.all(
+      await Promise.allSettled(
         runs
-          .filter((run) => run.kind === "implementation" && run.status === "review")
+          .filter(
+            (run) => run.kind === "implementation" && run.status === "review",
+          )
           .map((run) => tauriWorkItemRunEvents(run.id)),
       )
-    ).flat();
+    ).flatMap((result) => (result.status === "fulfilled" ? result.value : []));
     workItems.set(items);
     workItemRuns.set(runs);
     workItemRunEvents.set(reviewRunEvents);
@@ -447,10 +449,7 @@ export async function listDocuments(
 ): Promise<Attachment[]> {
   const attachments = await tauriDocumentList(targetKind, targetId);
   if (targetKind === "workItem" || targetKind === null) {
-    replaceWorkItemAttachments(
-      targetKind === "workItem" ? targetId : null,
-      attachments,
-    );
+    replaceWorkItemAttachments(targetId, attachments);
   }
   return attachments;
 }

@@ -22,6 +22,11 @@ use roux_core::{
 
 pub const WORK_ITEM_SCHEMA_VERSION: i64 = 7;
 
+type ReviewRequestStoreResult =
+    Option<(WorkItem, WorkItemRun, WorkItemRunEvent, Option<WorkItemRunEvent>)>;
+type ReviewRequestChangesStoreResult =
+    Option<(WorkItem, WorkItemRun, WorkItemRunEvent, Option<Attachment>)>;
+
 pub struct WorkItemStore {
     conn: Connection,
 }
@@ -1177,8 +1182,7 @@ impl WorkItemStore {
         payload: Value,
         result_event: Option<(String, Value)>,
         now: u64,
-    ) -> SqlResult<Option<(WorkItem, WorkItemRun, WorkItemRunEvent, Option<WorkItemRunEvent>)>>
-    {
+    ) -> SqlResult<ReviewRequestStoreResult> {
         let payload = serde_json::to_string(&payload)
             .map_err(|err| rusqlite::Error::ToSqlConversionFailure(Box::new(err)))?;
         let result_event = result_event
@@ -1215,11 +1219,12 @@ impl WorkItemStore {
                  updated_at = ?3,
                  ended_at = COALESCE(ended_at, ?3)
              WHERE id = ?1
-               AND status NOT IN (?4, ?5, ?6, ?7)",
+               AND status NOT IN (?4, ?5, ?6, ?7, ?8)",
             params![
                 run_id,
                 WorkItemRunStatus::Review.as_str(),
                 now as i64,
+                WorkItemRunStatus::Review.as_str(),
                 WorkItemRunStatus::Done.as_str(),
                 WorkItemRunStatus::Failed.as_str(),
                 WorkItemRunStatus::Stopped.as_str(),
@@ -1284,7 +1289,7 @@ impl WorkItemStore {
         mut payload: Value,
         feedback: Option<(String, AttachmentInput, u64, String)>,
         now: u64,
-    ) -> SqlResult<Option<(WorkItem, WorkItemRun, WorkItemRunEvent, Option<Attachment>)>> {
+    ) -> SqlResult<ReviewRequestChangesStoreResult> {
         let feedback_document_id =
             feedback.as_ref().map(|(id, input, _, _)| attachment_document_id(&input.target_id, id));
         if let (Value::Object(object), Some(document_id)) =
@@ -2676,6 +2681,41 @@ mod tests {
         let run = store.get_run("run-1").unwrap().unwrap();
         assert_eq!(run.status, roux_core::WorkItemRunStatus::Review);
         assert!(store.list_pending_decisions(None).unwrap().is_empty());
+    }
+
+    #[test]
+    fn request_review_ignores_run_already_in_review() {
+        let mut store = WorkItemStore::open_in_memory().unwrap();
+        store.create("i-1".into(), input("Task"), 1000).unwrap();
+        store
+            .create_run("run-1".into(), "i-1", Some("sess-1"), None, None, None, None, 1100)
+            .unwrap();
+        store
+            .request_review(
+                "run-1",
+                "event-1".into(),
+                serde_json::json!({ "status": "review" }),
+                Some(("event-result-1".into(), serde_json::json!({ "summary": "First" }))),
+                1200,
+            )
+            .unwrap()
+            .expect("run should request review");
+
+        let result = store
+            .request_review(
+                "run-1",
+                "event-2".into(),
+                serde_json::json!({ "status": "review" }),
+                Some(("event-result-2".into(), serde_json::json!({ "summary": "Duplicate" }))),
+                1300,
+            )
+            .unwrap();
+
+        assert!(result.is_none());
+        let events = store.list_run_events("run-1").unwrap();
+        assert_eq!(events.len(), 2);
+        assert!(events.iter().any(|event| event.id == "event-1"));
+        assert!(events.iter().any(|event| event.id == "event-result-1"));
     }
 
     #[test]

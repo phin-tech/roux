@@ -149,7 +149,9 @@ function makeDecision(
   };
 }
 
-function makeRunEvent(overrides: Partial<WorkItemRunEvent> = {}): WorkItemRunEvent {
+function makeRunEvent(
+  overrides: Partial<WorkItemRunEvent> = {},
+): WorkItemRunEvent {
   return {
     id: "event-1",
     runId: "run-1",
@@ -457,6 +459,35 @@ describe("workItems store", () => {
       expect(get(workItemRunEvents)).toEqual([event]);
     });
 
+    it("keeps hydrated work items when one review run event fetch fails", async () => {
+      const item = makeItem({ id: "wi-1", status: "review" });
+      const firstReviewRun = makeRun({
+        id: "run-review-1",
+        workItemId: "wi-1",
+        status: "review",
+      });
+      const secondReviewRun = makeRun({
+        id: "run-review-2",
+        workItemId: "wi-1",
+        status: "review",
+      });
+      const event = makeRunEvent({ id: "event-review", runId: "run-review-1" });
+      vi.mocked(tauriWorkItemList).mockResolvedValueOnce([item]);
+      vi.mocked(tauriWorkItemRunsList).mockResolvedValueOnce([
+        firstReviewRun,
+        secondReviewRun,
+      ]);
+      vi.mocked(tauriWorkItemRunEvents)
+        .mockResolvedValueOnce([event])
+        .mockRejectedValueOnce(new Error("run events unavailable"));
+
+      await expect(hydrateWorkItems()).resolves.toBeUndefined();
+
+      expect(get(workItems)).toEqual([item]);
+      expect(get(workItemRuns)).toEqual([firstReviewRun, secondReviewRun]);
+      expect(get(workItemRunEvents)).toEqual([event]);
+    });
+
     it("upserts attached documents from daemon events", () => {
       const first = makeAttachment({ id: "att-1", title: "Old Plan" });
       const next = makeAttachment({ id: "att-1", title: "Plan" });
@@ -486,6 +517,30 @@ describe("workItems store", () => {
       await expect(listDocuments("workItem", "wi-1")).resolves.toEqual([plan]);
 
       expect(get(attachmentsByWorkItem).get("wi-1")).toEqual([plan]);
+    });
+
+    it("replaces only the requested work item cache when listing by target id without a kind", async () => {
+      const oldPlan = makeAttachment({
+        id: "att-old",
+        targetId: "wi-1",
+        title: "Old Plan",
+      });
+      const otherPlan = makeAttachment({
+        id: "att-other",
+        targetId: "wi-2",
+        title: "Other Plan",
+      });
+      const newPlan = makeAttachment({
+        id: "att-new",
+        targetId: "wi-1",
+        title: "New Plan",
+      });
+      workItemAttachments.set([oldPlan, otherPlan]);
+      vi.mocked(tauriDocumentList).mockResolvedValueOnce([newPlan]);
+
+      await expect(listDocuments(null, "wi-1")).resolves.toEqual([newPlan]);
+
+      expect(get(workItemAttachments)).toEqual([otherPlan, newPlan]);
     });
   });
 

@@ -241,7 +241,9 @@ describe("WorkItemEditor", () => {
       new Map(),
     );
     (
-      attachmentsByWorkItem as ReturnType<typeof import("svelte/store").writable>
+      attachmentsByWorkItem as ReturnType<
+        typeof import("svelte/store").writable
+      >
     ).set(new Map());
     vi.mocked(listDocuments).mockResolvedValue([]);
     vi.mocked(getDocument).mockResolvedValue({
@@ -420,7 +422,9 @@ describe("WorkItemEditor", () => {
   it("shows and previews work item attachments in the editor", async () => {
     const plan = attachment();
     (
-      attachmentsByWorkItem as ReturnType<typeof import("svelte/store").writable>
+      attachmentsByWorkItem as ReturnType<
+        typeof import("svelte/store").writable
+      >
     ).set(new Map([["wi-1", [plan]]]));
     vi.mocked(getDocument).mockResolvedValueOnce({
       attachment: plan,
@@ -431,7 +435,9 @@ describe("WorkItemEditor", () => {
     editingWorkItemId.set("wi-1");
 
     await screen.findByText("Attachments");
-    await fireEvent.click(screen.getByRole("button", { name: "Implementation Plan" }));
+    await fireEvent.click(
+      screen.getByRole("button", { name: "Implementation Plan" }),
+    );
 
     expect(getDocument).toHaveBeenCalledWith("wi-1.plan");
     expect(await screen.findByText("Use the approved plan.")).toBeTruthy();
@@ -444,21 +450,28 @@ describe("WorkItemEditor", () => {
       documentId: "wi-1.plan",
       targetId: "wi-1",
     });
-    (
-      workItems as ReturnType<typeof import("svelte/store").writable>
-    ).set([
+    (workItems as ReturnType<typeof import("svelte/store").writable>).set([
       workItem({ id: "wi-1", title: "First card" }),
       workItem({ id: "wi-2", title: "Second card" }),
     ]);
     (
-      attachmentsByWorkItem as ReturnType<typeof import("svelte/store").writable>
-    ).set(new Map([["wi-1", [plan]], ["wi-2", []]]));
+      attachmentsByWorkItem as ReturnType<
+        typeof import("svelte/store").writable
+      >
+    ).set(
+      new Map([
+        ["wi-1", [plan]],
+        ["wi-2", []],
+      ]),
+    );
     vi.mocked(getDocument).mockReturnValueOnce(staleLoad.promise);
 
     render(WorkItemEditor);
     editingWorkItemId.set("wi-1");
     await screen.findByDisplayValue("First card");
-    await fireEvent.click(screen.getByRole("button", { name: "Implementation Plan" }));
+    await fireEvent.click(
+      screen.getByRole("button", { name: "Implementation Plan" }),
+    );
 
     editingWorkItemId.set("wi-2");
     await screen.findByDisplayValue("Second card");

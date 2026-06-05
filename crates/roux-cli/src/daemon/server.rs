@@ -179,10 +179,13 @@ pub(super) fn acquire_daemon_owner(
         })?;
     }
 
-    let file =
-        std::fs::OpenOptions::new().create(true).read(true).write(true).open(&lock_path).map_err(
-            |err| format!("open daemon socket owner lock {}: {err}", lock_path.display()),
-        )?;
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(lock_path)
+        .map_err(|err| format!("open daemon socket owner lock {}: {err}", lock_path.display()))?;
     let result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
     if result == -1 {
         let err = std::io::Error::last_os_error();

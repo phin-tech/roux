@@ -862,6 +862,32 @@ describe("BoardMainView", () => {
     expect(screen.getByDisplayValue("Keep this note.")).toBeTruthy();
   });
 
+  it("hides the request-changes form when a card leaves review", async () => {
+    seedColumns([
+      workItem({
+        id: "wi-review",
+        title: "Review me",
+        status: "review",
+      }),
+    ]);
+    render(BoardMainView);
+
+    await fireEvent.click(screen.getByText("Request changes"));
+    expect(screen.getByTestId("work-item-request-changes-form")).toBeTruthy();
+
+    seedColumns([
+      workItem({
+        id: "wi-review",
+        title: "Review me",
+        status: "doing",
+      }),
+    ]);
+
+    await vi.waitFor(() =>
+      expect(screen.queryByTestId("work-item-request-changes-form")).toBeNull(),
+    );
+  });
+
   it("shows Open planning terminal for an active planning run", async () => {
     seedColumns([workItem({ id: "wi-plan", status: "todo", sessionId: null })]);
     (
