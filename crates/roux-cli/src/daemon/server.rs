@@ -62,13 +62,12 @@ pub(super) async fn start_socket_server(
     watch_runner: WatchRunner,
     mut identity: DaemonIdentity,
     log: DaemonLog,
+    owner_guard: SocketOwnerGuard,
 ) -> Result<SocketServerHandle, String> {
     match identity.endpoint.clone() {
         platform::SocketEndpoint::Unix(path) => {
             #[cfg(not(windows))]
             {
-                let owner_guard =
-                    acquire_daemon_owner(&identity.owner_lock_path, &identity.endpoint_display())?;
                 let listener = bind_unix_listener(&path)?;
                 log.write(&format!("Socket server listening on {}", path.display()));
                 let cleanup_paths = vec![path.clone()];
@@ -118,8 +117,6 @@ pub(super) async fn start_socket_server(
             }
         }
         platform::SocketEndpoint::Tcp(addr) => {
-            let owner_guard =
-                acquire_daemon_owner(&identity.owner_lock_path, &identity.endpoint_display())?;
             let listener = bind_tcp_listener(&addr, &identity).await?;
             let local_addr = listener
                 .local_addr()
@@ -170,7 +167,10 @@ pub(super) async fn start_socket_server(
 }
 
 #[cfg(not(windows))]
-fn acquire_daemon_owner(lock_path: &Path, endpoint: &str) -> Result<SocketOwnerGuard, String> {
+pub(super) fn acquire_daemon_owner(
+    lock_path: &Path,
+    endpoint: &str,
+) -> Result<SocketOwnerGuard, String> {
     use std::os::fd::AsRawFd;
 
     if let Some(parent) = lock_path.parent() {
@@ -195,7 +195,10 @@ fn acquire_daemon_owner(lock_path: &Path, endpoint: &str) -> Result<SocketOwnerG
 }
 
 #[cfg(windows)]
-fn acquire_daemon_owner(lock_path: &Path, endpoint: &str) -> Result<SocketOwnerGuard, String> {
+pub(super) fn acquire_daemon_owner(
+    lock_path: &Path,
+    endpoint: &str,
+) -> Result<SocketOwnerGuard, String> {
     use std::os::windows::fs::OpenOptionsExt;
 
     if let Some(parent) = lock_path.parent() {

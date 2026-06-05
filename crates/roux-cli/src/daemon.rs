@@ -48,7 +48,7 @@ use projects::{
     handle_project_update,
 };
 use protocol::{Request, Response};
-use server::start_socket_server;
+use server::{acquire_daemon_owner, start_socket_server};
 use status::{handle_daemon_status, handle_daemon_stop};
 use watches::{
     handle_watch_cleanup_orphans, handle_watch_create, handle_watch_find_or_create,
@@ -69,6 +69,9 @@ const DEFAULT_LATEST_OUTPUT_BYTES: usize = 8 * 1024;
 const MAX_LATEST_OUTPUT_BYTES: usize = 64 * 1024;
 
 pub async fn run() -> Result<(), String> {
+    let endpoint = platform::daemon_bind_endpoint();
+    let owner_guard =
+        acquire_daemon_owner(&platform::daemon_owner_lock_path(), &endpoint.display_value())?;
     paths::migrate_legacy_config_dir();
     let log = DaemonLog::init();
 
@@ -125,14 +128,18 @@ pub async fn run() -> Result<(), String> {
 
     let watch_runner = WatchRunner::new(host.watch_handle.clone(), daemon_hook_manager());
     watch_runner.start_all().await;
-    let endpoint = platform::daemon_bind_endpoint();
     let auth_token = daemon_auth_token(&endpoint)?;
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let identity =
         DaemonIdentity::new(endpoint, log.path().clone(), auth_token).with_shutdown(shutdown_tx);
-    let socket_server =
-        start_socket_server(host.clone(), watch_runner.clone(), identity.clone(), log.clone())
-            .await?;
+    let socket_server = start_socket_server(
+        host.clone(),
+        watch_runner.clone(),
+        identity.clone(),
+        log.clone(),
+        owner_guard,
+    )
+    .await?;
     log.write(&format!(
         "Started on {}; press Ctrl-C to stop",
         socket_server.endpoint.display_value()

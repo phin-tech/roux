@@ -1382,13 +1382,20 @@ fn mailbox_recv_args(
 
 pub async fn run_stdio_server() -> anyhow::Result<()> {
     run_stdio_startup_checks()?;
-    let original_parent_pid = current_parent_pid();
+    let monitored_parent_pid = mcp_parent_monitor_startup_decision(current_parent_pid())?;
     let service = RouxMcpServer.serve(stdio()).await?;
-    tokio::select! {
-        result = service.waiting() => {
-            result?;
+    match monitored_parent_pid {
+        Some(original_parent_pid) => {
+            tokio::select! {
+                result = service.waiting() => {
+                    result?;
+                }
+                _ = wait_for_original_parent_exit(original_parent_pid) => {}
+            }
         }
-        _ = wait_for_original_parent_exit(original_parent_pid), if should_monitor_parent(original_parent_pid) => {}
+        None => {
+            service.waiting().await?;
+        }
     }
     Ok(())
 }
@@ -1402,6 +1409,7 @@ struct McpStdioPolicy {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum McpLifecycleError {
     InteractiveStdio,
+    ParentMonitoringUnsupported,
 }
 
 impl std::fmt::Display for McpLifecycleError {
@@ -1409,6 +1417,9 @@ impl std::fmt::Display for McpLifecycleError {
         match self {
             McpLifecycleError::InteractiveStdio => {
                 write!(f, "roux mcp requires piped stdio from an MCP host")
+            }
+            McpLifecycleError::ParentMonitoringUnsupported => {
+                write!(f, "roux mcp requires parent process monitoring on this platform")
             }
         }
     }
@@ -1431,6 +1442,13 @@ fn mcp_stdio_startup_decision(policy: McpStdioPolicy) -> Result<(), McpLifecycle
     } else {
         Ok(())
     }
+}
+
+fn mcp_parent_monitor_startup_decision(
+    parent_pid: Option<u32>,
+) -> Result<Option<u32>, McpLifecycleError> {
+    let parent_pid = parent_pid.ok_or(McpLifecycleError::ParentMonitoringUnsupported)?;
+    Ok(should_monitor_parent(parent_pid).then_some(parent_pid))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1463,9 +1481,12 @@ async fn wait_for_original_parent_exit(original_parent_pid: u32) {
     let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
     loop {
         interval.tick().await;
+        let Some(current_parent_pid) = current_parent_pid() else {
+            return;
+        };
         let decision = mcp_parent_lifecycle_decision(McpParentSnapshot {
             original_parent_pid,
-            current_parent_pid: current_parent_pid(),
+            current_parent_pid,
         });
         if decision == McpParentLifecycleDecision::Exit {
             return;
@@ -1474,13 +1495,13 @@ async fn wait_for_original_parent_exit(original_parent_pid: u32) {
 }
 
 #[cfg(unix)]
-fn current_parent_pid() -> u32 {
-    unsafe { libc::getppid() as u32 }
+fn current_parent_pid() -> Option<u32> {
+    Some(unsafe { libc::getppid() as u32 })
 }
 
 #[cfg(not(unix))]
-fn current_parent_pid() -> u32 {
-    0
+fn current_parent_pid() -> Option<u32> {
+    None
 }
 
 async fn call_socket(request: Value) -> Result<CallToolResult, ErrorData> {
@@ -1897,6 +1918,24 @@ mod tests {
         let policy = McpStdioPolicy { stdin_is_terminal: false, stdout_is_terminal: true };
 
         assert_eq!(mcp_stdio_startup_decision(policy), Err(McpLifecycleError::InteractiveStdio));
+    }
+
+    #[test]
+    fn mcp_parent_monitor_startup_rejects_unknown_parent_pid() {
+        assert_eq!(
+            mcp_parent_monitor_startup_decision(None),
+            Err(McpLifecycleError::ParentMonitoringUnsupported)
+        );
+    }
+
+    #[test]
+    fn mcp_parent_monitor_startup_skips_init_parent_pid() {
+        assert_eq!(mcp_parent_monitor_startup_decision(Some(1)), Ok(None));
+    }
+
+    #[test]
+    fn mcp_parent_monitor_startup_tracks_regular_parent_pid() {
+        assert_eq!(mcp_parent_monitor_startup_decision(Some(42)), Ok(Some(42)));
     }
 
     #[test]

@@ -2920,16 +2920,14 @@ async fn daemon_socket_serves_status_request() {
     );
     let log_path = dir.path().join("roux-daemon.log");
     let owner_lock_path = dir.path().join("roux-daemon.lock");
+    let endpoint = platform::SocketEndpoint::Unix(socket_path.clone());
+    let owner_guard = acquire_daemon_owner(&owner_lock_path, &endpoint.display_value()).unwrap();
     let server = start_socket_server(
         host.clone(),
         watch_runner,
-        DaemonIdentity::new(
-            platform::SocketEndpoint::Unix(socket_path.clone()),
-            log_path.clone(),
-            None,
-        )
-        .with_owner_lock_path(owner_lock_path),
+        DaemonIdentity::new(endpoint, log_path.clone(), None),
         DaemonLog::new_for_test(log_path.clone()),
+        owner_guard,
     )
     .await
     .unwrap();
@@ -2981,40 +2979,26 @@ async fn daemon_socket_server_refuses_second_owner_even_if_socket_file_was_remov
     );
     let log_path = dir.path().join("roux-daemon.log");
     let owner_lock_path = dir.path().join("roux-daemon.lock");
+    let endpoint = platform::SocketEndpoint::Unix(socket_path.clone());
+    let owner_guard = acquire_daemon_owner(&owner_lock_path, &endpoint.display_value()).unwrap();
 
     let first = start_socket_server(
         host.clone(),
         watch_runner.clone(),
-        DaemonIdentity::new(
-            platform::SocketEndpoint::Unix(socket_path.clone()),
-            log_path.clone(),
-            None,
-        )
-        .with_owner_lock_path(owner_lock_path.clone()),
+        DaemonIdentity::new(endpoint.clone(), log_path.clone(), None),
         DaemonLog::new_for_test(log_path.clone()),
+        owner_guard,
     )
     .await
     .unwrap();
 
     std::fs::remove_file(&socket_path).expect("test must simulate a lost socket path");
 
-    let second = start_socket_server(
-        host.clone(),
-        watch_runner,
-        DaemonIdentity::new(
-            platform::SocketEndpoint::Unix(socket_path.clone()),
-            log_path.clone(),
-            None,
-        )
-        .with_owner_lock_path(owner_lock_path),
-        DaemonLog::new_for_test(log_path),
-    )
-    .await;
+    let second = acquire_daemon_owner(&owner_lock_path, &endpoint.display_value());
 
     let failure = match second {
-        Ok(second) => {
-            let _owner_guard = second.shutdown();
-            Some("second daemon socket server unexpectedly started".to_string())
+        Ok(_second_owner_guard) => {
+            Some("second daemon owner lock unexpectedly acquired".to_string())
         }
         Err(err) if err.contains("already running") => None,
         Err(err) => Some(format!("unexpected second-start error: {err}")),
@@ -3058,38 +3042,26 @@ async fn daemon_socket_server_refuses_tcp_owner_while_unix_owner_is_running() {
     );
     let log_path = dir.path().join("roux-daemon.log");
     let owner_lock_path = dir.path().join("roux-daemon.lock");
+    let unix_endpoint = platform::SocketEndpoint::Unix(socket_path.clone());
+    let owner_guard =
+        acquire_daemon_owner(&owner_lock_path, &unix_endpoint.display_value()).unwrap();
 
     let first = start_socket_server(
         host.clone(),
         watch_runner.clone(),
-        DaemonIdentity::new(
-            platform::SocketEndpoint::Unix(socket_path.clone()),
-            log_path.clone(),
-            None,
-        )
-        .with_owner_lock_path(owner_lock_path.clone()),
+        DaemonIdentity::new(unix_endpoint, log_path.clone(), None),
         DaemonLog::new_for_test(log_path.clone()),
+        owner_guard,
     )
     .await
     .unwrap();
 
-    let second = start_socket_server(
-        host.clone(),
-        watch_runner,
-        DaemonIdentity::new(
-            platform::SocketEndpoint::Tcp("127.0.0.1:0".to_string()),
-            log_path.clone(),
-            Some("test-token".to_string()),
-        )
-        .with_owner_lock_path(owner_lock_path),
-        DaemonLog::new_for_test(log_path),
-    )
-    .await;
+    let tcp_endpoint = platform::SocketEndpoint::Tcp("127.0.0.1:0".to_string());
+    let second = acquire_daemon_owner(&owner_lock_path, &tcp_endpoint.display_value());
 
     let failure = match second {
-        Ok(second) => {
-            let _owner_guard = second.shutdown();
-            Some("second daemon socket server unexpectedly started".to_string())
+        Ok(_second_owner_guard) => {
+            Some("second daemon owner lock unexpectedly acquired".to_string())
         }
         Err(err) if err.contains("already running") => None,
         Err(err) => Some(format!("unexpected second-start error: {err}")),
@@ -3136,17 +3108,14 @@ async fn daemon_socket_stop_requests_shutdown_after_response() {
     let log_path = dir.path().join("roux-daemon.log");
     let owner_lock_path = dir.path().join("roux-daemon.lock");
     let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
+    let endpoint = platform::SocketEndpoint::Unix(socket_path.clone());
+    let owner_guard = acquire_daemon_owner(&owner_lock_path, &endpoint.display_value()).unwrap();
     let server = start_socket_server(
         host.clone(),
         watch_runner,
-        DaemonIdentity::new(
-            platform::SocketEndpoint::Unix(socket_path.clone()),
-            log_path.clone(),
-            None,
-        )
-        .with_owner_lock_path(owner_lock_path)
-        .with_shutdown(shutdown_tx),
+        DaemonIdentity::new(endpoint, log_path.clone(), None).with_shutdown(shutdown_tx),
         DaemonLog::new_for_test(log_path),
+        owner_guard,
     )
     .await
     .unwrap();
