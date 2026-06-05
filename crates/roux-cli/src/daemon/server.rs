@@ -174,8 +174,9 @@ pub(super) fn acquire_daemon_owner(
     use std::os::fd::AsRawFd;
 
     if let Some(parent) = lock_path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|err| format!("create socket directory {}: {err}", parent.display()))?;
+        std::fs::create_dir_all(parent).map_err(|err| {
+            format!("create daemon owner lock directory {}: {err}", parent.display())
+        })?;
     }
 
     let file =
@@ -186,7 +187,7 @@ pub(super) fn acquire_daemon_owner(
     if result == -1 {
         let err = std::io::Error::last_os_error();
         if err.kind() == std::io::ErrorKind::WouldBlock {
-            return Err(format!("Roux daemon already running for {endpoint}"));
+            return Err(daemon_already_running_message(endpoint));
         }
         return Err(format!("lock daemon socket owner {}: {err}", lock_path.display()));
     }
@@ -202,8 +203,9 @@ pub(super) fn acquire_daemon_owner(
     use std::os::windows::fs::OpenOptionsExt;
 
     if let Some(parent) = lock_path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|err| format!("create socket directory {}: {err}", parent.display()))?;
+        std::fs::create_dir_all(parent).map_err(|err| {
+            format!("create daemon owner lock directory {}: {err}", parent.display())
+        })?;
     }
 
     let file = std::fs::OpenOptions::new()
@@ -214,12 +216,16 @@ pub(super) fn acquire_daemon_owner(
         .open(lock_path)
         .map_err(|err| match err.kind() {
             std::io::ErrorKind::PermissionDenied | std::io::ErrorKind::WouldBlock => {
-                format!("Roux daemon already running for {endpoint}")
+                daemon_already_running_message(endpoint)
             }
             _ => format!("open daemon socket owner lock {}: {err}", lock_path.display()),
         })?;
 
     Ok(SocketOwnerGuard { _file: file })
+}
+
+fn daemon_already_running_message(attempted_endpoint: &str) -> String {
+    format!("Roux daemon already running; attempted endpoint: {attempted_endpoint}")
 }
 
 #[cfg(not(windows))]
@@ -456,14 +462,14 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let lock_path = dir.path().join("roux-daemon.lock");
 
-        let first = acquire_daemon_owner(&lock_path, "test endpoint").unwrap();
+        let first = acquire_daemon_owner(&lock_path, "unix:///tmp/roux.sock").unwrap();
         assert!(lock_path.exists());
 
-        let second = match acquire_daemon_owner(&lock_path, "test endpoint") {
+        let second = match acquire_daemon_owner(&lock_path, "tcp://127.0.0.1:0") {
             Ok(_) => panic!("second owner should fail while first guard is held"),
             Err(err) => err,
         };
-        assert!(second.contains("already running"));
+        assert_eq!(second, "Roux daemon already running; attempted endpoint: tcp://127.0.0.1:0");
 
         drop(first);
         assert!(lock_path.exists(), "flock path should remain as a reusable inode");
