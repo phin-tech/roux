@@ -572,6 +572,32 @@ describe("reconnectSession — full rehydration", () => {
     expect(connectPaneTerminal).toHaveBeenCalledWith(`${session.id}-main`);
   });
 
+  it("clears empty terminal state when reconnecting after stale startup restore", async () => {
+    const session = makeSession();
+    addSession(session);
+    createPane({
+      id: `${session.id}-main`,
+      type: "shell",
+      ptyId: session.id,
+      spawnProfileRef: { kind: "registered", id: "claude" },
+    });
+    updateInstance(`${session.id}-main`, {
+      terminalState: { kind: "empty" },
+    });
+    sessionLayouts.update((m) => {
+      const next = new Map(m);
+      next.set(session.id, { kind: "leaf", paneId: `${session.id}-main` });
+      return next;
+    });
+
+    await reconnectSession(session);
+
+    expect(get(paneInstances).get(`${session.id}-main`)?.terminalState).toEqual(
+      { kind: "attached", ptyId: session.id },
+    );
+    expect(connectPaneTerminal).toHaveBeenCalledWith(`${session.id}-main`);
+  });
+
   it("rehydrates persisted panes for a restored archived session with no current layout", async () => {
     const session = makeSession();
     addSession(session);

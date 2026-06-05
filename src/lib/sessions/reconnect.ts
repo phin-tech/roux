@@ -390,6 +390,10 @@ async function reconnectPrimaryPaneOnly(
       ? instance.spawnProfileRef.profile
       : null,
   );
+  updateInstance(primaryPaneId, {
+    terminalState: { kind: "attached", ptyId: session.id },
+    restoreError: undefined,
+  });
   const { connectPaneTerminal } = await import("$lib/panes/terminals");
   await connectPaneTerminal(primaryPaneId);
   updateSessionStatus(session.id, updated.status as Session["status"]);
