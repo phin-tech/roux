@@ -658,6 +658,43 @@ impl WorkItemHandle {
         }
     }
 
+    pub fn request_changes(
+        &self,
+        run_id: &str,
+        target_status: WorkItemStatus,
+        mut payload: serde_json::Value,
+    ) -> Result<Option<(WorkItem, WorkItemRun)>, String> {
+        let now = now_secs();
+        if let serde_json::Value::Object(ref mut object) = payload {
+            object.entry("status").or_insert_with(|| {
+                serde_json::Value::String(WorkItemRunStatus::ChangesRequested.as_str().to_string())
+            });
+            object
+                .entry("targetStatus")
+                .or_insert_with(|| serde_json::Value::String(target_status.as_str().to_string()));
+        }
+        let event_id = Uuid::new_v4().to_string();
+        let result = self
+            .inner
+            .lock()
+            .unwrap()
+            .request_changes(run_id, target_status, event_id, payload, now)
+            .map_err(|e| format!("work-item review request changes: {e}"))?;
+        if let Some((item, run, event)) = result {
+            self.broadcast(WorkItemEvent::RunUpdated { run: run.clone() });
+            self.broadcast(WorkItemEvent::RunEventAppended { event });
+            self.broadcast(WorkItemEvent::Moved {
+                id: item.id.clone(),
+                status: item.status.clone(),
+                sort_order: item.sort_order,
+            });
+            self.broadcast(WorkItemEvent::Updated { item: item.clone() });
+            Ok(Some((item, run)))
+        } else {
+            Ok(None)
+        }
+    }
+
     pub fn create_decision(
         &self,
         run_id: &str,

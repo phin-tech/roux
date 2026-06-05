@@ -928,6 +928,25 @@ impl Roux {
         .await
     }
 
+    pub async fn work_item_review_request_changes(
+        &self,
+        id: impl Into<String>,
+        note: impl Into<String>,
+        status: Option<impl Into<String>>,
+    ) -> RouxResult<roux_core::WorkItemReviewRequestChangesResult> {
+        let mut args = serde_json::Map::new();
+        args.insert("id".into(), serde_json::Value::String(id.into()));
+        args.insert("note".into(), serde_json::Value::String(note.into()));
+        if let Some(status) = status {
+            args.insert("status".into(), serde_json::Value::String(status.into()));
+        }
+        self.command(
+            CommandRequest::new("work-item-review-request-changes")
+                .args(serde_json::Value::Object(args)),
+        )
+        .await
+    }
+
     pub async fn work_item_runs_list(
         &self,
         work_item_id: Option<impl Into<String>>,

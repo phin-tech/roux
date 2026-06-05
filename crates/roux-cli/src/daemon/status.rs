@@ -89,6 +89,7 @@ pub(super) async fn handle_daemon_status(
         "work-item-start",
         "work-item-review-accept",
         "work-item-review-request",
+        "work-item-review-request-changes",
         "work-item-runs-list",
         "work-item-run-events",
         "work-item-run-stop",

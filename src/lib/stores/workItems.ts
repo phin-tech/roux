@@ -19,6 +19,7 @@ import {
   workItemStart as tauriWorkItemStart,
   workItemPlan as tauriWorkItemPlan,
   workItemReviewAccept as tauriWorkItemReviewAccept,
+  workItemReviewRequestChanges as tauriWorkItemReviewRequestChanges,
   workItemRunsList as tauriWorkItemRunsList,
   workItemRunStop as tauriWorkItemRunStop,
   workItemDecisionsList as tauriWorkItemDecisionsList,
@@ -65,6 +66,7 @@ export const workItemDecisions = writable<WorkItemDecision[]>([]);
 export const workItemAttachments = writable<Attachment[]>([]);
 const TERMINAL_RUN_STATUSES = new Set<WorkItemRun["status"]>([
   "review",
+  "changesRequested",
   "failed",
   "stopped",
   "done",
@@ -391,6 +393,18 @@ export async function acceptWorkItemReview(id: string): Promise<WorkItem> {
   const result = await tauriWorkItemReviewAccept(id);
   upsertItem(result.item);
   upsertRun(result.run);
+  return result.item;
+}
+
+export async function requestWorkItemChanges(
+  id: string,
+  note: string,
+  status: "doing" | "ready" | null = null,
+): Promise<WorkItem> {
+  const result = await tauriWorkItemReviewRequestChanges(id, note, status);
+  upsertItem(result.item);
+  upsertRun(result.run);
+  upsertAttachment(result.attachment);
   return result.item;
 }
 

@@ -9,10 +9,12 @@
     stopWorkItemRun,
     planWorkItem,
     acceptWorkItemReview,
+    requestWorkItemChanges,
     pendingDecisionByItem,
     activePlanningRunByItem,
     attachmentsByWorkItem,
     runsByItem,
+    workItemRunEvents,
     type WorkItemStatus,
     type WorkItemRun,
   } from "$lib/stores/workItems";
@@ -36,7 +38,9 @@
     hasAttachedPlan,
   } from "$lib/workItems/planningGate";
   import { workItemPhase } from "$lib/workItems/phase";
+  import { buildWorkItemReviewPackage } from "$lib/workItems/reviewPackage";
   import type { WorkItem } from "$lib/bindings";
+  import { openPathInFinder } from "$lib/tauri";
   import { hasWorkItemDragData, readWorkItemDragData } from "$lib/board/drag";
   import WorkItemCard from "./WorkItemCard.svelte";
   import AddCardInput from "./AddCardInput.svelte";
@@ -53,6 +57,7 @@
   let startingItemIds = $state<Record<string, boolean>>({});
   let planningItemIds = $state<Record<string, boolean>>({});
   let acceptingItemIds = $state<Record<string, boolean>>({});
+  let requestingChangesItemIds = $state<Record<string, boolean>>({});
   let startErrors = $state<Record<string, string>>({});
   let planErrors = $state<Record<string, string>>({});
   let deleteTarget = $state<WorkItem | null>(null);
@@ -165,6 +170,28 @@
       console.error("Failed to accept work item review", err);
     } finally {
       acceptingItemIds = withoutKey(acceptingItemIds, id);
+    }
+  }
+
+  async function handleRequestChanges(id: string, _item: WorkItem, note: string) {
+    if (requestingChangesItemIds[id]) return;
+    requestingChangesItemIds = { ...requestingChangesItemIds, [id]: true };
+    startErrors = withoutKey(startErrors, id);
+    try {
+      await requestWorkItemChanges(id, note);
+    } catch (err) {
+      startErrors = { ...startErrors, [id]: "Failed to request changes." };
+      console.error("Failed to request work item changes", err);
+    } finally {
+      requestingChangesItemIds = withoutKey(requestingChangesItemIds, id);
+    }
+  }
+
+  async function handleOpenWorktree(path: string) {
+    try {
+      await openPathInFinder(path);
+    } catch (err) {
+      console.error("Failed to open work item worktree", err);
     }
   }
 
@@ -284,10 +311,18 @@
                 pendingDecision,
                 isStartable: !needsStartConfig(item),
               })}
+              {@const reviewPackage = buildWorkItemReviewPackage(
+                item,
+                itemRuns,
+                itemAttachments,
+                $workItemRunEvents,
+              )}
               <WorkItemCard
                 {item}
                 {sessionStatus}
                 {phase}
+                attachments={itemAttachments}
+                {reviewPackage}
                 {attachedSessionIds}
                 draggable
                 onStart={handleStart}
@@ -296,9 +331,12 @@
                 onEdit={openWorkItemEditor}
                 onDelete={handleDelete}
                 onAcceptReview={handleAcceptReview}
+                onRequestChanges={handleRequestChanges}
+                onOpenWorktree={handleOpenWorktree}
                 startPending={!!startingItemIds[item.id]}
                 planPending={!!planningItemIds[item.id]}
                 acceptPending={!!acceptingItemIds[item.id]}
+                requestChangesPending={!!requestingChangesItemIds[item.id]}
                 startError={startErrors[item.id] ??
                   planErrors[item.id] ??
                   item.startError ??

@@ -2,8 +2,8 @@ use crate::state::AppState;
 use roux_core::{
     Attachment, AttachmentDocument, AttachmentInput, AttachmentTargetKind, WorkItem,
     WorkItemDecision, WorkItemDecisionOption, WorkItemInput, WorkItemPlanResult,
-    WorkItemReviewAcceptResult, WorkItemReviewRequestResult, WorkItemRun, WorkItemRunEvent,
-    WorkItemStartResult, WorkItemStatus,
+    WorkItemReviewAcceptResult, WorkItemReviewRequestChangesResult, WorkItemReviewRequestResult,
+    WorkItemRun, WorkItemRunEvent, WorkItemStartResult, WorkItemStatus,
 };
 
 #[tauri::command]
@@ -189,6 +189,25 @@ pub(crate) async fn work_item_review_request(
         return client.work_item_review_request(run_id).await.map_err(String::from);
     }
     Err("Requesting work item review requires a running daemon.".to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn work_item_review_request_changes(
+    id: String,
+    note: String,
+    status: Option<String>,
+    state: tauri::State<'_, AppState>,
+) -> Result<WorkItemReviewRequestChangesResult, String> {
+    if let Some(client) =
+        state.daemon_client.clone().filter(|c| c.supports("work-item-review-request-changes"))
+    {
+        return client
+            .work_item_review_request_changes(id, note, status)
+            .await
+            .map_err(String::from);
+    }
+    Err("Requesting work item review changes requires a running daemon.".to_string())
 }
 
 #[tauri::command]

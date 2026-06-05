@@ -14,6 +14,7 @@ import {
   hydrateWorkItems,
   applyWorkItemEvent,
   acceptWorkItemReview,
+  requestWorkItemChanges,
   attachDocument,
   listDocuments,
   planWorkItem,
@@ -26,6 +27,7 @@ import {
   documentList as tauriDocumentList,
   workItemPlan as tauriWorkItemPlan,
   workItemReviewAccept as tauriWorkItemReviewAccept,
+  workItemReviewRequestChanges as tauriWorkItemReviewRequestChanges,
   workItemStart as tauriWorkItemStart,
   workItemRunStop as tauriWorkItemRunStop,
   workItemList as tauriWorkItemList,
@@ -45,6 +47,7 @@ vi.mock("$lib/tauri", () => ({
   workItemDelete: vi.fn(),
   workItemPlan: vi.fn(),
   workItemReviewAccept: vi.fn(),
+  workItemReviewRequestChanges: vi.fn(),
   workItemStart: vi.fn(),
   workItemRunStop: vi.fn(),
   documentAttach: vi.fn(),
@@ -544,6 +547,55 @@ describe("workItems store", () => {
         id: "run-1",
         status: "done",
         endedAt: 5,
+      });
+    });
+  });
+
+  describe("requestWorkItemChanges", () => {
+    it("stores the returned card, run, and feedback attachment", async () => {
+      const item = makeItem({
+        id: "wi-1",
+        status: "review",
+        sessionId: "sess-1",
+      });
+      workItems.set([item]);
+      workItemRuns.set([makeRun({ id: "run-1", status: "review" })]);
+      vi.mocked(tauriWorkItemReviewRequestChanges).mockResolvedValueOnce({
+        item: makeItem({ id: "wi-1", status: "doing", sessionId: null }),
+        run: makeRun({
+          id: "run-1",
+          status: "changesRequested",
+          endedAt: 5,
+        }),
+        attachment: makeAttachment({
+          id: "feedback-1",
+          title: "Review feedback",
+          documentId: "wi-1.feedback",
+        }),
+      });
+
+      await expect(
+        requestWorkItemChanges("run-1", "Please add coverage."),
+      ).resolves.toMatchObject({ status: "doing", sessionId: null });
+
+      expect(tauriWorkItemReviewRequestChanges).toHaveBeenCalledWith(
+        "run-1",
+        "Please add coverage.",
+        null,
+      );
+      expect(get(workItems)[0]).toMatchObject({
+        id: "wi-1",
+        status: "doing",
+        sessionId: null,
+      });
+      expect(get(workItemRuns)[0]).toMatchObject({
+        id: "run-1",
+        status: "changesRequested",
+        endedAt: 5,
+      });
+      expect(get(workItemAttachments)[0]).toMatchObject({
+        id: "feedback-1",
+        title: "Review feedback",
       });
     });
   });

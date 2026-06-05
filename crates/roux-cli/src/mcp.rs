@@ -28,6 +28,7 @@ const MCP_TOOL_NAMES: &[&str] = &[
     "roux_plan_work_item",
     "roux_start_work_item",
     "roux_request_work_item_review",
+    "roux_request_work_item_review_changes",
     "roux_accept_work_item_review",
     "roux_list_work_item_runs",
     "roux_list_work_item_run_events",
@@ -266,6 +267,17 @@ pub struct WorkItemRunsListParams {
 #[serde(rename_all = "camelCase")]
 pub struct WorkItemRunIdParams {
     pub run_id: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkItemReviewRequestChangesParams {
+    /// Work item run id, or work item id when the latest review run should be used.
+    pub id: String,
+    /// Human review feedback to attach to the work item.
+    pub note: String,
+    /// Destination status after changes are requested. Defaults to doing.
+    pub status: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
@@ -763,6 +775,24 @@ impl RouxMcpServer {
         call_socket(json!({
             "command": "work-item-review-request",
             "args": { "runId": params.run_id },
+        }))
+        .await
+    }
+
+    #[tool(
+        description = "Request changes for a Kanban work item review. Attaches human feedback and moves the card back to In Progress by default, or Ready when status is ready."
+    )]
+    async fn roux_request_work_item_review_changes(
+        &self,
+        Parameters(params): Parameters<WorkItemReviewRequestChangesParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let mut args = serde_json::Map::new();
+        args.insert("id".into(), Value::String(params.id));
+        args.insert("note".into(), Value::String(params.note));
+        insert_optional_string(&mut args, "status", params.status);
+        call_socket(json!({
+            "command": "work-item-review-request-changes",
+            "args": Value::Object(args),
         }))
         .await
     }

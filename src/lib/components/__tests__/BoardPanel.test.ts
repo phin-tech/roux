@@ -1,9 +1,10 @@
-import { fireEvent, render, screen } from "@testing-library/svelte";
+import { fireEvent, render, screen, within } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import BoardPanel from "../BoardPanel.svelte";
 import {
   itemsByColumn,
   acceptWorkItemReview,
+  requestWorkItemChanges,
   moveWorkItem,
   planWorkItem,
   startWorkItem,
@@ -11,12 +12,14 @@ import {
   activePlanningRunByItem,
   attachmentsByWorkItem,
   runsByItem,
+  workItemRunEvents,
 } from "$lib/stores/workItems";
 import { deleteWorkItemWithMode } from "$lib/workItems/deleteFlow";
 import { openWorkItemSessionStart } from "$lib/stores/ui";
 import { openMainView } from "$lib/stores/mainView";
 import type { WorkItem } from "$lib/bindings";
 import type { Attachment, WorkItemRun } from "$lib/types/workItems";
+import { openPathInFinder } from "$lib/tauri";
 
 // jsdom lacks the Web Animations API that Svelte's transition:fade/scale use.
 if (typeof Element !== "undefined" && !Element.prototype.animate) {
@@ -50,7 +53,9 @@ vi.mock("$lib/stores/workItems", async () => {
     activePlanningRunByItem: writable(new Map()),
     attachmentsByWorkItem: writable(new Map()),
     runsByItem: writable(new Map()),
+    workItemRunEvents: writable([]),
     acceptWorkItemReview: vi.fn().mockResolvedValue({}),
+    requestWorkItemChanges: vi.fn().mockResolvedValue({}),
     moveWorkItem: vi.fn().mockResolvedValue({}),
     planWorkItem: vi.fn().mockResolvedValue("plan-sess-1"),
     startWorkItem: vi.fn().mockResolvedValue("sess-1"),
@@ -80,6 +85,10 @@ vi.mock("$lib/stores/mainView", () => ({
 
 vi.mock("$lib/panes/openSession", () => ({
   openSessionById: vi.fn().mockResolvedValue("opened"),
+}));
+
+vi.mock("$lib/tauri", () => ({
+  openPathInFinder: vi.fn().mockResolvedValue(undefined),
 }));
 
 function workItem(overrides: Partial<WorkItem> = {}): WorkItem {
@@ -177,6 +186,9 @@ describe("BoardPanel", () => {
     seedWorkItemAttachments([]);
     (runsByItem as ReturnType<typeof import("svelte/store").writable>).set(
       new Map(),
+    );
+    (workItemRunEvents as ReturnType<typeof import("svelte/store").writable>).set(
+      [],
     );
   });
 
@@ -361,6 +373,65 @@ describe("BoardPanel", () => {
       "wi-review",
       "done",
       expect.any(Number),
+    );
+  });
+
+  it("requests changes from a review card with a human note", async () => {
+    const item = workItem({
+      id: "wi-review",
+      title: "Review me",
+      status: "review",
+      sessionId: null,
+    });
+    seedColumns([item]);
+    seedWorkItemAttachments([
+      [
+        "wi-review",
+        [
+          attachment({
+            id: "plan-1",
+            targetId: "wi-review",
+            title: "Implementation Plan",
+            documentId: "wi-review.plan",
+          }),
+        ],
+      ],
+    ]);
+    (runsByItem as ReturnType<typeof import("svelte/store").writable>).set(
+      new Map([
+        [
+          "wi-review",
+          [
+            workItemRun({
+              id: "run-review",
+              workItemId: "wi-review",
+              status: "review",
+              sessionId: "sess-review",
+              worktreePath: "/repo/.worktrees/review-card",
+            }),
+          ],
+        ],
+      ]),
+    );
+    render(BoardPanel, { visible: true, onclose: vi.fn() });
+
+    await fireEvent.click(screen.getByText("Open worktree"));
+    expect(openPathInFinder).toHaveBeenCalledWith(
+      "/repo/.worktrees/review-card",
+    );
+
+    await fireEvent.click(screen.getByText("Request changes"));
+    const form = screen.getByTestId("work-item-request-changes-form");
+    await fireEvent.input(screen.getByPlaceholderText("Requested changes"), {
+      target: { value: "Tighten the tests." },
+    });
+    await fireEvent.click(
+      within(form).getByRole("button", { name: "Request changes" }),
+    );
+
+    expect(requestWorkItemChanges).toHaveBeenCalledWith(
+      "wi-review",
+      "Tighten the tests.",
     );
   });
 

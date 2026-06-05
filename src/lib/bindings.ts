@@ -311,6 +311,7 @@ export const commands = {
 	workItemPlan: (id: string, profile: string | null, repoPath: string | null, name: string | null, worktreePath: string | null, replaceActive: boolean) => typedError<WorkItemPlanResult, string>(__TAURI_INVOKE("work_item_plan", { id, profile, repoPath, name, worktreePath, replaceActive })),
 	workItemReviewAccept: (id: string) => typedError<WorkItemReviewAcceptResult, string>(__TAURI_INVOKE("work_item_review_accept", { id })),
 	workItemReviewRequest: (runId: string) => typedError<WorkItemReviewRequestResult, string>(__TAURI_INVOKE("work_item_review_request", { runId })),
+	workItemReviewRequestChanges: (id: string, note: string, status: string | null) => typedError<WorkItemReviewRequestChangesResult, string>(__TAURI_INVOKE("work_item_review_request_changes", { id, note, status })),
 	workItemStart: (id: string, profile: string | null, repoPath: string | null, name: string | null, worktreePath: string | null, branch: string | null, base: string | null, fetchFirst: boolean | null, forceStart: boolean | null) => typedError<WorkItemStartResult, string>(__TAURI_INVOKE("work_item_start", { id, profile, repoPath, name, worktreePath, branch, base, fetchFirst, forceStart })),
 	notesRead: (target: NotesTarget) => typedError<NotesRead, string>(__TAURI_INVOKE("notes_read", { target })),
 	notesWrite: (target: NotesTarget, content: string, tags: string[]) => typedError<null, string>(__TAURI_INVOKE("notes_write", { target, content, tags })),
@@ -1638,6 +1639,21 @@ export type WorkItemPlanResult = {
 	session: Session,
 };
 
+export type Attachment = {
+	id: string,
+	documentId: string,
+	targetKind: "session" | "workItem",
+	targetId: string,
+	title: string | null,
+	contentKind: "text" | "file",
+	mimeType: string | null,
+	sourcePath: string | null,
+	byteLen: number,
+	sha256: string,
+	createdAt: number,
+	updatedAt: number,
+};
+
 export type WorkItemReviewAcceptResult = {
 	item: WorkItem,
 	run: WorkItemRun,
@@ -1646,6 +1662,12 @@ export type WorkItemReviewAcceptResult = {
 export type WorkItemReviewRequestResult = {
 	item: WorkItem,
 	run: WorkItemRun,
+};
+
+export type WorkItemReviewRequestChangesResult = {
+	item: WorkItem,
+	run: WorkItemRun,
+	attachment: Attachment,
 };
 
 export type WorkItemRun = {
@@ -1668,7 +1690,7 @@ export type WorkItemRun = {
 
 export type WorkItemRunKind = "planning" | "implementation" | "review";
 
-export type WorkItemRunStatus = "queued" | "starting" | "running" | "blocked" | "review" | "failed" | "stopped" | "done";
+export type WorkItemRunStatus = "queued" | "starting" | "running" | "blocked" | "review" | "changesRequested" | "failed" | "stopped" | "done";
 
 export type WorkItemStartResult = {
 	item: WorkItem,
@@ -1843,4 +1865,3 @@ async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; dat
         return { status: "error", error: e as any };
     }
 }
-

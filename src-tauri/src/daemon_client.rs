@@ -333,6 +333,18 @@ impl DaemonClient {
         self.sdk.work_item_review_request(run_id).await.map_err(DaemonClientError::from)
     }
 
+    pub(crate) async fn work_item_review_request_changes(
+        &self,
+        id: String,
+        note: String,
+        status: Option<String>,
+    ) -> DaemonClientResult<roux_core::WorkItemReviewRequestChangesResult> {
+        self.sdk
+            .work_item_review_request_changes(id, note, status)
+            .await
+            .map_err(DaemonClientError::from)
+    }
+
     pub(crate) async fn work_item_runs_list(
         &self,
         work_item_id: Option<String>,

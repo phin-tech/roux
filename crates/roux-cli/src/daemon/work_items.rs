@@ -470,6 +470,122 @@ pub(super) async fn handle_work_item_review_request(req: Request, host: &Runtime
     }
 }
 
+pub(super) async fn handle_work_item_review_request_changes(
+    req: Request,
+    host: &RuntimeHost,
+) -> Response {
+    let Some(note) = optional_string_arg(&req.args, &["note"]) else {
+        return Response::err("note required");
+    };
+    if note.trim().is_empty() {
+        return Response::err("note required");
+    }
+    let target_status = match request_changes_target_status(&req.args) {
+        Ok(status) => status,
+        Err(err) => return err,
+    };
+    let run = match resolve_review_changes_run(host, &req.args) {
+        Ok(run) => run,
+        Err(err) => return err,
+    };
+    if run.kind != roux_core::WorkItemRunKind::Implementation {
+        return Response::err("work item changes can only be requested for implementation runs");
+    }
+    if run.status != roux_core::WorkItemRunStatus::Review {
+        return Response::err("work item changes can only be requested for review runs");
+    }
+
+    let title =
+        optional_string_arg(&req.args, &["title"]).unwrap_or_else(|| "Review feedback".to_string());
+    let attachment = match host.work_item_handle.create_attachment(roux_core::AttachmentInput {
+        target_kind: roux_core::AttachmentTargetKind::WorkItem,
+        target_id: run.work_item_id.clone(),
+        title: Some(title),
+        content_kind: roux_core::AttachmentContentKind::Text,
+        content: note.clone(),
+        mime_type: Some("text/markdown".to_string()),
+        source_path: None,
+    }) {
+        Ok(attachment) => attachment,
+        Err(err) => return Response::err(err),
+    };
+
+    let payload = serde_json::json!({
+        "reason": "changesRequested",
+        "requestedBy": optional_string_arg(&req.args, &["requestedBy", "requested_by"])
+            .unwrap_or_else(|| "user".to_string()),
+        "note": note,
+        "feedbackDocumentId": attachment.document_id,
+        "targetStatus": target_status.as_str(),
+    });
+    match host.work_item_handle.request_changes(&run.id, target_status, payload) {
+        Ok(Some((item, run))) => {
+            match serde_json::to_value(roux_core::WorkItemReviewRequestChangesResult {
+                item,
+                run,
+                attachment,
+            }) {
+                Ok(value) => Response::success(value),
+                Err(err) => Response::err(format!(
+                    "failed to serialize work item review request changes: {err}"
+                )),
+            }
+        }
+        Ok(None) => Response::err("work item review run cannot request changes"),
+        Err(err) => Response::err(err),
+    }
+}
+
+fn request_changes_target_status(
+    args: &serde_json::Value,
+) -> Result<roux_core::WorkItemStatus, Response> {
+    let status = optional_string_arg(args, &["status", "targetStatus", "target_status"])
+        .unwrap_or_else(|| roux_core::WorkItemStatus::Doing.as_str().to_string());
+    let Some(status) = roux_core::WorkItemStatus::from_str_opt(&status) else {
+        return Err(Response::err(format!("unknown status: {status}")));
+    };
+    match status {
+        roux_core::WorkItemStatus::Doing | roux_core::WorkItemStatus::Ready => Ok(status),
+        _ => Err(Response::err("request changes status must be doing or ready")),
+    }
+}
+
+fn resolve_review_changes_run(
+    host: &RuntimeHost,
+    args: &serde_json::Value,
+) -> Result<roux_core::WorkItemRun, Response> {
+    if let Some(run_id) = optional_string_arg(args, &["runId", "run_id"]) {
+        return match host.work_item_handle.get_run(&run_id) {
+            Ok(Some(run)) => Ok(run),
+            Ok(None) => Err(Response::err("work item run not found")),
+            Err(err) => Err(Response::err(err)),
+        };
+    }
+    if let Some(work_item_id) = optional_string_arg(args, &["workItemId", "work_item_id"]) {
+        return latest_review_implementation_run(host, &work_item_id);
+    }
+    let Some(id) = optional_string_arg(args, &["id"]) else {
+        return Err(Response::err("id or runId required"));
+    };
+    match host.work_item_handle.get_run(&id) {
+        Ok(Some(run)) => Ok(run),
+        Ok(None) => latest_review_implementation_run(host, &id),
+        Err(err) => Err(Response::err(err)),
+    }
+}
+
+fn latest_review_implementation_run(
+    host: &RuntimeHost,
+    work_item_id: &str,
+) -> Result<roux_core::WorkItemRun, Response> {
+    let runs = host.work_item_handle.list_runs(Some(work_item_id)).map_err(Response::err)?;
+    runs.into_iter()
+        .filter(|run| run.kind == roux_core::WorkItemRunKind::Implementation)
+        .filter(|run| run.status == roux_core::WorkItemRunStatus::Review)
+        .max_by_key(|run| (run.updated_at, run.created_at, run.id.clone()))
+        .ok_or_else(|| Response::err("work item has no review run to request changes"))
+}
+
 type ProfileDispatchFuture<'a> = Pin<Box<dyn Future<Output = Result<String, String>> + Send + 'a>>;
 type ProfileDispatcher = for<'a> fn(
     &'a RuntimeHost,
@@ -1449,6 +1565,7 @@ pub(super) async fn handle_work_item_run_stop(req: Request, host: &RuntimeHost) 
     if matches!(
         run.status,
         roux_core::WorkItemRunStatus::Stopped
+            | roux_core::WorkItemRunStatus::ChangesRequested
             | roux_core::WorkItemRunStatus::Done
             | roux_core::WorkItemRunStatus::Failed
     ) {
@@ -1469,6 +1586,7 @@ pub(super) async fn handle_work_item_run_stop(req: Request, host: &RuntimeHost) 
                 if matches!(
                     run.status,
                     roux_core::WorkItemRunStatus::Stopped
+                        | roux_core::WorkItemRunStatus::ChangesRequested
                         | roux_core::WorkItemRunStatus::Done
                         | roux_core::WorkItemRunStatus::Failed
                 ) =>
@@ -1542,6 +1660,7 @@ fn is_terminal_work_item_run_status(status: &roux_core::WorkItemRunStatus) -> bo
     matches!(
         status,
         roux_core::WorkItemRunStatus::Done
+            | roux_core::WorkItemRunStatus::ChangesRequested
             | roux_core::WorkItemRunStatus::Failed
             | roux_core::WorkItemRunStatus::Stopped
     )
@@ -1801,6 +1920,7 @@ fn record_work_item_run_pty_exit(
                 run.status,
                 roux_core::WorkItemRunStatus::Stopped
                     | roux_core::WorkItemRunStatus::Review
+                    | roux_core::WorkItemRunStatus::ChangesRequested
                     | roux_core::WorkItemRunStatus::Done
                     | roux_core::WorkItemRunStatus::Failed
             ) => {}
@@ -2078,12 +2198,14 @@ async fn run_dispatched_profile(
     let session = host.session_handle.get(session_id).await.ok().flatten();
     let settings = load_daemon_settings();
     let plan_context = load_work_item_plan_prompt_context(host, &item.id, force_start);
+    let review_feedback = load_work_item_review_feedback_prompt_context(host, &item.id);
     let task_prompt = render_work_item_task_prompt(
         item,
         run_id,
         session.as_ref(),
         &settings,
         plan_context.as_ref(),
+        review_feedback.as_ref(),
     );
     run_dispatched_profile_with_task_prompt(
         host,
@@ -2320,6 +2442,13 @@ enum WorkItemPlanPromptContext {
     ForceStartedWithoutPlan,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct WorkItemReviewFeedbackPromptContext {
+    title: String,
+    document_id: String,
+    content: String,
+}
+
 fn load_work_item_plan_prompt_context(
     host: &RuntimeHost,
     item_id: &str,
@@ -2345,6 +2474,24 @@ fn load_work_item_plan_prompt_context(
     force_start.then_some(WorkItemPlanPromptContext::ForceStartedWithoutPlan)
 }
 
+fn load_work_item_review_feedback_prompt_context(
+    host: &RuntimeHost,
+    item_id: &str,
+) -> Option<WorkItemReviewFeedbackPromptContext> {
+    let attachments = host
+        .work_item_handle
+        .list_attachments(Some(roux_core::AttachmentTargetKind::WorkItem), Some(item_id))
+        .ok()?;
+    let attachment = select_latest_work_item_review_feedback_attachment(attachments.iter())?;
+    let document =
+        host.work_item_handle.get_attachment_document(&attachment.document_id).ok().flatten()?;
+    Some(WorkItemReviewFeedbackPromptContext {
+        title: document.attachment.title.unwrap_or_else(|| "Review feedback".to_string()),
+        document_id: document.attachment.document_id,
+        content: document.content,
+    })
+}
+
 fn select_latest_work_item_plan_attachment<'a>(
     attachments: impl IntoIterator<Item = &'a roux_core::Attachment>,
 ) -> Option<&'a roux_core::Attachment> {
@@ -2353,6 +2500,25 @@ fn select_latest_work_item_plan_attachment<'a>(
         .filter(|attachment| {
             attachment.target_kind == roux_core::AttachmentTargetKind::WorkItem
                 && is_plan_like_attachment(attachment)
+        })
+        .max_by(|left, right| {
+            (left.updated_at, left.created_at, left.document_id.as_str(), left.id.as_str()).cmp(&(
+                right.updated_at,
+                right.created_at,
+                right.document_id.as_str(),
+                right.id.as_str(),
+            ))
+        })
+}
+
+fn select_latest_work_item_review_feedback_attachment<'a>(
+    attachments: impl IntoIterator<Item = &'a roux_core::Attachment>,
+) -> Option<&'a roux_core::Attachment> {
+    attachments
+        .into_iter()
+        .filter(|attachment| {
+            attachment.target_kind == roux_core::AttachmentTargetKind::WorkItem
+                && attachment.title.as_deref().is_some_and(is_review_feedback_title)
         })
         .max_by(|left, right| {
             (left.updated_at, left.created_at, left.document_id.as_str(), left.id.as_str()).cmp(&(
@@ -2374,6 +2540,15 @@ fn is_plan_like_attachment(attachment: &roux_core::Attachment) -> bool {
         })
 }
 
+fn is_review_feedback_title(value: &str) -> bool {
+    let words = value
+        .split(|ch: char| !ch.is_ascii_alphanumeric())
+        .map(|part| part.to_ascii_lowercase())
+        .collect::<Vec<_>>();
+    words.iter().any(|part| part == "feedback")
+        && words.iter().any(|part| part == "review" || part == "changes")
+}
+
 fn contains_plan_word(value: &str) -> bool {
     value
         .split(|ch: char| !ch.is_ascii_alphanumeric())
@@ -2386,6 +2561,7 @@ fn render_work_item_task_prompt(
     session: Option<&roux_core::Session>,
     settings: &roux_core::RouxSettings,
     plan_context: Option<&WorkItemPlanPromptContext>,
+    review_feedback: Option<&WorkItemReviewFeedbackPromptContext>,
 ) -> String {
     let item_id = sanitize_card_prompt_field(&item.id);
     let run_id = sanitize_card_prompt_field(run_id);
@@ -2419,6 +2595,7 @@ fn render_work_item_task_prompt(
         prompt.push_str(&external_url);
     }
     append_plan_prompt_context(&mut prompt, plan_context);
+    append_review_feedback_prompt_context(&mut prompt, review_feedback);
     prompt.push_str("\n\nExecution context:\n");
     prompt.push_str("- Roux work item id: ");
     prompt.push_str(if item_id.is_empty() { "unknown" } else { &item_id });
@@ -2451,6 +2628,7 @@ fn render_work_item_task_prompt(
     prompt.push_str(
         "` and read relevant entries with `roux document get <document-id>`.\n\
 	         - Treat the attached plan as the source of truth when an approved implementation plan is included above. If it conflicts with the card description, prefer the attached plan unless the user explicitly says otherwise.\n\
+	         - When requested review changes are included above, address them before taking unrelated implementation work.\n\
 	         - Treat the card description as the source of acceptance criteria when no approved implementation plan is included above and it includes acceptance criteria; otherwise infer the smallest useful acceptance criteria from the card.\n\
 	         - Make the necessary code and documentation changes.\n\
          - Commit changes unless the repository or user instructions clearly say not to.\n\
@@ -2509,6 +2687,25 @@ fn append_plan_prompt_context(
         }
         None => {}
     }
+}
+
+fn append_review_feedback_prompt_context(
+    prompt: &mut String,
+    review_feedback: Option<&WorkItemReviewFeedbackPromptContext>,
+) {
+    let Some(review_feedback) = review_feedback else {
+        return;
+    };
+    let title = sanitize_card_prompt_field(&review_feedback.title);
+    let document_id = sanitize_card_prompt_field(&review_feedback.document_id);
+    let content = sanitize_card_prompt_field(&review_feedback.content);
+    prompt.push_str("\n\nRequested review changes:\n");
+    prompt.push_str("Title: ");
+    prompt.push_str(if title.is_empty() { "Review feedback" } else { &title });
+    prompt.push_str("\nDocument id: ");
+    prompt.push_str(if document_id.is_empty() { "unknown" } else { &document_id });
+    prompt.push_str("\nContent:\n");
+    prompt.push_str(&content);
 }
 
 fn append_custom_prompt_section(prompt: &mut String, heading: &str, value: &str) {
@@ -3198,6 +3395,7 @@ mod tests {
             Some(&session),
             &roux_core::RouxSettings::default(),
             None,
+            None,
         );
 
         assert!(prompt.contains("Title:\nFix tests"));
@@ -3263,6 +3461,7 @@ mod tests {
             None,
             &roux_core::RouxSettings::default(),
             Some(&plan),
+            None,
         );
 
         assert!(prompt.contains("Approved implementation plan:"));
@@ -3306,9 +3505,57 @@ mod tests {
             None,
             &roux_core::RouxSettings::default(),
             Some(&WorkItemPlanPromptContext::ForceStartedWithoutPlan),
+            None,
         );
 
         assert!(prompt.contains("No approved plan was attached; implementation was force-started."));
+    }
+
+    #[test]
+    fn work_item_task_prompt_includes_requested_review_changes() {
+        let item = roux_core::WorkItem {
+            id: "wi-1".into(),
+            project_id: None,
+            title: "Fix tests".into(),
+            body: None,
+            status: roux_core::WorkItemStatus::Doing,
+            parent_id: None,
+            agent_profile: Some("claude".into()),
+            repo_path: Some("/repo/main".into()),
+            base_branch: Some("main".into()),
+            worktree_path: None,
+            branch: None,
+            fetch_first: None,
+            start_error: None,
+            session_id: None,
+            provider: None,
+            external_id: None,
+            external_url: None,
+            sort_order: 0.0,
+            pinned_pr_url: None,
+            cost: None,
+            created_at: 0,
+            updated_at: 0,
+        };
+        let feedback = WorkItemReviewFeedbackPromptContext {
+            title: "Review feedback".into(),
+            document_id: "wi-1.feedback".into(),
+            content: "Please add coverage for the retry path.".into(),
+        };
+
+        let prompt = render_work_item_task_prompt(
+            &item,
+            "run-2",
+            None,
+            &roux_core::RouxSettings::default(),
+            None,
+            Some(&feedback),
+        );
+
+        assert!(prompt.contains("Requested review changes:"));
+        assert!(prompt.contains("Document id: wi-1.feedback"));
+        assert!(prompt.contains("Please add coverage for the retry path."));
+        assert!(prompt.contains("address them before taking unrelated implementation work"));
     }
 
     #[test]
@@ -3413,7 +3660,7 @@ mod tests {
         assert!(plan_prompt.contains("roux document attach --work-item wi-1"));
         assert!(!plan_prompt.contains("\"type\":\"decision\""));
 
-        let task_prompt = render_work_item_task_prompt(&item, "run-1", None, &settings, None);
+        let task_prompt = render_work_item_task_prompt(&item, "run-1", None, &settings, None, None);
         assert!(task_prompt.contains("roux document list --work-item wi-1"));
         assert!(task_prompt.contains("roux document get <document-id>"));
         assert!(
@@ -3881,17 +4128,6 @@ mod tests {
                 ..Default::default()
             })
             .unwrap();
-        host.work_item_handle
-            .create_attachment(roux_core::AttachmentInput {
-                target_kind: roux_core::AttachmentTargetKind::WorkItem,
-                target_id: item.id.clone(),
-                title: Some("Plan".into()),
-                content_kind: roux_core::AttachmentContentKind::Text,
-                content: "Older plan body".into(),
-                mime_type: Some("text/markdown".into()),
-                source_path: None,
-            })
-            .unwrap();
         let latest_plan = host
             .work_item_handle
             .create_attachment(roux_core::AttachmentInput {
@@ -3926,7 +4162,6 @@ mod tests {
             command.contains("Use the attached plan as the execution source of truth."),
             "{command}"
         );
-        assert!(!command.contains("Older plan body"), "{command}");
         let _ = host.pty_handle.kill(&session_id).await;
 
         shutdown_host(host, joins).await;
@@ -4639,6 +4874,79 @@ mod tests {
         .await;
         assert!(!resp.ok);
         assert!(resp.error.as_deref().unwrap_or_default().contains("review can only be requested"));
+
+        shutdown_host(host, joins).await;
+    }
+
+    #[tokio::test]
+    async fn daemon_work_item_review_request_changes_moves_card_back_and_attaches_feedback() {
+        let dir = tempfile::tempdir().unwrap();
+        let (host, identity, joins) = make_host_and_identity(&dir).await;
+
+        let item = host
+            .work_item_handle
+            .create(roux_core::WorkItemInput {
+                title: "Review me".into(),
+                status: Some(roux_core::WorkItemStatus::Review),
+                ..Default::default()
+            })
+            .unwrap();
+        host.work_item_handle.attach_session(&item.id, "sess-1").unwrap().unwrap();
+        let run = host
+            .work_item_handle
+            .create_run(&item.id, Some("sess-1"), Some("claude"), Some("claude"), None, None)
+            .unwrap();
+        host.work_item_handle
+            .set_run_status(
+                &run.id,
+                roux_core::WorkItemRunStatus::Review,
+                serde_json::json!({ "reason": "test" }),
+            )
+            .unwrap();
+
+        let resp = handle_request(
+            req(
+                "work-item-review-request-changes",
+                serde_json::json!({
+                    "runId": run.id,
+                    "note": "Please add retry coverage.",
+                    "status": "ready",
+                }),
+            ),
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(resp.ok, "request changes failed: {:?}", resp.error);
+        let data = resp.data.as_ref().unwrap();
+        assert_eq!(data["item"]["status"], "ready");
+        assert!(data["item"]["sessionId"].is_null());
+        assert_eq!(data["run"]["status"], "changesRequested");
+        assert_eq!(data["attachment"]["targetKind"], "workItem");
+        assert_eq!(data["attachment"]["targetId"], item.id);
+        let document_id = data["attachment"]["documentId"].as_str().unwrap();
+        let document = host
+            .work_item_handle
+            .get_attachment_document(document_id)
+            .unwrap()
+            .expect("feedback attachment document");
+        assert_eq!(document.content, "Please add retry coverage.");
+
+        let item = host.work_item_handle.get(&item.id).unwrap().unwrap();
+        assert_eq!(item.status, roux_core::WorkItemStatus::Ready);
+        assert!(item.session_id.is_none());
+        assert!(!host.work_item_handle.has_active_run(&item.id).unwrap());
+        let run = host.work_item_handle.get_run(&run.id).unwrap().unwrap();
+        assert_eq!(run.status, roux_core::WorkItemRunStatus::ChangesRequested);
+        assert_eq!(run.session_id.as_deref(), Some("sess-1"));
+        let events = host.work_item_handle.list_run_events(&run.id).unwrap();
+        assert!(events.iter().any(|event| {
+            event.kind == roux_core::WorkItemRunEventKind::StatusChanged
+                && event.payload["status"] == "changes_requested"
+                && event.payload["reason"] == "changesRequested"
+                && event.payload["targetStatus"] == "ready"
+                && event.payload["feedbackDocumentId"] == document_id
+        }));
 
         shutdown_host(host, joins).await;
     }

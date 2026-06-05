@@ -786,6 +786,32 @@ run to `review`, appends a status-change event with
 This is the preferred explicit handoff for implementation agents. The daemon
 also keeps the successful PTY-exit fallback for implementation runs.
 
+`work-item-review-request-changes`
+
+Daemon-owned review feedback request. Requires a review target and a non-empty
+`args.note`. The target can be `args.runId` / `run_id`, or `args.id` /
+`workItemId` / `work_item_id`; item ids resolve to the latest implementation
+run currently in review. Optional `args.status` / `targetStatus` can be
+`doing` or `ready` and defaults to `doing`.
+
+The daemon validates that the target run is an implementation run in `review`,
+attaches the note to the card as a text/markdown work-item document titled
+`Review feedback`, moves the run to `changesRequested`, clears the card's
+active `sessionId`, moves the card to the requested target status, appends a
+status-change event with `reason: "changesRequested"` and
+`feedbackDocumentId`, and returns:
+
+```json
+{
+  "item": {},
+  "run": {},
+  "attachment": {}
+}
+```
+
+The next implementation start includes the latest review feedback attachment in
+the task prompt so the agent addresses requested changes before unrelated work.
+
 `work-item-review-accept`
 
 Daemon-owned review acceptance. Requires `args.id` (also accepts

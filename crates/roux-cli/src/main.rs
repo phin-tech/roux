@@ -497,6 +497,17 @@ enum WorkItemReviewAction {
         /// Work item run id
         run_id: String,
     },
+    /// Request changes for a reviewed run and move the card back to work
+    RequestChanges {
+        /// Work item run id or work item id
+        target: String,
+        /// Human feedback to attach to the work item
+        #[arg(long)]
+        note: String,
+        /// Destination status for the card: doing | ready
+        #[arg(long)]
+        status: Option<String>,
+    },
     /// Accept a reviewed work item and move it to Done
     Accept {
         /// Work item id
@@ -1732,6 +1743,21 @@ fn build_work_item_review_request(run_id: String) -> Value {
     })
 }
 
+fn build_work_item_review_request_changes(
+    target: String,
+    note: String,
+    status: Option<String>,
+) -> Value {
+    let mut args = serde_json::Map::new();
+    args.insert("id".into(), Value::String(target));
+    args.insert("note".into(), Value::String(note));
+    insert_optional_string(&mut args, "status", status);
+    serde_json::json!({
+        "command": "work-item-review-request-changes",
+        "args": Value::Object(args),
+    })
+}
+
 fn build_work_item_review_accept_request(id: String) -> Value {
     serde_json::json!({
         "command": "work-item-review-accept",
@@ -1949,6 +1975,9 @@ fn handle_work_item(action: WorkItemAction) {
         WorkItemAction::Review { action } => match action {
             WorkItemReviewAction::Request { run_id } => {
                 run_socket_command(build_work_item_review_request(run_id));
+            }
+            WorkItemReviewAction::RequestChanges { target, note, status } => {
+                run_socket_command(build_work_item_review_request_changes(target, note, status));
             }
             WorkItemReviewAction::Accept { id } => {
                 run_socket_command(build_work_item_review_accept_request(id));
@@ -3530,6 +3559,49 @@ mod tests {
 
         assert_eq!(request["command"], "work-item-review-request");
         assert_eq!(request["args"]["runId"], "run-1");
+    }
+
+    #[test]
+    fn cli_parses_work_item_review_request_changes() {
+        let cli = Cli::try_parse_from([
+            "roux",
+            "work-item",
+            "review",
+            "request-changes",
+            "run-1",
+            "--note",
+            "Add coverage",
+            "--status",
+            "ready",
+        ])
+        .unwrap();
+        match cli.command {
+            Commands::WorkItem {
+                action:
+                    WorkItemAction::Review {
+                        action: WorkItemReviewAction::RequestChanges { target, note, status },
+                    },
+            } => {
+                assert_eq!(target, "run-1");
+                assert_eq!(note, "Add coverage");
+                assert_eq!(status.as_deref(), Some("ready"));
+            }
+            _ => panic!("expected WorkItem::Review::RequestChanges"),
+        }
+    }
+
+    #[test]
+    fn work_item_review_request_changes_uses_socket_command() {
+        let request = build_work_item_review_request_changes(
+            "run-1".into(),
+            "Add coverage".into(),
+            Some("ready".into()),
+        );
+
+        assert_eq!(request["command"], "work-item-review-request-changes");
+        assert_eq!(request["args"]["id"], "run-1");
+        assert_eq!(request["args"]["note"], "Add coverage");
+        assert_eq!(request["args"]["status"], "ready");
     }
 
     #[test]

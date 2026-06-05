@@ -2,14 +2,19 @@
   import Bot from "@lucide/svelte/icons/bot";
   import Check from "@lucide/svelte/icons/check";
   import ClipboardList from "@lucide/svelte/icons/clipboard-list";
+  import FileText from "@lucide/svelte/icons/file-text";
+  import FolderOpen from "@lucide/svelte/icons/folder-open";
   import GitBranch from "@lucide/svelte/icons/git-branch";
+  import MessageSquareWarning from "@lucide/svelte/icons/message-square-warning";
   import MoreVertical from "@lucide/svelte/icons/more-vertical";
   import Pencil from "@lucide/svelte/icons/pencil";
   import Play from "@lucide/svelte/icons/play";
   import Terminal from "@lucide/svelte/icons/terminal";
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import type { WorkItem } from "$lib/bindings";
+  import type { Attachment } from "$lib/types/workItems";
   import type { WorkItemPhase } from "$lib/workItems/phase";
+  import type { WorkItemReviewPackage } from "$lib/workItems/reviewPackage";
   import type { SessionStatus } from "$lib/types";
   import { profileList } from "$lib/panes/profiles";
   import { clearDraggedWorkItem, writeWorkItemDragData } from "$lib/board/drag";
@@ -30,12 +35,23 @@
     onDelete?: (id: string, item: WorkItem) => void;
     /** Accept a review-requested implementation run. */
     onAcceptReview?: (id: string, item: WorkItem) => void;
+    /** Attach review feedback and move the card back to active work. */
+    onRequestChanges?: (
+      id: string,
+      item: WorkItem,
+      note: string,
+    ) => void | Promise<void>;
+    /** Reveal the card's worktree path in the OS file manager. */
+    onOpenWorktree?: (path: string) => void | Promise<void>;
     startPending?: boolean;
     planPending?: boolean;
     acceptPending?: boolean;
+    requestChangesPending?: boolean;
     startError?: string | null;
     /** Derived run/column phase: drives the action affordance + blocked state. */
     phase: WorkItemPhase;
+    attachments?: Attachment[];
+    reviewPackage?: WorkItemReviewPackage | null;
     attachedSessionIds?: string[];
     /** Opt-in card dragging. The full-screen board enables it; the sidebar leaves it off. */
     draggable?: boolean;
@@ -50,11 +66,16 @@
     onEdit,
     onDelete,
     onAcceptReview,
+    onRequestChanges,
+    onOpenWorktree,
     startPending = false,
     planPending = false,
     acceptPending = false,
+    requestChangesPending = false,
     startError = null,
     phase,
+    attachments = [],
+    reviewPackage = null,
     attachedSessionIds = [],
     draggable = false,
   }: Props = $props();
@@ -121,7 +142,13 @@
       !!onPlan ||
       !!onDelete ||
       !!onAcceptReview ||
+      !!onRequestChanges ||
+      !!onOpenWorktree ||
       canForceStartPlanning,
+  );
+  const reviewSessionId = $derived(reviewPackage?.sessionId ?? null);
+  const canOpenReviewWorktree = $derived(
+    !!reviewPackage?.worktreePath && !!onOpenWorktree,
   );
   const allAttachedSessionIds = $derived.by(() => {
     const ids = new Set<string>();
@@ -177,6 +204,8 @@
   let menuOpen = $state(false);
   let menuX = $state(0);
   let menuY = $state(0);
+  let requestChangesOpen = $state(false);
+  let requestChangesNote = $state("");
 
   function openMenuAt(clientX: number, clientY: number): void {
     if (!hasMenuActions) return;
@@ -228,6 +257,36 @@
     onAcceptReview?.(item.id, item);
   }
 
+  function handleOpenWorktree(): void {
+    menuOpen = false;
+    const path = reviewPackage?.worktreePath;
+    if (!path) return;
+    void onOpenWorktree?.(path);
+  }
+
+  function handleOpenReviewTerminal(): void {
+    menuOpen = false;
+    if (!reviewSessionId) return;
+    onOpen?.(reviewSessionId);
+  }
+
+  function handleRequestChangesOpen(): void {
+    menuOpen = false;
+    requestChangesOpen = true;
+  }
+
+  async function handleSubmitRequestChanges(): Promise<void> {
+    const note = requestChangesNote.trim();
+    if (!note || requestChangesPending) return;
+    await onRequestChanges?.(item.id, item, note);
+    requestChangesNote = "";
+    requestChangesOpen = false;
+  }
+
+  function attachmentTitle(attachment: Attachment): string {
+    return attachment.title?.trim() || attachment.documentId;
+  }
+
   function handleAttentionOpen(event: MouseEvent): void {
     event.stopPropagation();
     if (!attentionSessionId) return;
@@ -241,7 +300,10 @@
   }
 
   function handleWindowKeydown(event: KeyboardEvent): void {
-    if (event.key === "Escape") menuOpen = false;
+    if (event.key === "Escape") {
+      menuOpen = false;
+      requestChangesOpen = false;
+    }
   }
 </script>
 
@@ -375,8 +437,146 @@
     </div>
   {/if}
 
+  {#if attachments.length > 0}
+    <div class="flex flex-wrap gap-1.5" data-testid="work-item-attachments">
+      {#each attachments as attachment (attachment.id)}
+        <span
+          class={chipClass}
+          title={`${attachmentTitle(attachment)} · ${attachment.documentId}`}
+        >
+          <FileText size={10} strokeWidth={2.2} class="shrink-0" />
+          <span class="truncate">{attachmentTitle(attachment)}</span>
+        </span>
+      {/each}
+    </div>
+  {/if}
+
+  {#if item.status === "review" && reviewPackage}
+    <div
+      class="mt-0.5 flex flex-col gap-1.5 border-t border-border-subtle/55 pt-1.5 text-[10px] leading-4 text-text-muted"
+      data-testid="work-item-review-package"
+    >
+      <div class="grid min-w-0 grid-cols-[3.5rem_minmax(0,1fr)] gap-x-1 gap-y-0.5">
+        {#if reviewPackage.plan}
+          <span class="text-text-subtle">Plan</span>
+          <span class="truncate" title={reviewPackage.plan.documentId}
+            >{reviewPackage.plan.title}</span
+          >
+        {/if}
+        {#if reviewPackage.agentSummary}
+          <span class="text-text-subtle">Summary</span>
+          <span class="line-clamp-2">{reviewPackage.agentSummary}</span>
+        {/if}
+        {#if reviewPackage.tests}
+          <span class="text-text-subtle">Tests</span>
+          <span class="line-clamp-2 whitespace-pre-line">{reviewPackage.tests}</span>
+        {/if}
+        {#if reviewPackage.changedFiles.length > 0}
+          <span class="text-text-subtle">Files</span>
+          <span class="truncate" title={reviewPackage.changedFiles.join("\n")}
+            >{reviewPackage.changedFiles.join(", ")}</span
+          >
+        {/if}
+        {#if reviewPackage.worktreeLabel}
+          <span class="text-text-subtle">Worktree</span>
+          <span class="truncate font-mono" title={reviewPackage.worktreePath ?? undefined}
+            >{reviewPackage.worktreeLabel}</span
+          >
+        {/if}
+        {#if reviewPackage.branch}
+          <span class="text-text-subtle">Branch</span>
+          <span class="truncate font-mono">{reviewPackage.branch}</span>
+        {/if}
+        {#if reviewPackage.prUrl}
+          <span class="text-text-subtle">PR</span>
+          <a
+            href={reviewPackage.prUrl}
+            target="_blank"
+            rel="noreferrer"
+            class="truncate text-green underline-offset-2 hover:underline"
+            >{reviewPackage.prUrl}</a
+          >
+        {/if}
+        {#if reviewPackage.feedback}
+          <span class="text-text-subtle">Feedback</span>
+          <span class="truncate" title={reviewPackage.feedback.documentId}
+            >{reviewPackage.feedback.title}</span
+          >
+        {/if}
+      </div>
+      <div class="flex flex-wrap items-center gap-1">
+        {#if canOpenReviewWorktree}
+          <button
+            type="button"
+            class="inline-flex h-6 items-center gap-1 rounded-md border border-border-subtle/70 bg-bg-deep/45 px-1.5 text-[10px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
+            onclick={handleOpenWorktree}
+          >
+            <FolderOpen size={11} strokeWidth={2.1} />
+            <span>Open worktree</span>
+          </button>
+        {/if}
+        {#if reviewSessionId && onOpen}
+          <button
+            type="button"
+            class="inline-flex h-6 items-center gap-1 rounded-md border border-border-subtle/70 bg-bg-deep/45 px-1.5 text-[10px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
+            onclick={handleOpenReviewTerminal}
+          >
+            <Terminal size={11} strokeWidth={2.1} />
+            <span>Open terminal</span>
+          </button>
+        {/if}
+        {#if onRequestChanges}
+          <button
+            type="button"
+            class="inline-flex h-6 items-center gap-1 rounded-md border border-amber/30 bg-amber/10 px-1.5 text-[10px] text-amber transition-colors hover:bg-amber/15 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-amber/50 disabled:cursor-wait disabled:opacity-60"
+            onclick={handleRequestChangesOpen}
+            disabled={requestChangesPending}
+          >
+            <MessageSquareWarning size={11} strokeWidth={2.1} />
+            <span>{requestChangesPending ? "Requesting..." : "Request changes"}</span>
+          </button>
+        {/if}
+      </div>
+    </div>
+  {/if}
+
   {#if startError}
     <p class="text-[11px] leading-snug text-red" role="alert">{startError}</p>
+  {/if}
+
+  {#if requestChangesOpen && onRequestChanges}
+    <form
+      class="flex flex-col gap-1.5 border-t border-border-subtle/55 pt-1.5"
+      onsubmit={(event) => {
+        event.preventDefault();
+        void handleSubmitRequestChanges();
+      }}
+      data-testid="work-item-request-changes-form"
+    >
+      <textarea
+        class="min-h-16 w-full resize-y rounded-md border border-border-subtle bg-bg-deep/70 px-2 py-1.5 text-[11px] leading-4 text-text-primary placeholder:text-text-muted/60 focus:border-accent-dim focus:outline-none focus:ring-1 focus:ring-accent-dim/50"
+        placeholder="Requested changes"
+        bind:value={requestChangesNote}
+        disabled={requestChangesPending}
+      ></textarea>
+      <div class="flex items-center justify-end gap-1">
+        <button
+          type="button"
+          class="inline-flex h-6 items-center rounded-md px-2 text-[10px] text-text-muted transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
+          onclick={() => (requestChangesOpen = false)}
+          disabled={requestChangesPending}
+        >
+          Cancel
+        </button>
+        <button
+          type="submit"
+          class="inline-flex h-6 items-center rounded-md border border-amber/30 bg-amber/10 px-2 text-[10px] font-semibold text-amber transition-colors hover:bg-amber/15 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-amber/50 disabled:cursor-wait disabled:opacity-60"
+          disabled={requestChangesPending || !requestChangesNote.trim()}
+        >
+          {requestChangesPending ? "Requesting..." : "Request changes"}
+        </button>
+      </div>
+    </form>
   {/if}
 
   <div class="flex items-center gap-1.5 pt-0.5">
@@ -500,6 +700,40 @@
       >
         <Check size={13} strokeWidth={2.1} />
         <span>{acceptPending ? "Accepting..." : "Accept done"}</span>
+      </button>
+    {/if}
+    {#if canOpenReviewWorktree}
+      <button
+        type="button"
+        role="menuitem"
+        class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
+        onclick={handleOpenWorktree}
+      >
+        <FolderOpen size={13} strokeWidth={2.1} />
+        <span>Open worktree</span>
+      </button>
+    {/if}
+    {#if reviewSessionId && onOpen}
+      <button
+        type="button"
+        role="menuitem"
+        class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
+        onclick={handleOpenReviewTerminal}
+      >
+        <Terminal size={13} strokeWidth={2.1} />
+        <span>Open terminal</span>
+      </button>
+    {/if}
+    {#if onRequestChanges && item.status === "review"}
+      <button
+        type="button"
+        role="menuitem"
+        class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 disabled:cursor-wait disabled:opacity-60"
+        onclick={handleRequestChangesOpen}
+        disabled={requestChangesPending}
+      >
+        <MessageSquareWarning size={13} strokeWidth={2.1} />
+        <span>{requestChangesPending ? "Requesting..." : "Request changes"}</span>
       </button>
     {/if}
     {#if onDelete}

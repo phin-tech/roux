@@ -40,7 +40,10 @@ PTY exit updates the run lifecycle: exit code `0` on an implementation run moves
 the run and card to **Review**; non-zero or unknown exits mark the run `failed`.
 Explicitly stopping a run marks it `stopped` and does not get overwritten by a
 later PTY exit. Accepting review is a daemon command that moves both the
-reviewed run and card to **Done**.
+reviewed run and card to **Done**. Requesting changes attaches the human
+feedback to the card, marks the reviewed run `changesRequested`, clears the
+card's active session binding, and moves the card back to **In Progress** by
+default. The next implementation prompt includes the latest review feedback.
 
 ## Decisions
 
@@ -83,6 +86,7 @@ roux work-item plan <card-id>
 roux work-item move <card-id> ready
 roux work-item start <card-id>
 roux work-item review request <run-id>
+roux work-item review request-changes <run-id-or-card-id> --note "Add the missing retry coverage"
 roux work-item review accept <card-id>
 roux work-item accept <card-id>
 roux work-item runs --work-item <card-id>
@@ -110,8 +114,9 @@ use run events for chronological execution history.
 The MCP server exposes the same daemon-backed board surface with tools such as
 `roux_list_work_items`, `roux_create_work_item`, `roux_plan_work_item`,
 `roux_start_work_item`, `roux_accept_work_item_review`,
-`roux_request_work_item_review`, `roux_list_work_item_runs`, and
-`roux_resolve_work_item_decision`. It also exposes document tools:
+`roux_request_work_item_review`, `roux_request_work_item_review_changes`,
+`roux_list_work_item_runs`, and `roux_resolve_work_item_decision`. It also
+exposes document tools:
 `roux_attach_document`, `roux_list_documents`, and `roux_get_document`.
 
 ## Related Protocol

@@ -1019,6 +1019,17 @@ export async function workItemReviewRequest(
   return r.data;
 }
 
+export async function workItemReviewRequestChanges(
+  id: string,
+  note: string,
+  status: string | null = null,
+): Promise<import("$lib/bindings").WorkItemReviewRequestChangesResult> {
+  const { commands } = await import("$lib/bindings");
+  const r = await commands.workItemReviewRequestChanges(id, note, status);
+  if (r.status === "error") throw new Error(r.error);
+  return r.data;
+}
+
 export async function workItemRunsList(
   workItemId: string | null,
 ): Promise<import("./types/workItems").WorkItemRun[]> {

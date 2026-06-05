@@ -1,9 +1,10 @@
-import { fireEvent, render, screen } from "@testing-library/svelte";
+import { fireEvent, render, screen, within } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import BoardMainView from "../BoardMainView.svelte";
 import {
   itemsByColumn,
   acceptWorkItemReview,
+  requestWorkItemChanges,
   moveWorkItem,
   planWorkItem,
   startWorkItem,
@@ -12,6 +13,7 @@ import {
   attachmentsByWorkItem,
   pendingDecisionByItem,
   runsByItem,
+  workItemRunEvents,
 } from "$lib/stores/workItems";
 import { deleteWorkItemWithMode } from "$lib/workItems/deleteFlow";
 import {
@@ -25,6 +27,7 @@ import type { WorkItem } from "$lib/bindings";
 import type { Notification } from "$lib/types";
 import type { Attachment, WorkItemRun } from "$lib/types/workItems";
 import { notifications } from "$lib/stores/notifications";
+import { openPathInFinder } from "$lib/tauri";
 
 // jsdom lacks the Web Animations API that Svelte's transition:fade/scale use.
 if (typeof Element !== "undefined" && !Element.prototype.animate) {
@@ -60,7 +63,9 @@ vi.mock("$lib/stores/workItems", async () => {
     activePlanningRunByItem: writable(new Map()),
     attachmentsByWorkItem: writable(new Map()),
     runsByItem: writable(new Map()),
+    workItemRunEvents: writable([]),
     acceptWorkItemReview: vi.fn().mockResolvedValue({}),
+    requestWorkItemChanges: vi.fn().mockResolvedValue({}),
     moveWorkItem: vi.fn().mockResolvedValue({}),
     planWorkItem: vi.fn().mockResolvedValue("plan-sess-1"),
     startWorkItem: vi.fn().mockResolvedValue("sess-1"),
@@ -90,6 +95,10 @@ vi.mock("$lib/stores/mainView", () => ({
 
 vi.mock("$lib/panes/openSession", () => ({
   openSessionById: vi.fn().mockResolvedValue("opened"),
+}));
+
+vi.mock("$lib/tauri", () => ({
+  openPathInFinder: vi.fn().mockResolvedValue(undefined),
 }));
 
 function workItem(overrides: Partial<WorkItem> = {}): WorkItem {
@@ -220,6 +229,9 @@ describe("BoardMainView", () => {
     seedWorkItemAttachments([]);
     (runsByItem as ReturnType<typeof import("svelte/store").writable>).set(
       new Map(),
+    );
+    (workItemRunEvents as ReturnType<typeof import("svelte/store").writable>).set(
+      [],
     );
     notifications.set([]);
   });
@@ -562,6 +574,99 @@ describe("BoardMainView", () => {
       "wi-review",
       "done",
       expect.any(Number),
+    );
+  });
+
+  it("shows review package details and requests changes with a note", async () => {
+    seedColumns([
+      workItem({
+        id: "wi-review",
+        title: "Review me",
+        status: "review",
+        sessionId: null,
+        pinnedPrUrl: "https://github.com/phin-tech/roux/pull/90",
+      }),
+    ]);
+    seedWorkItemAttachments([
+      [
+        "wi-review",
+        [
+          attachment({
+            id: "plan-1",
+            targetId: "wi-review",
+            title: "Implementation Plan",
+            documentId: "wi-review.plan",
+          }),
+          attachment({
+            id: "feedback-1",
+            targetId: "wi-review",
+            title: "Review feedback",
+            documentId: "wi-review.feedback",
+            updatedAt: 2,
+          }),
+        ],
+      ],
+    ]);
+    (runsByItem as ReturnType<typeof import("svelte/store").writable>).set(
+      new Map([
+        [
+          "wi-review",
+          [
+            workItemRun({
+              id: "run-review",
+              workItemId: "wi-review",
+              status: "review",
+              sessionId: "sess-review",
+              worktreePath: "/repo/.worktrees/review-card",
+              branch: "feature/review-card",
+            }),
+          ],
+        ],
+      ]),
+    );
+    (workItemRunEvents as ReturnType<typeof import("svelte/store").writable>).set(
+      [
+        {
+          id: "event-1",
+          runId: "run-review",
+          kind: "result",
+          payload: {
+            summary: "Implemented review package.",
+            tests: ["npm run test"],
+            changedFiles: ["src/lib/components/WorkItemCard.svelte"],
+          },
+          createdAt: 3,
+        },
+      ],
+    );
+    render(BoardMainView);
+
+    const reviewPackage = screen.getByTestId("work-item-review-package");
+    expect(reviewPackage).toBeTruthy();
+    expect(within(reviewPackage).getByText("Implementation Plan")).toBeTruthy();
+    expect(
+      within(reviewPackage).getByText("Implemented review package."),
+    ).toBeTruthy();
+    expect(within(reviewPackage).getByText("npm run test")).toBeTruthy();
+    expect(within(reviewPackage).getByText("feature/review-card")).toBeTruthy();
+
+    await fireEvent.click(screen.getByText("Open worktree"));
+    expect(openPathInFinder).toHaveBeenCalledWith(
+      "/repo/.worktrees/review-card",
+    );
+
+    await fireEvent.click(screen.getByText("Request changes"));
+    const form = screen.getByTestId("work-item-request-changes-form");
+    await fireEvent.input(screen.getByPlaceholderText("Requested changes"), {
+      target: { value: "Add retry coverage." },
+    });
+    await fireEvent.click(
+      within(form).getByRole("button", { name: "Request changes" }),
+    );
+
+    expect(requestWorkItemChanges).toHaveBeenCalledWith(
+      "wi-review",
+      "Add retry coverage.",
     );
   });
 
