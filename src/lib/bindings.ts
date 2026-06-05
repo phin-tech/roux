@@ -398,6 +398,25 @@ export type AttachResult = {
 	replay_bytes: number[],
 };
 
+export type Attachment = {
+	id: string,
+	documentId: string,
+	targetKind: AttachmentTargetKind,
+	targetId: string,
+	title: string | null,
+	contentKind: AttachmentContentKind,
+	mimeType: string | null,
+	sourcePath: string | null,
+	byteLen: number,
+	sha256: string,
+	createdAt: number,
+	updatedAt: number,
+};
+
+export type AttachmentContentKind = "text" | "file";
+
+export type AttachmentTargetKind = "session" | "workItem";
+
 export type Bind = {
 	key: KeyRef,
 	action: KeymapAction,
@@ -1639,27 +1658,7 @@ export type WorkItemPlanResult = {
 	session: Session,
 };
 
-export type Attachment = {
-	id: string,
-	documentId: string,
-	targetKind: "session" | "workItem",
-	targetId: string,
-	title: string | null,
-	contentKind: "text" | "file",
-	mimeType: string | null,
-	sourcePath: string | null,
-	byteLen: number,
-	sha256: string,
-	createdAt: number,
-	updatedAt: number,
-};
-
 export type WorkItemReviewAcceptResult = {
-	item: WorkItem,
-	run: WorkItemRun,
-};
-
-export type WorkItemReviewRequestResult = {
 	item: WorkItem,
 	run: WorkItemRun,
 };
@@ -1668,6 +1667,11 @@ export type WorkItemReviewRequestChangesResult = {
 	item: WorkItem,
 	run: WorkItemRun,
 	attachment: Attachment,
+};
+
+export type WorkItemReviewRequestResult = {
+	item: WorkItem,
+	run: WorkItemRun,
 };
 
 export type WorkItemRun = {
