@@ -517,6 +517,7 @@ pub enum WorkItemRunStatus {
     Running,
     Blocked,
     Review,
+    ChangesRequested,
     Failed,
     Stopped,
     Done,
@@ -530,6 +531,7 @@ impl WorkItemRunStatus {
             Self::Running => "running",
             Self::Blocked => "blocked",
             Self::Review => "review",
+            Self::ChangesRequested => "changes_requested",
             Self::Failed => "failed",
             Self::Stopped => "stopped",
             Self::Done => "done",
@@ -543,6 +545,9 @@ impl WorkItemRunStatus {
             "running" => Some(Self::Running),
             "blocked" => Some(Self::Blocked),
             "review" => Some(Self::Review),
+            "changesRequested" | "changes_requested" | "changes-requested" => {
+                Some(Self::ChangesRequested)
+            }
             "failed" => Some(Self::Failed),
             "stopped" => Some(Self::Stopped),
             "done" => Some(Self::Done),
@@ -613,6 +618,21 @@ pub struct WorkItemPlanResult {
     pub item: WorkItem,
     pub run: WorkItemRun,
     pub session: Session,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkItemReviewRequestResult {
+    pub item: WorkItem,
+    pub run: WorkItemRun,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkItemReviewRequestChangesResult {
+    pub item: WorkItem,
+    pub run: WorkItemRun,
+    pub attachment: Attachment,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
@@ -772,6 +792,7 @@ mod tests {
             ("running", WorkItemRunStatus::Running),
             ("blocked", WorkItemRunStatus::Blocked),
             ("review", WorkItemRunStatus::Review),
+            ("changes_requested", WorkItemRunStatus::ChangesRequested),
             ("failed", WorkItemRunStatus::Failed),
             ("stopped", WorkItemRunStatus::Stopped),
             ("done", WorkItemRunStatus::Done),

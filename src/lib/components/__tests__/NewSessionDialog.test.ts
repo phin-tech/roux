@@ -1,9 +1,10 @@
-import { render, waitFor } from "@testing-library/svelte";
+import { fireEvent, render, screen, waitFor } from "@testing-library/svelte";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import NewSessionDialog from "../NewSessionDialog.svelte";
 import { DEFAULT_SETTINGS } from "$lib/types";
 import { settings } from "$lib/stores/settings";
 import { resetProfileRegistry, setUserProfiles } from "$lib/panes/profiles";
+import { checkIsGitRepo, listWorktrees, workItemStart } from "$lib/tauri";
 
 if (typeof Element !== "undefined" && !Element.prototype.animate) {
   Element.prototype.animate = () =>
@@ -67,6 +68,9 @@ vi.mock("$lib/bindings", () => ({
     }),
   },
 }));
+vi.mock("$lib/panes/openSession", () => ({
+  openSessionById: vi.fn().mockResolvedValue("opened"),
+}));
 
 const profiles = [
   {
@@ -97,6 +101,7 @@ const profiles = [
 
 describe("NewSessionDialog profile defaults", () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     resetProfileRegistry();
     setUserProfiles([...profiles]);
     settings.set({ ...DEFAULT_SETTINGS, defaultAgentProfile: "claude" });
@@ -118,5 +123,105 @@ describe("NewSessionDialog profile defaults", () => {
         )?.value,
       ).toBe("Codex (user)");
     });
+  });
+
+  it("lets the daemon choose a work-item worktree when no target is explicitly selected", async () => {
+    vi.mocked(checkIsGitRepo).mockResolvedValue(true);
+    vi.mocked(listWorktrees).mockResolvedValue([
+      {
+        path: "/repos/test-repo",
+        branch: "main",
+        isMain: true,
+        worktrunk: null,
+      },
+      {
+        path: "/repos/test-repo.worktrees/codex-stack-retry-observer",
+        branch: "codex/stack-retry-observer",
+        isMain: false,
+        worktrunk: null,
+      },
+    ]);
+    vi.mocked(workItemStart).mockResolvedValue({
+      item: {
+        id: "wi-1",
+        projectId: null,
+        parentId: null,
+        title: "Add more tests",
+        body: null,
+        status: "doing",
+        repoPath: "/repos/test-repo",
+        agentProfile: "claude",
+        baseBranch: "main",
+        worktreePath: "/repos/test-repo.worktrees/roux-card-wi1-add-more-tests",
+        branch: "roux/card-wi1-add-more-tests",
+        fetchFirst: false,
+        startError: null,
+        sessionId: "sess-1",
+        provider: null,
+        externalId: null,
+        externalUrl: null,
+        sortOrder: 0,
+        pinnedPrUrl: null,
+        cost: null,
+        createdAt: 0,
+        updatedAt: 0,
+      },
+      run: {
+        id: "run-1",
+        workItemId: "wi-1",
+        kind: "implementation",
+        sessionId: "sess-1",
+        ptyId: "sess-1",
+        provider: "claude",
+        profileId: "claude",
+        status: "running",
+        worktreePath: "/repos/test-repo.worktrees/roux-card-wi1-add-more-tests",
+        branch: "roux/card-wi1-add-more-tests",
+        cost: null,
+        createdAt: 0,
+        startedAt: 0,
+        endedAt: null,
+        updatedAt: 0,
+      },
+      session: {
+        id: "sess-1",
+        name: "Add more tests",
+        repoRoot: "/repos/test-repo",
+        worktreePath: "/repos/test-repo.worktrees/roux-card-wi1-add-more-tests",
+        branch: "roux/card-wi1-add-more-tests",
+        isWorktree: true,
+        status: "idle",
+        model: null,
+        cost: null,
+        createdAt: 0,
+      },
+    });
+    settings.set({
+      ...DEFAULT_SETTINGS,
+      defaultAgentProfile: "claude",
+      defaultProjectPath: "/repos/test-repo",
+    });
+
+    render(NewSessionDialog, {
+      visible: true,
+      onclose: vi.fn(),
+      workItemStart: { itemId: "wi-1", title: "Add more tests" },
+    });
+
+    await waitFor(() =>
+      expect(screen.getByDisplayValue("Add more tests")).toBeTruthy(),
+    );
+    await fireEvent.click(screen.getByRole("button", { name: "Start Task" }));
+
+    await waitFor(() =>
+      expect(workItemStart).toHaveBeenCalledWith(
+        "wi-1",
+        expect.objectContaining({
+          name: "Add more tests",
+          worktreePath: null,
+          branch: null,
+        }),
+      ),
+    );
   });
 });

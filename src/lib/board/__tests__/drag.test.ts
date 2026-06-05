@@ -85,7 +85,7 @@ describe("Work item drag data", () => {
     expect(get(draggedWorkItem)).toBeNull();
   });
 
-  it("accepts Ready as a valid drag source column", () => {
+  it("accepts Planning as a valid drag source column", () => {
     const transfer = dataTransfer();
 
     expect(writeWorkItemDragData(transfer, item({ status: "ready" }))).toBe(

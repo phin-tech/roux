@@ -16,6 +16,7 @@ export type WorkItemRunStatus =
   | "running"
   | "blocked"
   | "review"
+  | "changesRequested"
   | "failed"
   | "stopped"
   | "done";

@@ -5,25 +5,42 @@ import {
   workItemRuns,
   workItemRunEvents,
   workItemDecisions,
+  workItemAttachments,
+  attachmentsByWorkItem,
   itemsByColumn,
   latestRunByItem,
   pendingDecisionByItem,
   runsByItem,
+  hydrateWorkItems,
   applyWorkItemEvent,
   acceptWorkItemReview,
+  requestWorkItemChanges,
+  attachDocument,
+  listDocuments,
   planWorkItem,
   startWorkItem,
   stopWorkItemRun,
   WORK_ITEM_COLUMNS,
 } from "../workItems";
 import {
+  documentAttach as tauriDocumentAttach,
+  documentList as tauriDocumentList,
   workItemPlan as tauriWorkItemPlan,
   workItemReviewAccept as tauriWorkItemReviewAccept,
+  workItemReviewRequestChanges as tauriWorkItemReviewRequestChanges,
   workItemStart as tauriWorkItemStart,
+  workItemRunsList as tauriWorkItemRunsList,
   workItemRunStop as tauriWorkItemRunStop,
+  workItemRunEvents as tauriWorkItemRunEvents,
+  workItemList as tauriWorkItemList,
 } from "$lib/tauri";
 import type { WorkItem } from "$lib/bindings";
-import type { WorkItemDecision, WorkItemRun } from "$lib/types/workItems";
+import type {
+  Attachment,
+  WorkItemDecision,
+  WorkItemRun,
+  WorkItemRunEvent,
+} from "$lib/types/workItems";
 
 vi.mock("$lib/tauri", () => ({
   workItemList: vi.fn(),
@@ -33,9 +50,14 @@ vi.mock("$lib/tauri", () => ({
   workItemDelete: vi.fn(),
   workItemPlan: vi.fn(),
   workItemReviewAccept: vi.fn(),
+  workItemReviewRequestChanges: vi.fn(),
   workItemStart: vi.fn(),
   workItemRunStop: vi.fn(),
+  documentAttach: vi.fn(),
+  documentList: vi.fn().mockResolvedValue([]),
+  documentGet: vi.fn(),
   workItemRunsList: vi.fn().mockResolvedValue([]),
+  workItemRunEvents: vi.fn().mockResolvedValue([]),
   workItemDecisionsList: vi.fn().mockResolvedValue([]),
   workItemDecisionResolve: vi.fn(),
 }));
@@ -89,6 +111,24 @@ function makeRun(overrides: Partial<WorkItemRun> = {}): WorkItemRun {
   };
 }
 
+function makeAttachment(overrides: Partial<Attachment> = {}): Attachment {
+  return {
+    id: "att-1",
+    documentId: "wi-1.att-1",
+    targetKind: "workItem",
+    targetId: "wi-1",
+    title: "Plan",
+    contentKind: "text",
+    mimeType: "text/markdown",
+    sourcePath: null,
+    byteLen: 12,
+    sha256: "sha",
+    createdAt: 1,
+    updatedAt: 1,
+    ...overrides,
+  };
+}
+
 function makeDecision(
   overrides: Partial<WorkItemDecision> = {},
 ): WorkItemDecision {
@@ -109,13 +149,29 @@ function makeDecision(
   };
 }
 
+function makeRunEvent(
+  overrides: Partial<WorkItemRunEvent> = {},
+): WorkItemRunEvent {
+  return {
+    id: "event-1",
+    runId: "run-1",
+    kind: "result",
+    payload: { summary: "Implemented review package." },
+    createdAt: 2,
+    ...overrides,
+  };
+}
+
 describe("workItems store", () => {
   beforeEach(() => {
     workItems.set([]);
     workItemRuns.set([]);
     workItemRunEvents.set([]);
     workItemDecisions.set([]);
+    workItemAttachments.set([]);
     vi.clearAllMocks();
+    vi.mocked(tauriDocumentList).mockResolvedValue([]);
+    vi.mocked(tauriWorkItemRunEvents).mockResolvedValue([]);
   });
 
   describe("applyWorkItemEvent - created", () => {
@@ -362,6 +418,132 @@ describe("workItems store", () => {
     });
   });
 
+  describe("attachments", () => {
+    it("loads work item attachments during hydration", async () => {
+      const item = makeItem({ id: "wi-1" });
+      const attachment = makeAttachment({ targetId: "wi-1" });
+      vi.mocked(tauriWorkItemList).mockResolvedValueOnce([item]);
+      vi.mocked(tauriDocumentList).mockResolvedValueOnce([attachment]);
+
+      await hydrateWorkItems();
+
+      expect(tauriDocumentList).toHaveBeenCalledWith("workItem", null);
+      expect(get(workItemAttachments)).toEqual([attachment]);
+      expect(get(attachmentsByWorkItem).get("wi-1")).toEqual([attachment]);
+    });
+
+    it("loads run events for review runs during hydration", async () => {
+      const item = makeItem({ id: "wi-1", status: "review" });
+      const reviewRun = makeRun({
+        id: "run-review",
+        workItemId: "wi-1",
+        status: "review",
+      });
+      const doingRun = makeRun({
+        id: "run-doing",
+        workItemId: "wi-1",
+        status: "running",
+      });
+      const event = makeRunEvent({ id: "event-review", runId: "run-review" });
+      vi.mocked(tauriWorkItemList).mockResolvedValueOnce([item]);
+      vi.mocked(tauriWorkItemRunsList).mockResolvedValueOnce([
+        reviewRun,
+        doingRun,
+      ]);
+      vi.mocked(tauriWorkItemRunEvents).mockResolvedValueOnce([event]);
+
+      await hydrateWorkItems();
+
+      expect(tauriWorkItemRunEvents).toHaveBeenCalledTimes(1);
+      expect(tauriWorkItemRunEvents).toHaveBeenCalledWith("run-review");
+      expect(get(workItemRunEvents)).toEqual([event]);
+    });
+
+    it("keeps hydrated work items when one review run event fetch fails", async () => {
+      const item = makeItem({ id: "wi-1", status: "review" });
+      const firstReviewRun = makeRun({
+        id: "run-review-1",
+        workItemId: "wi-1",
+        status: "review",
+      });
+      const secondReviewRun = makeRun({
+        id: "run-review-2",
+        workItemId: "wi-1",
+        status: "review",
+      });
+      const event = makeRunEvent({ id: "event-review", runId: "run-review-1" });
+      vi.mocked(tauriWorkItemList).mockResolvedValueOnce([item]);
+      vi.mocked(tauriWorkItemRunsList).mockResolvedValueOnce([
+        firstReviewRun,
+        secondReviewRun,
+      ]);
+      vi.mocked(tauriWorkItemRunEvents)
+        .mockResolvedValueOnce([event])
+        .mockRejectedValueOnce(new Error("run events unavailable"));
+
+      await expect(hydrateWorkItems()).resolves.toBeUndefined();
+
+      expect(get(workItems)).toEqual([item]);
+      expect(get(workItemRuns)).toEqual([firstReviewRun, secondReviewRun]);
+      expect(get(workItemRunEvents)).toEqual([event]);
+    });
+
+    it("upserts attached documents from daemon events", () => {
+      const first = makeAttachment({ id: "att-1", title: "Old Plan" });
+      const next = makeAttachment({ id: "att-1", title: "Plan" });
+      workItemAttachments.set([first]);
+
+      applyWorkItemEvent({ type: "documentAttached", attachment: next });
+
+      expect(get(workItemAttachments)).toEqual([next]);
+      expect(get(attachmentsByWorkItem).get("wi-1")).toEqual([next]);
+    });
+
+    it("upserts attachments returned by attach and list commands", async () => {
+      const plan = makeAttachment({ id: "att-plan", title: "Plan" });
+      vi.mocked(tauriDocumentAttach).mockResolvedValueOnce(plan);
+      vi.mocked(tauriDocumentList).mockResolvedValueOnce([plan]);
+
+      await expect(
+        attachDocument({
+          targetKind: "workItem",
+          targetId: "wi-1",
+          title: "Plan",
+          contentKind: "text",
+          content: "Plan body",
+          mimeType: "text/markdown",
+        }),
+      ).resolves.toEqual(plan);
+      await expect(listDocuments("workItem", "wi-1")).resolves.toEqual([plan]);
+
+      expect(get(attachmentsByWorkItem).get("wi-1")).toEqual([plan]);
+    });
+
+    it("replaces only the requested work item cache when listing by target id without a kind", async () => {
+      const oldPlan = makeAttachment({
+        id: "att-old",
+        targetId: "wi-1",
+        title: "Old Plan",
+      });
+      const otherPlan = makeAttachment({
+        id: "att-other",
+        targetId: "wi-2",
+        title: "Other Plan",
+      });
+      const newPlan = makeAttachment({
+        id: "att-new",
+        targetId: "wi-1",
+        title: "New Plan",
+      });
+      workItemAttachments.set([oldPlan, otherPlan]);
+      vi.mocked(tauriDocumentList).mockResolvedValueOnce([newPlan]);
+
+      await expect(listDocuments(null, "wi-1")).resolves.toEqual([newPlan]);
+
+      expect(get(workItemAttachments)).toEqual([otherPlan, newPlan]);
+    });
+  });
+
   describe("startWorkItem", () => {
     it("binds the returned session id immediately", async () => {
       const item = makeItem({ id: "wi-1", sessionId: null });
@@ -378,6 +560,24 @@ describe("workItems store", () => {
       expect(get(workItemRuns)).toHaveLength(1);
       expect(get(workItems)[0].sessionId).toBe("sess-1");
       expect(get(workItems)[0].status).toBe("doing");
+    });
+
+    it("passes forced starts through to the daemon adapter", async () => {
+      const item = makeItem({ id: "wi-1", sessionId: null });
+      workItems.set([item]);
+      vi.mocked(tauriWorkItemStart).mockResolvedValueOnce({
+        item: makeItem({ id: "wi-1", sessionId: "sess-1", status: "doing" }),
+        run: makeRun(),
+        session: {} as never,
+      });
+
+      await expect(startWorkItem("wi-1", { forceStart: true })).resolves.toBe(
+        "sess-1",
+      );
+
+      expect(tauriWorkItemStart).toHaveBeenCalledWith("wi-1", {
+        forceStart: true,
+      });
     });
 
     it("rejects when the daemon returns a run without a session id", async () => {
@@ -445,6 +645,55 @@ describe("workItems store", () => {
         id: "run-1",
         status: "done",
         endedAt: 5,
+      });
+    });
+  });
+
+  describe("requestWorkItemChanges", () => {
+    it("stores the returned card, run, and feedback attachment", async () => {
+      const item = makeItem({
+        id: "wi-1",
+        status: "review",
+        sessionId: "sess-1",
+      });
+      workItems.set([item]);
+      workItemRuns.set([makeRun({ id: "run-1", status: "review" })]);
+      vi.mocked(tauriWorkItemReviewRequestChanges).mockResolvedValueOnce({
+        item: makeItem({ id: "wi-1", status: "doing", sessionId: null }),
+        run: makeRun({
+          id: "run-1",
+          status: "changesRequested",
+          endedAt: 5,
+        }),
+        attachment: makeAttachment({
+          id: "feedback-1",
+          title: "Review feedback",
+          documentId: "wi-1.feedback",
+        }),
+      });
+
+      await expect(
+        requestWorkItemChanges("run-1", "Please add coverage."),
+      ).resolves.toMatchObject({ status: "doing", sessionId: null });
+
+      expect(tauriWorkItemReviewRequestChanges).toHaveBeenCalledWith(
+        "run-1",
+        "Please add coverage.",
+        null,
+      );
+      expect(get(workItems)[0]).toMatchObject({
+        id: "wi-1",
+        status: "doing",
+        sessionId: null,
+      });
+      expect(get(workItemRuns)[0]).toMatchObject({
+        id: "run-1",
+        status: "changesRequested",
+        endedAt: 5,
+      });
+      expect(get(workItemAttachments)[0]).toMatchObject({
+        id: "feedback-1",
+        title: "Review feedback",
       });
     });
   });

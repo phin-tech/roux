@@ -61,6 +61,7 @@ use work_items::{
     handle_work_item_decision_resolve, handle_work_item_decisions_list, handle_work_item_delete,
     handle_work_item_detach_session, handle_work_item_import, handle_work_item_list,
     handle_work_item_move, handle_work_item_plan, handle_work_item_review_accept,
+    handle_work_item_review_request, handle_work_item_review_request_changes,
     handle_work_item_run_events, handle_work_item_run_stop, handle_work_item_runs_list,
     handle_work_item_start, handle_work_item_update, schedule_pending_work_item_decision_timeouts,
 };
@@ -280,6 +281,10 @@ async fn handle_request_with_watch_runner(
         "work-item-plan" => handle_work_item_plan(req, host, identity).await,
         "work-item-start" => handle_work_item_start(req, host, identity).await,
         "work-item-review-accept" => handle_work_item_review_accept(req, host).await,
+        "work-item-review-request" => handle_work_item_review_request(req, host).await,
+        "work-item-review-request-changes" => {
+            handle_work_item_review_request_changes(req, host).await
+        }
         "work-item-runs-list" => handle_work_item_runs_list(req, host).await,
         "work-item-run-events" => handle_work_item_run_events(req, host).await,
         "work-item-run-stop" => handle_work_item_run_stop(req, host).await,

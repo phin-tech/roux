@@ -95,6 +95,7 @@
     applyStatusRouting,
   } from "$lib/panes/statusRouting";
   import { initAgentNotifications } from "$lib/panes/agentNotifications";
+  import { initWorkItemNotifications } from "$lib/panes/workItemNotifications";
   import {
     initNotificationAutoRead,
     stopNotificationAutoRead,
@@ -745,6 +746,10 @@
     // transitions fire a completion notification. Window-focus suppression
     // and OS fan-out happen on the Rust side of notificationsPush.
     initAgentNotifications();
+
+    // Surface work items blocked on a human decision as attention
+    // notifications, dismissing them once the decision resolves.
+    initWorkItemNotifications();
 
     // Resolve the active session's branch to an open PR (when gh is
     // available) so the status bar can render a PR chip and the optional

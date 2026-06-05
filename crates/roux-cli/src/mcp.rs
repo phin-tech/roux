@@ -27,6 +27,8 @@ const MCP_TOOL_NAMES: &[&str] = &[
     "roux_delete_work_item",
     "roux_plan_work_item",
     "roux_start_work_item",
+    "roux_request_work_item_review",
+    "roux_request_work_item_review_changes",
     "roux_accept_work_item_review",
     "roux_list_work_item_runs",
     "roux_list_work_item_run_events",
@@ -239,6 +241,8 @@ pub struct WorkItemStartParams {
     pub base: Option<String>,
     #[serde(default)]
     pub fetch_first: bool,
+    #[serde(default)]
+    pub force_start: bool,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -263,6 +267,31 @@ pub struct WorkItemRunsListParams {
 #[serde(rename_all = "camelCase")]
 pub struct WorkItemRunIdParams {
     pub run_id: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkItemReviewRequestParams {
+    pub run_id: String,
+    /// Short implementation summary to show in the review package.
+    pub summary: Option<String>,
+    /// Test/check commands that were run.
+    #[serde(default)]
+    pub tests: Vec<String>,
+    /// Changed file paths to show in the review package.
+    #[serde(default)]
+    pub changed_files: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkItemReviewRequestChangesParams {
+    /// Work item run id, or work item id when the latest review run should be used.
+    pub id: String,
+    /// Human review feedback to attach to the work item.
+    pub note: String,
+    /// Destination status after changes are requested. Defaults to doing.
+    pub status: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
@@ -748,6 +777,53 @@ impl RouxMcpServer {
         Parameters(params): Parameters<WorkItemStartParams>,
     ) -> Result<CallToolResult, ErrorData> {
         call_socket(build_work_item_start_request(params)).await
+    }
+
+    #[tool(
+        description = "Request review for a Kanban implementation run by run id. Moves the run and card to Review."
+    )]
+    async fn roux_request_work_item_review(
+        &self,
+        Parameters(params): Parameters<WorkItemReviewRequestParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let mut args = serde_json::Map::new();
+        args.insert("runId".into(), Value::String(params.run_id));
+        insert_optional_string(&mut args, "summary", params.summary);
+        if !params.tests.is_empty() {
+            args.insert(
+                "tests".into(),
+                Value::Array(params.tests.into_iter().map(Value::String).collect()),
+            );
+        }
+        if !params.changed_files.is_empty() {
+            args.insert(
+                "changedFiles".into(),
+                Value::Array(params.changed_files.into_iter().map(Value::String).collect()),
+            );
+        }
+        call_socket(json!({
+            "command": "work-item-review-request",
+            "args": Value::Object(args),
+        }))
+        .await
+    }
+
+    #[tool(
+        description = "Request changes for a Kanban work item review. Attaches human feedback and moves the card back to In Progress by default, or Ready when status is ready."
+    )]
+    async fn roux_request_work_item_review_changes(
+        &self,
+        Parameters(params): Parameters<WorkItemReviewRequestChangesParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let mut args = serde_json::Map::new();
+        args.insert("id".into(), Value::String(params.id));
+        args.insert("note".into(), Value::String(params.note));
+        insert_optional_string(&mut args, "status", params.status);
+        call_socket(json!({
+            "command": "work-item-review-request-changes",
+            "args": Value::Object(args),
+        }))
+        .await
     }
 
     #[tool(
@@ -1468,7 +1544,7 @@ fn mcp_parent_monitor() -> Result<McpParentMonitor, McpLifecycleError> {
 
     #[cfg(unix)]
     {
-        return Ok(McpParentMonitor::UnixPid(parent_pid));
+        Ok(McpParentMonitor::UnixPid(parent_pid))
     }
 
     #[cfg(windows)]
@@ -1906,6 +1982,9 @@ fn build_work_item_start_request(params: WorkItemStartParams) -> Value {
     if params.fetch_first {
         args.insert("fetchFirst".into(), Value::Bool(true));
     }
+    if params.force_start {
+        args.insert("forceStart".into(), Value::Bool(true));
+    }
     json!({
         "command": "work-item-start",
         "args": Value::Object(args),
@@ -2043,6 +2122,8 @@ mod tests {
         assert!(MCP_TOOL_NAMES.contains(&"roux_send_text"));
         assert!(MCP_TOOL_NAMES.contains(&"roux_get_latest_output"));
         assert!(MCP_TOOL_NAMES.contains(&"roux_start_work_item"));
+        assert!(MCP_TOOL_NAMES.contains(&"roux_request_work_item_review"));
+        assert!(MCP_TOOL_NAMES.contains(&"roux_request_work_item_review_changes"));
         assert!(MCP_TOOL_NAMES.contains(&"roux_accept_work_item_review"));
         assert!(MCP_TOOL_NAMES.contains(&"roux_resolve_work_item_decision"));
         assert!(!MCP_TOOL_NAMES.contains(&"roux_run_command"));
@@ -2172,6 +2253,7 @@ mod tests {
             branch: Some("feat/login".into()),
             base: Some("origin/main".into()),
             fetch_first: true,
+            force_start: true,
         });
 
         assert_eq!(request["command"], "work-item-start");
@@ -2182,6 +2264,7 @@ mod tests {
         assert_eq!(request["args"]["branch"], "feat/login");
         assert_eq!(request["args"]["base"], "origin/main");
         assert_eq!(request["args"]["fetchFirst"], true);
+        assert_eq!(request["args"]["forceStart"], true);
     }
 
     #[test]

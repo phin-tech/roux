@@ -687,6 +687,13 @@
     label: string;
   } {
     const query = worktreeFilterInput.trim();
+    if (isWorkItemStart && !query) {
+      return {
+        worktreePathArg: null,
+        branchArg: null,
+        label: "daemon default",
+      };
+    }
     const exact =
       worktrees.find((wt) => wt.path === query || wt.branch === query) ??
       (query.length === 0 ? selectedWorktree : null);
@@ -824,6 +831,7 @@
           profile: profile.id,
           base: defaultBase.base,
           fetchFirst: defaultBase.fetchFirst,
+          forceStart: workItemStart.forceStart,
         });
         await openSessionById(sessionId);
         resetAndClose();

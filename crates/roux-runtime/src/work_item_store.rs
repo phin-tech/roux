@@ -22,8 +22,24 @@ use roux_core::{
 
 pub const WORK_ITEM_SCHEMA_VERSION: i64 = 7;
 
+type ReviewRequestStoreResult =
+    Option<(WorkItem, WorkItemRun, WorkItemRunEvent, Option<WorkItemRunEvent>)>;
+type ReviewRequestChangesStoreResult =
+    Option<(WorkItem, WorkItemRun, WorkItemRunEvent, Option<Attachment>)>;
+
 pub struct WorkItemStore {
     conn: Connection,
+}
+
+fn is_terminal_work_item_run_status(status: &WorkItemRunStatus) -> bool {
+    matches!(
+        status,
+        WorkItemRunStatus::Review
+            | WorkItemRunStatus::ChangesRequested
+            | WorkItemRunStatus::Failed
+            | WorkItemRunStatus::Stopped
+            | WorkItemRunStatus::Done
+    )
 }
 
 impl WorkItemStore {
@@ -751,13 +767,15 @@ impl WorkItemStore {
             "SELECT EXISTS(
                 SELECT 1 FROM work_item_runs
                 WHERE work_item_id = ?1
-                  AND status NOT IN (?2, ?3, ?4)
+                  AND status NOT IN (?2, ?3, ?4, ?5, ?6)
             )",
             params![
                 work_item_id,
                 WorkItemRunStatus::Done.as_str(),
                 WorkItemRunStatus::Failed.as_str(),
                 WorkItemRunStatus::Stopped.as_str(),
+                WorkItemRunStatus::Review.as_str(),
+                WorkItemRunStatus::ChangesRequested.as_str(),
             ],
             |row| row.get(0),
         )
@@ -870,10 +888,7 @@ impl WorkItemStore {
         status: WorkItemRunStatus,
         now: u64,
     ) -> SqlResult<WorkItemRun> {
-        let is_terminal = matches!(
-            status,
-            WorkItemRunStatus::Failed | WorkItemRunStatus::Stopped | WorkItemRunStatus::Done
-        );
+        let is_terminal = is_terminal_work_item_run_status(&status);
         let started_at = (status == WorkItemRunStatus::Running).then_some(now as i64);
         let tx = self.conn.transaction()?;
         if !is_terminal {
@@ -881,11 +896,11 @@ impl WorkItemStore {
                 "SELECT EXISTS(
                     SELECT 1 FROM work_item_runs
                     WHERE work_item_id = ?1
-                      AND status NOT IN (?2, ?3, ?4)
+                      AND status NOT IN (?2, ?3, ?4, ?5, ?6)
                       AND (
-                          ?5 IS NULL
+                          ?7 IS NULL
                           OR session_id IS NULL
-                          OR session_id != ?5
+                          OR session_id != ?7
                       )
                 )",
                 params![
@@ -893,6 +908,8 @@ impl WorkItemStore {
                     WorkItemRunStatus::Done.as_str(),
                     WorkItemRunStatus::Failed.as_str(),
                     WorkItemRunStatus::Stopped.as_str(),
+                    WorkItemRunStatus::Review.as_str(),
+                    WorkItemRunStatus::ChangesRequested.as_str(),
                     session_id,
                 ],
                 |row| row.get(0),
@@ -1036,13 +1053,7 @@ impl WorkItemStore {
         }
         let payload = serde_json::to_string(&payload)
             .map_err(|err| rusqlite::Error::ToSqlConversionFailure(Box::new(err)))?;
-        let is_terminal = matches!(
-            status,
-            WorkItemRunStatus::Review
-                | WorkItemRunStatus::Failed
-                | WorkItemRunStatus::Stopped
-                | WorkItemRunStatus::Done
-        );
+        let is_terminal = is_terminal_work_item_run_status(&status);
         let is_running = status == WorkItemRunStatus::Running;
         let tx = self.conn.transaction()?;
         let changed = tx.execute(
@@ -1050,15 +1061,16 @@ impl WorkItemStore {
              SET status = ?2,
                  updated_at = ?3,
                  ended_at = CASE WHEN ?4 THEN COALESCE(ended_at, ?3) ELSE ended_at END,
-                 started_at = CASE WHEN ?9 THEN COALESCE(started_at, ?3) ELSE started_at END
+                 started_at = CASE WHEN ?10 THEN COALESCE(started_at, ?3) ELSE started_at END
              WHERE id = ?1
-               AND status NOT IN (?5, ?6, ?7, ?8)",
+               AND status NOT IN (?5, ?6, ?7, ?8, ?9)",
             params![
                 id,
                 status.as_str(),
                 now as i64,
                 is_terminal,
                 WorkItemRunStatus::Review.as_str(),
+                WorkItemRunStatus::ChangesRequested.as_str(),
                 WorkItemRunStatus::Done.as_str(),
                 WorkItemRunStatus::Failed.as_str(),
                 WorkItemRunStatus::Stopped.as_str(),
@@ -1163,6 +1175,246 @@ impl WorkItemStore {
         Ok(Some((item, run, event)))
     }
 
+    pub fn request_review(
+        &mut self,
+        run_id: &str,
+        event_id: String,
+        payload: Value,
+        result_event: Option<(String, Value)>,
+        now: u64,
+    ) -> SqlResult<ReviewRequestStoreResult> {
+        let payload = serde_json::to_string(&payload)
+            .map_err(|err| rusqlite::Error::ToSqlConversionFailure(Box::new(err)))?;
+        let result_event = result_event
+            .map(|(id, payload)| {
+                serde_json::to_string(&payload)
+                    .map(|payload| (id, payload))
+                    .map_err(|err| rusqlite::Error::ToSqlConversionFailure(Box::new(err)))
+            })
+            .transpose()?;
+        let tx = self.conn.transaction()?;
+        let run_row = tx
+            .query_row(
+                "SELECT work_item_id, kind
+                 FROM work_item_runs
+                 WHERE id = ?1",
+                params![run_id],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )
+            .optional()?;
+        let Some((work_item_id, kind)) = run_row else {
+            tx.rollback()?;
+            return Ok(None);
+        };
+        if kind != WorkItemRunKind::Implementation.as_str() {
+            tx.rollback()?;
+            return Err(rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CONSTRAINT),
+                Some("work item review can only be requested for implementation runs".into()),
+            ));
+        }
+        let changed = tx.execute(
+            "UPDATE work_item_runs
+             SET status = ?2,
+                 updated_at = ?3,
+                 ended_at = COALESCE(ended_at, ?3)
+             WHERE id = ?1
+               AND status NOT IN (?4, ?5, ?6, ?7, ?8)",
+            params![
+                run_id,
+                WorkItemRunStatus::Review.as_str(),
+                now as i64,
+                WorkItemRunStatus::Review.as_str(),
+                WorkItemRunStatus::Done.as_str(),
+                WorkItemRunStatus::Failed.as_str(),
+                WorkItemRunStatus::Stopped.as_str(),
+                WorkItemRunStatus::ChangesRequested.as_str(),
+            ],
+        )?;
+        if changed == 0 {
+            tx.rollback()?;
+            return Ok(None);
+        }
+        tx.execute(
+            "UPDATE work_items
+             SET status = ?2, updated_at = ?3
+             WHERE id = ?1",
+            params![work_item_id, WorkItemStatus::Review.as_str(), now as i64],
+        )?;
+        tx.execute(
+            "INSERT INTO work_item_run_events (id, run_id, kind, payload, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                event_id,
+                run_id,
+                WorkItemRunEventKind::StatusChanged.as_str(),
+                payload,
+                now as i64,
+            ],
+        )?;
+        if let Some((result_event_id, result_payload)) = result_event.as_ref() {
+            tx.execute(
+                "INSERT INTO work_item_run_events (id, run_id, kind, payload, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![
+                    result_event_id,
+                    run_id,
+                    WorkItemRunEventKind::Result.as_str(),
+                    result_payload,
+                    now as i64,
+                ],
+            )?;
+        }
+        tx.commit()?;
+
+        let item = self.get(&work_item_id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+        let run = self.get_run(run_id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+        let event = self.get_run_event(&event_id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+        let result_event = if let Some((result_event_id, _)) = result_event {
+            Some(
+                self.get_run_event(&result_event_id)?
+                    .ok_or(rusqlite::Error::QueryReturnedNoRows)?,
+            )
+        } else {
+            None
+        };
+        Ok(Some((item, run, event, result_event)))
+    }
+
+    pub fn request_changes(
+        &mut self,
+        run_id: &str,
+        target_status: WorkItemStatus,
+        event_id: String,
+        mut payload: Value,
+        feedback: Option<(String, AttachmentInput, u64, String)>,
+        now: u64,
+    ) -> SqlResult<ReviewRequestChangesStoreResult> {
+        let feedback_document_id =
+            feedback.as_ref().map(|(id, input, _, _)| attachment_document_id(&input.target_id, id));
+        if let (Value::Object(object), Some(document_id)) =
+            (&mut payload, feedback_document_id.as_ref())
+        {
+            object.insert("feedbackDocumentId".into(), Value::String(document_id.clone()));
+        }
+        let payload = serde_json::to_string(&payload)
+            .map_err(|err| rusqlite::Error::ToSqlConversionFailure(Box::new(err)))?;
+        let feedback_attachment_id = feedback.as_ref().map(|(id, _, _, _)| id.clone());
+        let tx = self.conn.transaction()?;
+        let run_row = tx
+            .query_row(
+                "SELECT work_item_id, kind, status
+                 FROM work_item_runs
+                 WHERE id = ?1",
+                params![run_id],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                },
+            )
+            .optional()?;
+        let Some((work_item_id, kind, status)) = run_row else {
+            tx.rollback()?;
+            return Ok(None);
+        };
+        if kind != WorkItemRunKind::Implementation.as_str() {
+            tx.rollback()?;
+            return Err(rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CONSTRAINT),
+                Some("work item changes can only be requested for implementation runs".into()),
+            ));
+        }
+        if status != WorkItemRunStatus::Review.as_str() {
+            tx.rollback()?;
+            return Ok(None);
+        }
+        if let Some((_, input, _, _)) = feedback.as_ref() {
+            if input.target_kind.as_str() != AttachmentTargetKind::WorkItem.as_str()
+                || input.target_id != work_item_id
+            {
+                tx.rollback()?;
+                return Err(rusqlite::Error::SqliteFailure(
+                    rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CONSTRAINT),
+                    Some("review feedback attachment target must match the work item".into()),
+                ));
+            }
+        }
+        let changed = tx.execute(
+            "UPDATE work_item_runs
+             SET status = ?2,
+                 updated_at = ?3,
+                 ended_at = COALESCE(ended_at, ?3)
+             WHERE id = ?1
+               AND status = ?4",
+            params![
+                run_id,
+                WorkItemRunStatus::ChangesRequested.as_str(),
+                now as i64,
+                WorkItemRunStatus::Review.as_str(),
+            ],
+        )?;
+        if changed == 0 {
+            tx.rollback()?;
+            return Ok(None);
+        }
+        tx.execute(
+            "UPDATE work_items
+             SET status = ?2,
+                 session_id = NULL,
+                 updated_at = ?3
+             WHERE id = ?1",
+            params![work_item_id, target_status.as_str(), now as i64],
+        )?;
+        if let Some((id, input, byte_len, sha256)) = feedback {
+            tx.execute(
+                "INSERT INTO attachments
+                 (id, target_kind, target_id, title, content_kind, content, mime_type, source_path,
+                  byte_len, sha256, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                params![
+                    id,
+                    input.target_kind.as_str(),
+                    input.target_id,
+                    input.title,
+                    input.content_kind.as_str(),
+                    input.content,
+                    input.mime_type,
+                    input.source_path,
+                    byte_len as i64,
+                    sha256,
+                    now as i64,
+                    now as i64,
+                ],
+            )?;
+        }
+        tx.execute(
+            "INSERT INTO work_item_run_events (id, run_id, kind, payload, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                event_id,
+                run_id,
+                WorkItemRunEventKind::StatusChanged.as_str(),
+                payload,
+                now as i64,
+            ],
+        )?;
+        tx.commit()?;
+
+        let item = self.get(&work_item_id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+        let run = self.get_run(run_id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+        let event = self.get_run_event(&event_id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+        let attachment = match feedback_attachment_id {
+            Some(id) => {
+                Some(self.get_attachment(&id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?)
+            }
+            None => None,
+        };
+        Ok(Some((item, run, event, attachment)))
+    }
+
     pub fn create_decision(
         &mut self,
         id: String,
@@ -1180,11 +1432,13 @@ impl WorkItemStore {
             "UPDATE work_item_runs
              SET status = ?2, updated_at = ?3
              WHERE id = ?1
-               AND status NOT IN (?4, ?5, ?6)",
+               AND status NOT IN (?4, ?5, ?6, ?7, ?8)",
             params![
                 run_id,
                 WorkItemRunStatus::Blocked.as_str(),
                 now as i64,
+                WorkItemRunStatus::Review.as_str(),
+                WorkItemRunStatus::ChangesRequested.as_str(),
                 WorkItemRunStatus::Done.as_str(),
                 WorkItemRunStatus::Failed.as_str(),
                 WorkItemRunStatus::Stopped.as_str(),
@@ -2390,6 +2644,124 @@ mod tests {
         assert!(matches!(err, rusqlite::Error::QueryReturnedNoRows));
         let run = store.get_run("run-1").unwrap().unwrap();
         assert_eq!(run.status, roux_core::WorkItemRunStatus::Done);
+        assert!(store.list_pending_decisions(None).unwrap().is_empty());
+    }
+
+    #[test]
+    fn create_decision_does_not_revive_review_handoff_run() {
+        let mut store = WorkItemStore::open_in_memory().unwrap();
+        store.create("i-1".into(), input("Task"), 1000).unwrap();
+        store
+            .create_run("run-1".into(), "i-1", Some("sess-1"), None, None, None, None, 1100)
+            .unwrap();
+        store
+            .request_review(
+                "run-1",
+                "event-1".into(),
+                serde_json::json!({ "status": "review" }),
+                None,
+                1200,
+            )
+            .unwrap()
+            .expect("run should request review");
+
+        let err = store
+            .create_decision(
+                "dec-1".into(),
+                "run-1",
+                "Choose path?",
+                vec![WorkItemDecisionOption { value: "a".into(), label: "A".into() }],
+                None,
+                None,
+                1300,
+            )
+            .unwrap_err();
+
+        assert!(matches!(err, rusqlite::Error::QueryReturnedNoRows));
+        let run = store.get_run("run-1").unwrap().unwrap();
+        assert_eq!(run.status, roux_core::WorkItemRunStatus::Review);
+        assert!(store.list_pending_decisions(None).unwrap().is_empty());
+    }
+
+    #[test]
+    fn request_review_ignores_run_already_in_review() {
+        let mut store = WorkItemStore::open_in_memory().unwrap();
+        store.create("i-1".into(), input("Task"), 1000).unwrap();
+        store
+            .create_run("run-1".into(), "i-1", Some("sess-1"), None, None, None, None, 1100)
+            .unwrap();
+        store
+            .request_review(
+                "run-1",
+                "event-1".into(),
+                serde_json::json!({ "status": "review" }),
+                Some(("event-result-1".into(), serde_json::json!({ "summary": "First" }))),
+                1200,
+            )
+            .unwrap()
+            .expect("run should request review");
+
+        let result = store
+            .request_review(
+                "run-1",
+                "event-2".into(),
+                serde_json::json!({ "status": "review" }),
+                Some(("event-result-2".into(), serde_json::json!({ "summary": "Duplicate" }))),
+                1300,
+            )
+            .unwrap();
+
+        assert!(result.is_none());
+        let events = store.list_run_events("run-1").unwrap();
+        assert_eq!(events.len(), 2);
+        assert!(events.iter().any(|event| event.id == "event-1"));
+        assert!(events.iter().any(|event| event.id == "event-result-1"));
+    }
+
+    #[test]
+    fn create_decision_does_not_revive_changes_requested_run() {
+        let mut store = WorkItemStore::open_in_memory().unwrap();
+        store.create("i-1".into(), input("Task"), 1000).unwrap();
+        store
+            .create_run("run-1".into(), "i-1", Some("sess-1"), None, None, None, None, 1100)
+            .unwrap();
+        store
+            .request_review(
+                "run-1",
+                "event-1".into(),
+                serde_json::json!({ "status": "review" }),
+                None,
+                1200,
+            )
+            .unwrap()
+            .expect("run should request review");
+        store
+            .request_changes(
+                "run-1",
+                roux_core::WorkItemStatus::Doing,
+                "event-2".into(),
+                serde_json::json!({ "status": "changes_requested" }),
+                None,
+                1250,
+            )
+            .unwrap()
+            .expect("run should request changes");
+
+        let err = store
+            .create_decision(
+                "dec-1".into(),
+                "run-1",
+                "Choose path?",
+                vec![WorkItemDecisionOption { value: "a".into(), label: "A".into() }],
+                None,
+                None,
+                1300,
+            )
+            .unwrap_err();
+
+        assert!(matches!(err, rusqlite::Error::QueryReturnedNoRows));
+        let run = store.get_run("run-1").unwrap().unwrap();
+        assert_eq!(run.status, roux_core::WorkItemRunStatus::ChangesRequested);
         assert!(store.list_pending_decisions(None).unwrap().is_empty());
     }
 

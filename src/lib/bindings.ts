@@ -31,7 +31,7 @@ export const commands = {
 	 *  Read a single worktrunk log file, capped at 256 KiB. Returns `None`
 	 *  when the file doesn't exist (was rotated / pruned between listing
 	 *  and read).
-	 *
+	 * 
 	 *  Defense-in-depth: even though the UI only supplies paths it received
 	 *  from `cmd_worktrunk_diagnostics`, we refuse any path whose canonical
 	 *  form does not live under `<repo_path>/.git/wt/logs/`. That way a
@@ -42,7 +42,7 @@ export const commands = {
 	/**
 	 *  Open a terminal at `path`. Used by the Worktrunk panel's
 	 *  right-click context menu.
-	 *
+	 * 
 	 *  macOS: `open -a Terminal <path>` — always Apple Terminal. (The
 	 *  user's "default terminal" preference on macOS is not exposed via a
 	 *  stable API, so we pick Terminal.app deliberately.)
@@ -64,8 +64,16 @@ export const commands = {
 	cmdReadAutomationHookLog: (path: string) => typedError<string, string>(__TAURI_INVOKE("cmd_read_automation_hook_log", { path })),
 	writeToSession: (id: string, data: string) => typedError<null, string>(__TAURI_INVOKE("write_to_session", { id, data })),
 	resizeSession: (id: string, cols: number, rows: number) => typedError<null, string>(__TAURI_INVOKE("resize_session", { id, cols, rows })),
-	spawnShell: (id: string, workingDir: string, sessionId: string | null, paneId: string | null, profile: string | null, opts: SpawnPtyOpts | null) => typedError<null, string>(__TAURI_INVOKE("spawn_shell", { id, workingDir, sessionId, paneId, profile, opts })),
-	spawnTask: (id: string, command: string, workingDir: string, sessionId: string | null, paneId: string | null, profile: string | null, opts: SpawnPtyOpts | null) => typedError<null, string>(__TAURI_INVOKE("spawn_task", { id, command, workingDir, sessionId, paneId, profile, opts })),
+	spawnShell: (id: string, workingDir: string, sessionId: string | null, paneId: string | null, profile: string | null, opts: {
+	profileData?: SpawnProfile | null,
+	envOverrides?: { [key in string]: TerminalEnvRule } | null,
+	initialSize?: [number, number] | null,
+} | null) => typedError<null, string>(__TAURI_INVOKE("spawn_shell", { id, workingDir, sessionId, paneId, profile, opts })),
+	spawnTask: (id: string, command: string, workingDir: string, sessionId: string | null, paneId: string | null, profile: string | null, opts: {
+	profileData?: SpawnProfile | null,
+	envOverrides?: { [key in string]: TerminalEnvRule } | null,
+	initialSize?: [number, number] | null,
+} | null) => typedError<null, string>(__TAURI_INVOKE("spawn_task", { id, command, workingDir, sessionId, paneId, profile, opts })),
 	/**
 	 *  Archive a session (soft-delete). The frontend command name is retained
 	 *  for backward-compat, but the record is kept on disk and shown in the
@@ -92,7 +100,7 @@ export const commands = {
 	 *  closing a pane never accidentally destroys its session — even when the
 	 *  pane's `ptyId === sessionId` (the session-owned PTY spawned by
 	 *  `create_session` / `create_session_shell`).
-	 *
+	 * 
 	 *  Prior to this command, `disposePane` called `kill_session`, which tore
 	 *  down `session_handle` and `pane_state` as a side effect. That was fine
 	 *  for non-primary shells whose ptyId was a random UUID (not in
@@ -135,6 +143,8 @@ export const commands = {
 	 *  the PTY env so agents wake up under the right profile.
 	 */
 	profile?: string | null,
+	profileData?: SpawnProfile | null,
+	envOverrides?: { [key in string]: TerminalEnvRule } | null,
 	initialSize?: [number, number] | null,
 	/**
 	 *  Git starting point for a new worktree's branch (e.g. "main",
@@ -158,8 +168,6 @@ export const commands = {
 	 *  blueprint row when the live session is up.
 	 */
 	blueprintId?: string | null,
-	profileData?: SpawnProfile | null,
-	envOverrides?: { [key in string]: TerminalEnvRule } | null,
 } | null) => typedError<Session, string>(__TAURI_INVOKE("create_session_shell", { repoPath, name, worktreePath, branch, opts })),
 	/**
 	 *  Respawns a plain shell in the session's primary PTY. The frontend
@@ -167,7 +175,19 @@ export const commands = {
 	 *  this call returns, so agents come back up the same way they were
 	 *  originally launched via `create_session_shell`.
 	 */
-	reconnectSessionShell: (id: string, profile: string | null, initialSize: [number, number] | null, profileData: SpawnProfile | null, envOverrides: { [key in string]: TerminalEnvRule } | null) => typedError<Session, string>(__TAURI_INVOKE("reconnect_session_shell", { id, profile, initialSize, profileData, envOverrides })),
+	reconnectSessionShell: (id: string, profile: string | null, profileData: {
+	id: string,
+	name: string,
+	setupCommand?: string | null,
+	startupCommand?: string | null,
+	startupBehavior?: StartupBehavior | null,
+	env?: { [key in string]: TerminalEnvRule } | null,
+	beforeShellStarts?: string | null,
+	cwdOverride?: string | null,
+	icon?: string | null,
+	provider?: Provider | null,
+	source: ProfileSource,
+} | null, envOverrides: { [key in string]: TerminalEnvRule } | null, initialSize: [number, number] | null) => typedError<Session, string>(__TAURI_INVOKE("reconnect_session_shell", { id, profile, profileData, envOverrides, initialSize })),
 	/**
 	 *  Active sessions only — archived rows are excluded. The history view
 	 *  uses `list_archived_sessions` for those.
@@ -290,7 +310,9 @@ export const commands = {
 	workItemDetachSession: (id: string) => typedError<WorkItem, string>(__TAURI_INVOKE("work_item_detach_session", { id })),
 	workItemPlan: (id: string, profile: string | null, repoPath: string | null, name: string | null, worktreePath: string | null, replaceActive: boolean) => typedError<WorkItemPlanResult, string>(__TAURI_INVOKE("work_item_plan", { id, profile, repoPath, name, worktreePath, replaceActive })),
 	workItemReviewAccept: (id: string) => typedError<WorkItemReviewAcceptResult, string>(__TAURI_INVOKE("work_item_review_accept", { id })),
-	workItemStart: (id: string, profile: string | null, repoPath: string | null, name: string | null, worktreePath: string | null, branch: string | null, base: string | null, fetchFirst: boolean | null) => typedError<WorkItemStartResult, string>(__TAURI_INVOKE("work_item_start", { id, profile, repoPath, name, worktreePath, branch, base, fetchFirst })),
+	workItemReviewRequest: (runId: string) => typedError<WorkItemReviewRequestResult, string>(__TAURI_INVOKE("work_item_review_request", { runId })),
+	workItemReviewRequestChanges: (id: string, note: string, status: string | null) => typedError<WorkItemReviewRequestChangesResult, string>(__TAURI_INVOKE("work_item_review_request_changes", { id, note, status })),
+	workItemStart: (id: string, profile: string | null, repoPath: string | null, name: string | null, worktreePath: string | null, branch: string | null, base: string | null, fetchFirst: boolean | null, forceStart: boolean | null) => typedError<WorkItemStartResult, string>(__TAURI_INVOKE("work_item_start", { id, profile, repoPath, name, worktreePath, branch, base, fetchFirst, forceStart })),
 	notesRead: (target: NotesTarget) => typedError<NotesRead, string>(__TAURI_INVOKE("notes_read", { target })),
 	notesWrite: (target: NotesTarget, content: string, tags: string[]) => typedError<null, string>(__TAURI_INVOKE("notes_write", { target, content, tags })),
 	notesAppend: (target: NotesTarget, content: string, timestamped: boolean, tags: string[]) => typedError<null, string>(__TAURI_INVOKE("notes_append", { target, content, timestamped, tags })),
@@ -376,6 +398,25 @@ export type AttachResult = {
 	replay_bytes: number[],
 };
 
+export type Attachment = {
+	id: string,
+	documentId: string,
+	targetKind: AttachmentTargetKind,
+	targetId: string,
+	title: string | null,
+	contentKind: AttachmentContentKind,
+	mimeType: string | null,
+	sourcePath: string | null,
+	byteLen: number,
+	sha256: string,
+	createdAt: number,
+	updatedAt: number,
+};
+
+export type AttachmentContentKind = "text" | "file";
+
+export type AttachmentTargetKind = "session" | "workItem";
+
 export type Bind = {
 	key: KeyRef,
 	action: KeymapAction,
@@ -405,6 +446,8 @@ export type CreateShellOpts = {
 	 *  the PTY env so agents wake up under the right profile.
 	 */
 	profile?: string | null,
+	profileData?: SpawnProfile | null,
+	envOverrides?: { [key in string]: TerminalEnvRule } | null,
 	initialSize?: [number, number] | null,
 	/**
 	 *  Git starting point for a new worktree's branch (e.g. "main",
@@ -593,16 +636,14 @@ export type KanbanStartupSidebar = "restore" | "sessions" | "kanban" | "none";
 
 export type KeepOpen = "always" | "on-error" | "never";
 
-export type StartupTarget = "restore" | "sessionsSidebar" | "lastSession" | "kanbanWide" | "externalTool" | "none";
-
 // How a bound key is matched against a `KeyboardEvent`.
-export type KeyRef =
+export type KeyRef = 
 /**
  *  Match `event.code` — survives keyboard-layout quirks (macOS Option
  *  producing `∆` for `j`, etc.). Used for any binding with a modifier
  *  prefix: `Alt+KeyH`, `Cmd+Digit1`, `Ctrl+KeyB`.
  */
-{ kind: "physical"; mods: Modifier[]; code: string } |
+{ kind: "physical"; mods: Modifier[]; code: string } | 
 /**
  *  Match `event.key` — the logical character after Shift/dead-keys.
  *  Used for bare bindings inside trees: `"h"`, `"%"`, `"Escape"`.
@@ -610,9 +651,9 @@ export type KeyRef =
 { kind: "character"; mods: Modifier[]; key: string };
 
 // What a bind fires.
-export type KeymapAction =
+export type KeymapAction = 
 // Execute a registered command by id.
-{ kind: "command"; id: string } |
+{ kind: "command"; id: string } | 
 // Promote to a named tree (drill-down within a chord sequence).
 { kind: "enterTree"; tree: string };
 
@@ -639,7 +680,7 @@ export type KeymapWarning = {
  *  profile; splits hold ordered children and a direction. The `size` field is
  *  a raw proportional weight in `[0, 100]`; normalization to pane-tree
  *  fractions happens later in the frontend walker, not here.
- *
+ * 
  *  `Eq` is deliberately omitted: `size` is an `Option<f32>` and `f32` does
  *  not implement `Eq`. Tests use `PartialEq` with exact float values, which
  *  is fine because sizes come directly from literal tokens in the KDL source.
@@ -664,7 +705,7 @@ export type LayoutSource = "builtin" | "user";
  *  A parsed layout. `id` is derived by the loader from the filename stem
  *  (Phase 2) and passed in to [`parse_layout_kdl`] — it is intentionally not
  *  read from the KDL source itself so renaming a file renames the layout.
- *
+ * 
  *  `Eq` is omitted because the embedded [`LayoutPaneNode`] carries
  *  `Option<f32>` sizes; see the note on [`LayoutPaneNode`].
  */
@@ -835,7 +876,7 @@ export type NotifyConfig = {
 
 /**
  *  What happens to a PTY when its pane is closed.
- *
+ * 
  *  - `Kill` — the PTY process is killed immediately.
  *  - `Detach` — the PTY keeps running in the background; it can be
  *    re-attached to another pane later.
@@ -984,7 +1025,7 @@ export type ProjectUpdate = {
 
 /**
  *  Agent providers that Roux knows how to light up first-class UI for.
- *
+ * 
  *  User-defined profiles may omit `provider` entirely (→ plain shell with
  *  agent UI dark) or piggyback on an existing variant (→ misleading if the
  *  agent does not actually speak the same hook protocol). A truly new agent
@@ -1006,18 +1047,18 @@ export type PtyInfo = {
 };
 
 // Role of a PTY within its session.
-export type PtyRole =
+export type PtyRole = 
 // Main Claude/shell for the session.
-"sessionPrimary" |
+"sessionPrimary" | 
 // Additional shells, e.g. spawned from a split pane.
 "secondary";
 
 // Lifecycle status of a PTY.
-export type PtyStatus =
+export type PtyStatus = 
 // PTY is running and attached to a pane.
-{ type: "RunningAttached"; pane_id: string } |
+{ type: "RunningAttached"; pane_id: string } | 
 // PTY is running but not currently attached to any pane.
-{ type: "RunningDetached"; since_ms: number } |
+{ type: "RunningDetached"; since_ms: number } | 
 // PTY process has exited.
 { type: "Exited"; code: number | null; at_ms: number };
 
@@ -1059,7 +1100,6 @@ export type RouxSettings = {
 	 *  `"match-gui"` so a future schema addition cannot brick old clients.
 	 */
 	terminalTheme?: string,
-	terminalDefaults?: TerminalDefaults,
 	defaultModel: string | null,
 	claudeBinaryPath?: string | null,
 	/**
@@ -1160,13 +1200,16 @@ export type RouxSettings = {
 	 */
 	spawnProfiles?: SpawnProfile[],
 	/**
+	 *  Environment and preflight rules applied to all newly-spawned terminal
+	 *  shells before profile-specific rules.
+	 */
+	terminalDefaults?: TerminalDefaults,
+	/**
 	 *  Default autonomous agent profile used by agent-starting surfaces.
 	 *  Card-level/profile-specific overrides still win.
 	 */
 	defaultAgentProfile?: string,
-	/**
-	 *  Main UI destination to show after app startup settings are loaded.
-	 */
+	// Main UI destination to show after app startup settings are loaded.
 	startupTarget?: StartupTarget,
 	/**
 	 *  External tool id used when `startup_target` is `ExternalTool`.
@@ -1345,7 +1388,7 @@ export type SetupStatus = {
 /**
  *  Whether and how a Library source's skills are written into a
  *  Claude-readable `.claude/skills/<name>/SKILL.md` directory.
- *
+ * 
  *  - `Off`: Roux does not write skill files outside the Library.
  *  - `Copy`: Roux writes a copy of each skill on sync; subsequent edits
  *    to the synced file are detected via a content-hash manifest.
@@ -1357,17 +1400,10 @@ export type SetupStatus = {
 export type SkillSyncMode = "off" | "copy" | "symlink";
 
 /**
- *  Profile policy used by the plain Split Horizontal / Split Vertical
- *  commands. Profile-picker commands remain explicit regardless of this
- *  setting.
- */
-export type SplitProfileBehavior = "plainShell" | "appDefaultProfile" | "activePaneProfile" | "askEveryTime";
-
-/**
  *  A named recipe for launching something inside a shell pane. Orthogonal to
  *  pane type: every launched pane is a shell, and a profile is just optional
  *  metadata attached at creation describing how the shell was seeded.
- *
+ * 
  *  Provider-specific UI (Claude Allow/Deny, resume picker) is gated on
  *  observed [`crate::...`]-style runtime agent state, not on this `provider`
  *  field — the field is a UX hint saying "panes launched from this profile
@@ -1394,43 +1430,23 @@ export type SpawnPtyOpts = {
 };
 
 /**
+ *  Profile policy used by the plain Split Horizontal / Split Vertical
+ *  commands. Profile-picker commands remain explicit regardless of this
+ *  setting.
+ */
+export type SplitProfileBehavior = "plainShell" | "appDefaultProfile" | "activePaneProfile" | "askEveryTime";
+
+/**
  *  Controls whether the profile's `startup_command` runs immediately or is
  *  only typed into the shell for the user to review before pressing Enter.
  */
 export type StartupBehavior = "autoRun" | "typeOnly";
 
+export type StartupTarget = "restore" | "sessionsSidebar" | "lastSession" | "kanbanWide" | "externalTool" | "none";
+
 export type StatusBarPosition = "top" | "bottom";
 
 export type TabPosition = "left" | "right";
-
-export type TerminalDefaults = {
-	env?: { [key in string]: TerminalEnvRule } | null,
-	beforeShellStarts?: string | null,
-	splitProfileBehavior?: SplitProfileBehavior,
-};
-
-/**
- *  Environment rule value. The string variant is the legacy settings shape
- *  and is treated as `mode: "value"`.
- */
-export type TerminalEnvRule = string | TerminalEnvRuleSpec;
-
-/**
- *  Mode for a structured terminal environment rule.
- */
-export type TerminalEnvRuleMode = "value" | "inherit" | "unset" | "command";
-
-/**
- *  Structured terminal environment rule. `value` is used with `mode:
- *  "value"` and `command` is used with `mode: "command"`. Missing strings
- *  are validated by the runtime resolver so settings can still deserialize
- *  and be edited after a bad value is saved.
- */
-export type TerminalEnvRuleSpec = {
-	mode: TerminalEnvRuleMode,
-	value?: string | null,
-	command?: string | null,
-};
 
 export type TaskDefinition = {
 	id: string,
@@ -1468,6 +1484,41 @@ export type TerminalAnsiPalette = {
 	brightMagenta: string,
 	brightCyan: string,
 	brightWhite: string,
+};
+
+export type TerminalDefaults = {
+	env?: { [key in string]: TerminalEnvRule } | null,
+	beforeShellStarts?: string | null,
+	splitProfileBehavior?: SplitProfileBehavior,
+};
+
+/**
+ *  Environment rule value. The string variant is the legacy settings shape
+ *  and is treated as `mode: "value"`.
+ */
+export type TerminalEnvRule = string | TerminalEnvRuleSpec;
+
+// Mode for a structured terminal environment rule.
+export type TerminalEnvRuleMode = 
+// Set the variable to the exact configured value.
+"value" | 
+// Leave the currently-resolved value alone when one exists.
+"inherit" | 
+// Remove the variable from the spawned process environment.
+"unset" | 
+// Run a non-interactive command before spawn and use trimmed stdout.
+"command";
+
+/**
+ *  Structured terminal environment rule. `value` is used with `mode:
+ *  "value"` and `command` is used with `mode: "command"`. Missing strings
+ *  are validated by the runtime resolver so settings can still deserialize
+ *  and be edited after a bad value is saved.
+ */
+export type TerminalEnvRuleSpec = {
+	mode: TerminalEnvRuleMode,
+	value?: string | null,
+	command?: string | null,
 };
 
 export type TerminalThemePalette = {
@@ -1582,7 +1633,9 @@ export type WorkItem = {
  *  Input shape for creating / importing a work item. All fields except
  *  `title` are optional; the store fills defaults.
  */
-export type WorkItemInput = {
+export type WorkItemInput = WorkItemInputBinding;
+
+export type WorkItemInputBinding = {
 	title: string,
 	body?: string | null,
 	status?: WorkItemStatus | null,
@@ -1610,6 +1663,17 @@ export type WorkItemReviewAcceptResult = {
 	run: WorkItemRun,
 };
 
+export type WorkItemReviewRequestChangesResult = {
+	item: WorkItem,
+	run: WorkItemRun,
+	attachment: Attachment,
+};
+
+export type WorkItemReviewRequestResult = {
+	item: WorkItem,
+	run: WorkItemRun,
+};
+
 export type WorkItemRun = {
 	id: string,
 	workItemId: string,
@@ -1630,7 +1694,7 @@ export type WorkItemRun = {
 
 export type WorkItemRunKind = "planning" | "implementation" | "review";
 
-export type WorkItemRunStatus = "queued" | "starting" | "running" | "blocked" | "review" | "failed" | "stopped" | "done";
+export type WorkItemRunStatus = "queued" | "starting" | "running" | "blocked" | "review" | "changesRequested" | "failed" | "stopped" | "done";
 
 export type WorkItemStartResult = {
 	item: WorkItem,
@@ -1655,7 +1719,7 @@ export type Worktree = {
 
 /**
  *  Behavior when a session that owns a worktree is closed.
- *
+ * 
  *  - `Never` — leave the worktree on disk
  *  - `Prompt` — ask the user via a confirm dialog (current default, matches
  *    the legacy `cleanupWorktreesOnClose: false` behavior)
@@ -1668,7 +1732,7 @@ export type WorktreeCleanupMode = "never" | "prompt" | "always";
  *  clicks the primary action directly (as opposed to hovering to pick a
  *  specific base from the flyout). Only affects the default — the three
  *  options remain available via the submenu / command palette either way.
- *
+ * 
  *  - `CurrentBranch` — the session's current branch (matches legacy behavior)
  *  - `Main` — the local `main` branch
  *  - `OriginMain` — the remote `origin/main`, with a `git fetch origin` first
@@ -1677,7 +1741,7 @@ export type WorktreeDefaultBase = "currentBranch" | "main" | "originMain";
 
 /**
  *  Which backend Roux uses to create worktrees.
- *
+ * 
  *  - `Auto` (default) — use `wt` when it is detected on the system;
  *    otherwise fall back to native `git worktree add`. This is the
  *    recommended setting: users without worktrunk see no change, users

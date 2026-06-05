@@ -1,16 +1,19 @@
 <script lang="ts">
-  import { derived } from "svelte/store";
+  import { derived, get } from "svelte/store";
   import {
     itemsByColumn,
     WORK_ITEM_COLUMNS,
     COLUMN_LABELS,
-    moveWorkItem,
     startWorkItem,
+    stopWorkItemRun,
     planWorkItem,
     acceptWorkItemReview,
+    requestWorkItemChanges,
     pendingDecisionByItem,
     activePlanningRunByItem,
+    attachmentsByWorkItem,
     runsByItem,
+    workItemRunEvents,
     type WorkItemStatus,
     type WorkItemRun,
   } from "$lib/stores/workItems";
@@ -29,7 +32,21 @@
     deleteWorkItemWithMode,
     type WorkItemDeleteMode,
   } from "$lib/workItems/deleteFlow";
+  import {
+    canStartImplementationFromPlanning,
+    hasAttachedPlan,
+  } from "$lib/workItems/planningGate";
+  import { workItemPhase } from "$lib/workItems/phase";
+  import {
+    buildWorkItemReviewPackage,
+    type WorkItemReviewPackage,
+  } from "$lib/workItems/reviewPackage";
+  import { resolveReviewAgentRepoRoot } from "$lib/workItems/reviewAgent";
   import type { WorkItem } from "$lib/bindings";
+  import { createSessionShell, openPathInFinder } from "$lib/tauri";
+  import { addSession, setActiveSession } from "$lib/stores/sessions";
+  import { projects } from "$lib/stores/projects";
+  import { defaultAgentProfileId } from "$lib/panes/defaultAgent";
   import SidebarPanelHeader from "./SidebarPanelHeader.svelte";
   import CollapseSidebarButton from "./CollapseSidebarButton.svelte";
   import PinButton from "./PinButton.svelte";
@@ -48,6 +65,8 @@
   let startingItemIds = $state<Record<string, boolean>>({});
   let planningItemIds = $state<Record<string, boolean>>({});
   let acceptingItemIds = $state<Record<string, boolean>>({});
+  let requestingChangesItemIds = $state<Record<string, boolean>>({});
+  let openingAgentItemIds = $state<Record<string, boolean>>({});
   let startErrors = $state<Record<string, string>>({});
   let planErrors = $state<Record<string, string>>({});
   let deleteTarget = $state<WorkItem | null>(null);
@@ -59,10 +78,6 @@
     for (const s of $sessions) m.set(s.id, s.status);
     return m;
   });
-
-  async function handleMove(id: string, status: WorkItemStatus) {
-    await moveWorkItem(id, status, Date.now());
-  }
 
   function withoutKey<T>(
     record: Record<string, T>,
@@ -90,9 +105,28 @@
     return [...ids];
   }
 
-  async function handleStart(id: string, item: WorkItem) {
+  async function handleStart(id: string, item: WorkItem, forceStart = false) {
+    const planningRun = get(activePlanningRunByItem).get(id);
+    const attachments = get(attachmentsByWorkItem).get(id) ?? [];
+    if (
+      item.status === "ready" &&
+      !canStartImplementationFromPlanning(attachments, forceStart)
+    ) {
+      if (planningRun?.sessionId) await handleOpen(planningRun.sessionId);
+      else {
+        startErrors = {
+          ...startErrors,
+          [id]: "Attach a plan before starting implementation.",
+        };
+      }
+      return;
+    }
     if (needsStartConfig(item)) {
-      openWorkItemSessionStart({ itemId: item.id, title: item.title });
+      openWorkItemSessionStart({
+        itemId: item.id,
+        title: item.title,
+        ...(forceStart ? { forceStart: true } : {}),
+      });
       return;
     }
     if (startingItemIds[id]) return;
@@ -101,7 +135,11 @@
 
     // Start creates the session/worktree and moves the card after prompt dispatch.
     try {
-      await startWorkItem(id);
+      if (item.status === "ready" && planningRun) {
+        await stopWorkItemRun(planningRun.id);
+      }
+      if (forceStart) await startWorkItem(id, { forceStart: true });
+      else await startWorkItem(id);
     } catch (err) {
       startErrors = { ...startErrors, [id]: formatWorkItemStartError(err) };
       console.error("Failed to start work item", err);
@@ -136,7 +174,7 @@
     }
   }
 
-  async function handleAcceptReview(id: string, _item: WorkItem) {
+  async function handleAcceptReview(id: string, _item?: WorkItem) {
     if (acceptingItemIds[id]) return;
     acceptingItemIds = { ...acceptingItemIds, [id]: true };
     startErrors = withoutKey(startErrors, id);
@@ -147,6 +185,88 @@
       console.error("Failed to accept work item review", err);
     } finally {
       acceptingItemIds = withoutKey(acceptingItemIds, id);
+    }
+  }
+
+  async function handleRequestChanges(
+    id: string,
+    _item: WorkItem,
+    note: string,
+  ) {
+    if (requestingChangesItemIds[id]) return;
+    requestingChangesItemIds = { ...requestingChangesItemIds, [id]: true };
+    startErrors = withoutKey(startErrors, id);
+    try {
+      await requestWorkItemChanges(id, note);
+    } catch (err) {
+      startErrors = { ...startErrors, [id]: "Failed to request changes." };
+      console.error("Failed to request work item changes", err);
+      throw err;
+    } finally {
+      requestingChangesItemIds = withoutKey(requestingChangesItemIds, id);
+    }
+  }
+
+  async function handleOpenWorktree(path: string) {
+    try {
+      await openPathInFinder(path);
+    } catch (err) {
+      console.error("Failed to open work item worktree", err);
+    }
+  }
+
+  async function handleOpenAgent(
+    item: WorkItem,
+    reviewPackage: WorkItemReviewPackage,
+  ) {
+    const worktreePath = reviewPackage.worktreePath;
+    if (!worktreePath || openingAgentItemIds[item.id]) return;
+    openingAgentItemIds = { ...openingAgentItemIds, [item.id]: true };
+    startErrors = withoutKey(startErrors, item.id);
+    try {
+      const projectRepoRoots = item.projectId
+        ? (get(projects).find((project) => project.id === item.projectId)
+            ?.repoRoots ?? [])
+        : [];
+      const repoPath = resolveReviewAgentRepoRoot({
+        itemRepoPath: item.repoPath,
+        projectRepoRoots,
+        worktreePath,
+      });
+      if (!repoPath) {
+        throw new Error("review worktree repo root is not configured");
+      }
+      const profileId = item.agentProfile ?? defaultAgentProfileId();
+      const profileRef = { kind: "registered" as const, id: profileId };
+      const [
+        { resolveProfileRef },
+        { runProfileInPane },
+        { initSessionWithProfile },
+        { connectPaneTerminal },
+      ] = await Promise.all([
+        import("$lib/panes/profiles"),
+        import("$lib/panes/profileRunner"),
+        import("$lib/panes/actions"),
+        import("$lib/panes/terminals"),
+      ]);
+      const session = await createSessionShell(
+        repoPath,
+        `${item.title} review`,
+        worktreePath,
+        null,
+        { profile: profileId },
+      );
+      addSession(session);
+      const mainPaneId = initSessionWithProfile(session.id, profileRef);
+      await connectPaneTerminal(mainPaneId);
+      const profile = resolveProfileRef(profileRef);
+      if (profile) await runProfileInPane(session.id, profile, {});
+      setActiveSession(session.id);
+    } catch (err) {
+      startErrors = { ...startErrors, [item.id]: "Failed to open agent." };
+      console.error("Failed to open review agent", err);
+    } finally {
+      openingAgentItemIds = withoutKey(openingAgentItemIds, item.id);
     }
   }
 
@@ -237,27 +357,47 @@
               {@const planningRun =
                 $activePlanningRunByItem.get(item.id) ?? null}
               {@const itemRuns = $runsByItem.get(item.id) ?? []}
+              {@const itemAttachments =
+                $attachmentsByWorkItem.get(item.id) ?? []}
               {@const attachedSessionIds = attachedSessionIdsForItem(
                 item,
                 itemRuns,
                 planningRun?.sessionId ?? null,
               )}
+              {@const phase = workItemPhase({
+                status: item.status,
+                sessionId: item.sessionId,
+                activePlanningRun: planningRun,
+                hasAttachedPlan: hasAttachedPlan(itemAttachments),
+                pendingDecision,
+                isStartable: !needsStartConfig(item),
+              })}
+              {@const reviewPackage = buildWorkItemReviewPackage(
+                item,
+                itemRuns,
+                itemAttachments,
+                $workItemRunEvents,
+              )}
               <WorkItemCard
                 {item}
                 {sessionStatus}
-                {pendingDecision}
-                planningSessionId={planningRun?.sessionId ?? null}
+                {phase}
+                {reviewPackage}
                 {attachedSessionIds}
-                onMove={handleMove}
                 onStart={handleStart}
                 onPlan={handlePlan}
                 onOpen={handleOpen}
                 onEdit={openWorkItemEditor}
                 onDelete={handleDelete}
                 onAcceptReview={handleAcceptReview}
+                onRequestChanges={handleRequestChanges}
+                onOpenWorktree={handleOpenWorktree}
+                onOpenAgent={handleOpenAgent}
                 startPending={!!startingItemIds[item.id]}
                 planPending={!!planningItemIds[item.id]}
                 acceptPending={!!acceptingItemIds[item.id]}
+                requestChangesPending={!!requestingChangesItemIds[item.id]}
+                openAgentPending={!!openingAgentItemIds[item.id]}
                 startError={startErrors[item.id] ??
                   planErrors[item.id] ??
                   item.startError ??

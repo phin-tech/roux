@@ -1,5 +1,6 @@
 <script lang="ts">
   import CircleStop from "@lucide/svelte/icons/circle-stop";
+  import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import { fade, scale } from "svelte/transition";
   import {
     editingWorkItemId,
@@ -15,6 +16,9 @@
     pendingDecisionByItem,
     resolveWorkItemDecision,
     runsByItem,
+    attachmentsByWorkItem,
+    listDocuments,
+    getDocument,
     stopWorkItemRun,
     type WorkItemStatus,
   } from "$lib/stores/workItems";
@@ -29,6 +33,7 @@
   } from "$lib/workItems/deleteFlow";
   import { logError } from "$lib/logging";
   import type { WorkItemInput, Worktree } from "$lib/bindings";
+  import type { Attachment, AttachmentDocument } from "$lib/types/workItems";
   import WorkItemDeleteDialog from "./WorkItemDeleteDialog.svelte";
   import RepoPickerField from "./RepoPickerField.svelte";
 
@@ -46,6 +51,9 @@
     item ? ($pendingDecisionByItem.get(item.id) ?? null) : null,
   );
   const itemRuns = $derived(item ? ($runsByItem.get(item.id) ?? []) : []);
+  const itemAttachments = $derived(
+    item ? ($attachmentsByWorkItem.get(item.id) ?? []) : [],
+  );
 
   let title = $state("");
   let body = $state("");
@@ -65,7 +73,12 @@
   let deleteError = $state<string | null>(null);
   let resolvingDecision = $state<string | null>(null);
   let stoppingRunId = $state<string | null>(null);
+  let selectedDocument = $state<AttachmentDocument | null>(null);
+  let documentsLoading = $state(false);
+  let documentLoadingId = $state<string | null>(null);
+  let documentError = $state<string | null>(null);
   let worktreeLoadSeq = 0;
+  let documentRefreshSeq = 0;
 
   const selectedProject = $derived(
     projectId ? ($projects.find((p) => p.id === projectId) ?? null) : null,
@@ -161,6 +174,7 @@
   });
 
   function resetTransientState() {
+    documentRefreshSeq += 1;
     error = "";
     saving = false;
     deleteDialogOpen = false;
@@ -168,6 +182,10 @@
     deleteError = null;
     resolvingDecision = null;
     stoppingRunId = null;
+    selectedDocument = null;
+    documentsLoading = false;
+    documentLoadingId = null;
+    documentError = null;
   }
 
   function handleProjectChange() {
@@ -289,6 +307,38 @@
     }
   }
 
+  async function handleRefreshAttachments(): Promise<void> {
+    if (!item) return;
+    const seq = ++documentRefreshSeq;
+    documentsLoading = true;
+    documentError = null;
+    try {
+      await listDocuments("workItem", item.id);
+    } catch (e) {
+      if (seq === documentRefreshSeq) {
+        documentError = formatError(e, "Failed to load attachments.");
+      }
+    } finally {
+      if (seq === documentRefreshSeq) documentsLoading = false;
+    }
+  }
+
+  async function handleOpenAttachment(attachment: Attachment): Promise<void> {
+    const seq = ++documentRefreshSeq;
+    documentLoadingId = attachment.id;
+    documentError = null;
+    try {
+      const document = await getDocument(attachment.documentId);
+      if (seq === documentRefreshSeq) selectedDocument = document;
+    } catch (e) {
+      if (seq === documentRefreshSeq) {
+        documentError = formatError(e, "Failed to read attachment.");
+      }
+    } finally {
+      if (seq === documentRefreshSeq) documentLoadingId = null;
+    }
+  }
+
   function isStoppableRun(status: string): boolean {
     return (
       status === "queued" ||
@@ -305,6 +355,21 @@
       hour: "numeric",
       minute: "2-digit",
     });
+  }
+
+  function attachmentTitle(attachment: Attachment): string {
+    return attachment.title?.trim() || attachment.documentId;
+  }
+
+  function formatBytes(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  function formatError(err: unknown, fallback: string): string {
+    const message = err instanceof Error ? err.message : String(err);
+    return message ? `${fallback} ${message}` : fallback;
   }
 
   function onKeydown(e: KeyboardEvent) {
@@ -589,6 +654,89 @@
                   </div>
                 </section>
               {/if}
+            </section>
+          {/if}
+
+          {#if item}
+            <section class="flex flex-col gap-3 border-t border-hairline pt-4">
+              <div class="flex items-center justify-between gap-2">
+                <p class={sectionLabel}>Attachments</p>
+                <button
+                  type="button"
+                  class="flex h-7 w-7 items-center justify-center rounded text-text-muted transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 disabled:cursor-wait disabled:opacity-50"
+                  aria-label="Refresh attachments"
+                  title="Refresh attachments"
+                  onclick={handleRefreshAttachments}
+                  disabled={documentsLoading}
+                >
+                  <RefreshCw size={13} />
+                </button>
+              </div>
+              <div
+                class="grid min-h-[280px] overflow-hidden rounded-md border border-border-subtle bg-bg-base md:grid-cols-[220px_minmax(0,1fr)]"
+              >
+                <div
+                  class="min-h-0 border-b border-border-subtle md:border-b-0 md:border-r"
+                >
+                  {#if documentsLoading}
+                    <div class="px-3 py-3 text-xs text-text-muted">
+                      Loading attachments...
+                    </div>
+                  {:else if itemAttachments.length === 0}
+                    <div class="px-3 py-3 text-xs text-text-muted">
+                      No attachments.
+                    </div>
+                  {:else}
+                    <div class="app-scrollbar max-h-72 overflow-y-auto">
+                      {#each itemAttachments as attachment (attachment.id)}
+                        <button
+                          type="button"
+                          class="flex w-full flex-col items-start gap-1 border-b border-border-subtle bg-transparent px-3 py-2 text-left last:border-b-0 hover:bg-bg-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent-dim/50"
+                          class:bg-bg-active={selectedDocument?.attachment
+                            .id === attachment.id}
+                          onclick={() => handleOpenAttachment(attachment)}
+                          aria-label={attachmentTitle(attachment)}
+                        >
+                          <span
+                            class="line-clamp-2 text-xs font-medium text-text-primary"
+                          >
+                            {attachmentTitle(attachment)}
+                          </span>
+                          <span class="font-mono text-[10px] text-text-muted">
+                            {formatBytes(attachment.byteLen)}
+                          </span>
+                        </button>
+                      {/each}
+                    </div>
+                  {/if}
+                </div>
+                <div class="app-scrollbar min-h-0 overflow-y-auto p-3">
+                  {#if documentError}
+                    <div
+                      class="rounded border border-red/30 bg-red/10 px-3 py-2 text-xs text-red"
+                      role="alert"
+                    >
+                      {documentError}
+                    </div>
+                  {:else if documentLoadingId}
+                    <div class="text-xs text-text-muted">
+                      Loading attachment...
+                    </div>
+                  {:else if selectedDocument}
+                    <div class="mb-2 text-xs font-semibold text-text-primary">
+                      {attachmentTitle(selectedDocument.attachment)}
+                    </div>
+                    <pre
+                      class="max-h-[420px] whitespace-pre-wrap break-words rounded border border-border-subtle bg-bg-deep p-3 font-mono text-xs leading-5 text-text-primary">{selectedDocument.content}</pre>
+                  {:else}
+                    <div
+                      class="flex h-full min-h-36 items-center justify-center text-center text-xs text-text-muted"
+                    >
+                      Select an attachment to read it.
+                    </div>
+                  {/if}
+                </div>
+              </div>
             </section>
           {/if}
 

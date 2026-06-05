@@ -22,8 +22,11 @@ if (typeof Element !== "undefined" && !Element.prototype.scrollIntoView) {
 }
 import { editingWorkItemId, newWorkItemEditor } from "$lib/stores/ui";
 import {
+  attachmentsByWorkItem,
   runsByItem,
   createWorkItem,
+  getDocument,
+  listDocuments,
   stopWorkItemRun,
   workItems,
   updateWorkItem,
@@ -31,7 +34,11 @@ import {
 import { deleteWorkItemWithMode } from "$lib/workItems/deleteFlow";
 import { projects } from "$lib/stores/projects";
 import type { WorkItem } from "$lib/bindings";
-import type { WorkItemRun } from "$lib/types/workItems";
+import type {
+  Attachment,
+  AttachmentDocument,
+  WorkItemRun,
+} from "$lib/types/workItems";
 
 const invokeMock = vi.hoisted(() => vi.fn());
 
@@ -59,14 +66,17 @@ vi.mock("$lib/stores/workItems", async () => {
     workItems: writable<WorkItem[]>([]),
     pendingDecisionByItem: writable(new Map()),
     runsByItem: writable(new Map()),
+    attachmentsByWorkItem: writable(new Map()),
     createWorkItem: vi.fn().mockResolvedValue({}),
     updateWorkItem: vi.fn().mockResolvedValue({}),
     resolveWorkItemDecision: vi.fn().mockResolvedValue({}),
     stopWorkItemRun: vi.fn().mockResolvedValue({}),
+    listDocuments: vi.fn().mockResolvedValue([]),
+    getDocument: vi.fn(),
     WORK_ITEM_COLUMNS: ["todo", "ready", "doing", "review", "done"],
     COLUMN_LABELS: {
       todo: "To Do",
-      ready: "Ready",
+      ready: "Planning",
       doing: "In Progress",
       review: "Review",
       done: "Done",
@@ -178,6 +188,38 @@ function workItemRun(overrides: Partial<WorkItemRun> = {}): WorkItemRun {
   };
 }
 
+function attachment(overrides: Partial<Attachment> = {}): Attachment {
+  return {
+    id: "att-plan",
+    documentId: "wi-1.plan",
+    targetKind: "workItem",
+    targetId: "wi-1",
+    title: "Implementation Plan",
+    contentKind: "text",
+    mimeType: "text/markdown",
+    sourcePath: null,
+    byteLen: 1024,
+    sha256: "sha",
+    createdAt: 1,
+    updatedAt: 1,
+    ...overrides,
+  };
+}
+
+function deferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+  reject: (reason?: unknown) => void;
+} {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 describe("WorkItemEditor", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -198,6 +240,16 @@ describe("WorkItemEditor", () => {
     (runsByItem as ReturnType<typeof import("svelte/store").writable>).set(
       new Map(),
     );
+    (
+      attachmentsByWorkItem as ReturnType<
+        typeof import("svelte/store").writable
+      >
+    ).set(new Map());
+    vi.mocked(listDocuments).mockResolvedValue([]);
+    vi.mocked(getDocument).mockResolvedValue({
+      attachment: attachment(),
+      content: "Plan body",
+    } satisfies AttachmentDocument);
     editingWorkItemId.set(null);
     newWorkItemEditor.set(null);
   });
@@ -365,5 +417,71 @@ describe("WorkItemEditor", () => {
     );
 
     expect(stopWorkItemRun).toHaveBeenCalledWith("run-1");
+  });
+
+  it("shows and previews work item attachments in the editor", async () => {
+    const plan = attachment();
+    (
+      attachmentsByWorkItem as ReturnType<
+        typeof import("svelte/store").writable
+      >
+    ).set(new Map([["wi-1", [plan]]]));
+    vi.mocked(getDocument).mockResolvedValueOnce({
+      attachment: plan,
+      content: "Use the approved plan.",
+    });
+
+    render(WorkItemEditor);
+    editingWorkItemId.set("wi-1");
+
+    await screen.findByText("Attachments");
+    await fireEvent.click(
+      screen.getByRole("button", { name: "Implementation Plan" }),
+    );
+
+    expect(getDocument).toHaveBeenCalledWith("wi-1.plan");
+    expect(await screen.findByText("Use the approved plan.")).toBeTruthy();
+  });
+
+  it("ignores attachment loads that resolve after switching cards", async () => {
+    const staleLoad = deferred<AttachmentDocument>();
+    const plan = attachment({
+      id: "att-plan-1",
+      documentId: "wi-1.plan",
+      targetId: "wi-1",
+    });
+    (workItems as ReturnType<typeof import("svelte/store").writable>).set([
+      workItem({ id: "wi-1", title: "First card" }),
+      workItem({ id: "wi-2", title: "Second card" }),
+    ]);
+    (
+      attachmentsByWorkItem as ReturnType<
+        typeof import("svelte/store").writable
+      >
+    ).set(
+      new Map([
+        ["wi-1", [plan]],
+        ["wi-2", []],
+      ]),
+    );
+    vi.mocked(getDocument).mockReturnValueOnce(staleLoad.promise);
+
+    render(WorkItemEditor);
+    editingWorkItemId.set("wi-1");
+    await screen.findByDisplayValue("First card");
+    await fireEvent.click(
+      screen.getByRole("button", { name: "Implementation Plan" }),
+    );
+
+    editingWorkItemId.set("wi-2");
+    await screen.findByDisplayValue("Second card");
+    staleLoad.resolve({
+      attachment: plan,
+      content: "Stale plan body",
+    });
+    await Promise.resolve();
+
+    expect(screen.queryByText("Stale plan body")).toBeNull();
+    expect(screen.getByText("Select an attachment to read it.")).toBeTruthy();
   });
 });

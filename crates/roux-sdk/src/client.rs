@@ -880,6 +880,7 @@ impl Roux {
         branch: Option<String>,
         base: Option<String>,
         fetch_first: Option<bool>,
+        force_start: Option<bool>,
     ) -> RouxResult<roux_core::WorkItemStartResult> {
         let args = work_item_start_args(
             id.into(),
@@ -890,6 +891,7 @@ impl Roux {
             branch,
             base,
             fetch_first,
+            force_start,
         );
         self.command(CommandRequest::new("work-item-start").args(args)).await
     }
@@ -913,6 +915,30 @@ impl Roux {
         id: impl Into<String>,
     ) -> RouxResult<roux_core::WorkItemReviewAcceptResult> {
         self.command(CommandRequest::new("work-item-review-accept").args(id_arg(id.into()))).await
+    }
+
+    pub async fn work_item_review_request(
+        &self,
+        payload: impl Into<serde_json::Value>,
+    ) -> RouxResult<roux_core::WorkItemReviewRequestResult> {
+        self.command(
+            CommandRequest::new("work-item-review-request")
+                .args(work_item_review_request_args(payload.into())),
+        )
+        .await
+    }
+
+    pub async fn work_item_review_request_changes(
+        &self,
+        id: impl Into<String>,
+        note: impl Into<String>,
+        status: Option<String>,
+    ) -> RouxResult<roux_core::WorkItemReviewRequestChangesResult> {
+        self.command(
+            CommandRequest::new("work-item-review-request-changes")
+                .args(work_item_review_request_changes_args(id.into(), note.into(), status)),
+        )
+        .await
     }
 
     pub async fn work_item_runs_list(
@@ -1202,6 +1228,7 @@ fn work_item_start_args(
     branch: Option<String>,
     base: Option<String>,
     fetch_first: Option<bool>,
+    force_start: Option<bool>,
 ) -> Value {
     let mut args = serde_json::json!({ "id": id });
     if let Some(profile) = profile {
@@ -1224,6 +1251,9 @@ fn work_item_start_args(
     }
     if let Some(fetch_first) = fetch_first {
         args["fetchFirst"] = Value::Bool(fetch_first);
+    }
+    if let Some(force_start) = force_start {
+        args["forceStart"] = Value::Bool(force_start);
     }
     args
 }
@@ -1253,6 +1283,27 @@ fn work_item_plan_args(
         args["replaceActive"] = Value::Bool(true);
     }
     args
+}
+
+fn work_item_review_request_args(payload: Value) -> Value {
+    match payload {
+        Value::String(run_id) => serde_json::json!({ "runId": run_id }),
+        payload => payload,
+    }
+}
+
+fn work_item_review_request_changes_args(
+    id: String,
+    note: String,
+    status: Option<String>,
+) -> Value {
+    let mut args = serde_json::Map::new();
+    args.insert("id".into(), Value::String(id));
+    args.insert("note".into(), Value::String(note));
+    if let Some(status) = status {
+        args.insert("status".into(), Value::String(status));
+    }
+    Value::Object(args)
 }
 
 fn work_item_attach_session_args(id: String, session_id: String) -> Value {
@@ -1474,6 +1525,32 @@ mod tests {
         assert_eq!(args["id"], "wi-1");
         assert_eq!(args["profile"], "claude");
         assert_eq!(args["replaceActive"], true);
+    }
+
+    #[test]
+    fn work_item_review_request_args_preserve_payload_metadata() {
+        let args = work_item_review_request_args(serde_json::json!({
+            "runId": "run-1",
+            "summary": "Implemented review package",
+            "tests": ["npm run test"],
+            "changedFiles": ["src/lib/workItems/reviewPackage.ts"],
+        }));
+
+        assert_eq!(args["runId"], "run-1");
+        assert_eq!(args["summary"], "Implemented review package");
+        assert_eq!(args["tests"][0], "npm run test");
+        assert_eq!(args["changedFiles"][0], "src/lib/workItems/reviewPackage.ts");
+    }
+
+    #[test]
+    fn work_item_review_request_changes_args_accepts_bare_none_status() {
+        let args = work_item_review_request_changes_args(
+            "run-1".to_string(),
+            "Add coverage".to_string(),
+            None,
+        );
+
+        assert_eq!(args, serde_json::json!({ "id": "run-1", "note": "Add coverage" }));
     }
 
     #[test]

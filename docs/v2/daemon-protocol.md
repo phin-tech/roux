@@ -733,7 +733,8 @@ includes `settings.kanban.planningPromptAppend` when configured.
 
 Daemon-owned autonomous Start action. Requires `args.id`. Optional args:
 `repoPath`, `profile`, `name`, `worktreePath`, `branch`, `base`, and
-`fetchFirst`.
+`fetchFirst`. `forceStart: true` records that implementation was started
+without an attached approved plan.
 
 The daemon rejects cards that already have an active run and cards without a
 repo path or project repo to derive from. Start profile resolution is request
@@ -756,9 +757,12 @@ to `doing`, clears `startError`, and returns:
 }
 ```
 
-The generated implementation prompt includes
+The generated implementation prompt includes the newest plan-like attached
+document when one exists, preferring work-item attachments whose title or source
+filename contains `plan`. It also includes
 `settings.kanban.implementationPromptAppend` when configured. The review
-handoff prompt includes `settings.kanban.reviewPromptAppend`.
+handoff prompt includes `settings.kanban.reviewPromptAppend` and tells the
+agent to request review with `roux work-item review request <run-id>`.
 
 If the card already has a bound implementation `sessionId`, Start reuses that
 session and creates an additional implementation run/PTY in it instead of
@@ -770,6 +774,51 @@ If session/worktree creation succeeds but prompt dispatch fails, the daemon
 marks the run `failed`, records `startError` on the card, preserves the
 session/worktree for inspection, and returns an error response. Failures before
 a run exists leave the card in its current column and record `startError`.
+
+`work-item-review-request`
+
+Daemon-owned review request. Requires `args.runId` (also accepts `id` /
+`run_id`). Optional `summary`, `tests`, and `changedFiles` / `changed_files`
+args persist the agent's review handoff as a `result` run event. The daemon
+validates that the run is an implementation run, moves the run to `review`,
+appends a status-change event with `reason: "reviewRequested"`, moves the
+associated card to `review`, and returns:
+
+```json
+{
+  "item": {},
+  "run": {}
+}
+```
+
+This is the preferred explicit handoff for implementation agents. The daemon
+also keeps the successful PTY-exit fallback for implementation runs.
+
+`work-item-review-request-changes`
+
+Daemon-owned review feedback request. Requires a review target and a non-empty
+`args.note`. The target can be `args.runId` / `run_id`, or `args.id` /
+`workItemId` / `work_item_id`; item ids resolve to the latest implementation
+run currently in review. Optional `args.status` / `targetStatus` can be
+`doing` or `ready` and defaults to `doing`.
+
+The daemon validates that the target run is an implementation run in `review`,
+attaches the note to the card as a text/markdown work-item document titled
+`Review feedback`, moves the run to `changesRequested`, clears the card's
+active `sessionId`, moves the card to the requested target status, appends a
+status-change event with `reason: "changesRequested"` and
+`feedbackDocumentId`, and returns:
+
+```json
+{
+  "item": {},
+  "run": {},
+  "attachment": {}
+}
+```
+
+The next implementation start includes the latest review feedback attachment in
+the task prompt so the agent addresses requested changes before unrelated work.
 
 `work-item-review-accept`
 
