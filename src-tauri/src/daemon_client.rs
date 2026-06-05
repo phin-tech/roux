@@ -9,7 +9,7 @@ use tauri::{AppHandle, Emitter};
 use crate::commands::notes::{NotesRead, NotesSearchQuery, NotesTarget};
 use roux_core::{
     AgentAlias, BusSubscription, CreateWatchConfig, Event, Project, ProjectUpdate, ReadState,
-    Session, SessionExitPayload, SessionExitReason, Watch, Worktree,
+    Session, SessionExitPayload, SessionExitReason, Watch, WorkItemMigrationStatus, Worktree,
 };
 use roux_runtime::automation_hooks::{
     HookListItem, HookLogEntry, HookPreviewItem, HookRunRequest, HookRunSummary,
@@ -48,6 +48,8 @@ pub(crate) struct DaemonStatus {
     pub(crate) process_count: usize,
     #[serde(default)]
     pub(crate) pty_count: usize,
+    #[serde(default)]
+    pub(crate) work_item_migration_status: Option<WorkItemMigrationStatus>,
     pub(crate) capabilities: Vec<String>,
 }
 
@@ -1580,6 +1582,7 @@ mod tests {
             watch_count: 0,
             process_count: 0,
             pty_count: 0,
+            work_item_migration_status: None,
             capabilities: vec!["daemon-status".to_string()],
         }
     }

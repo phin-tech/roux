@@ -59,11 +59,12 @@ pub use user_terminal_themes::{
 };
 pub use watch::*;
 pub use work_item::{
-    decide_work_item_session_attach, ExternalRef, WorkItem, WorkItemDecision,
-    WorkItemDecisionOption, WorkItemDecisionStatus, WorkItemEvent, WorkItemInput,
-    WorkItemInputPresence, WorkItemPlanResult, WorkItemReviewAcceptResult,
-    WorkItemReviewRequestChangesResult, WorkItemReviewRequestResult, WorkItemRun, WorkItemRunEvent,
-    WorkItemRunEventKind, WorkItemRunKind, WorkItemRunStatus, WorkItemSessionAttachDecision,
-    WorkItemSessionAttachError, WorkItemSessionAttachInput, WorkItemStartResult, WorkItemStatus,
+    decide_work_item_session_attach, pending_work_item_migrations, ExternalRef, WorkItem,
+    WorkItemDecision, WorkItemDecisionOption, WorkItemDecisionStatus, WorkItemEvent, WorkItemInput,
+    WorkItemInputPresence, WorkItemMigrationStatus, WorkItemMigrationStorage, WorkItemPlanResult,
+    WorkItemReviewAcceptResult, WorkItemReviewRequestChangesResult, WorkItemReviewRequestResult,
+    WorkItemRun, WorkItemRunEvent, WorkItemRunEventKind, WorkItemRunKind, WorkItemRunStatus,
+    WorkItemSessionAttachDecision, WorkItemSessionAttachError, WorkItemSessionAttachInput,
+    WorkItemStartResult, WorkItemStatus,
 };
 pub use worktree::{Worktree, WorktrunkMetadata};

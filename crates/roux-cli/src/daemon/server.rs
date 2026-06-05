@@ -22,14 +22,27 @@ use super::work_items::handle_work_item_events_stream;
 pub(super) struct SocketServerHandle {
     join: tokio::task::JoinHandle<()>,
     cleanup: SocketCleanup,
+    owner_guard: SocketOwnerGuard,
     pub(super) endpoint: platform::SocketEndpoint,
 }
 
 impl SocketServerHandle {
-    pub(super) fn shutdown(self) {
-        self.join.abort();
-        self.cleanup.remove();
+    pub(super) fn shutdown(self) -> SocketOwnerGuard {
+        let Self { join, cleanup, owner_guard, endpoint: _ } = self;
+        join.abort();
+        cleanup.remove();
+        owner_guard
     }
+}
+
+#[cfg(not(windows))]
+pub(super) struct SocketOwnerGuard {
+    _file: std::fs::File,
+}
+
+#[cfg(windows)]
+pub(super) struct SocketOwnerGuard {
+    _file: std::fs::File,
 }
 
 struct SocketCleanup {
@@ -49,6 +62,7 @@ pub(super) async fn start_socket_server(
     watch_runner: WatchRunner,
     mut identity: DaemonIdentity,
     log: DaemonLog,
+    owner_guard: SocketOwnerGuard,
 ) -> Result<SocketServerHandle, String> {
     match identity.endpoint.clone() {
         platform::SocketEndpoint::Unix(path) => {
@@ -89,6 +103,7 @@ pub(super) async fn start_socket_server(
                 Ok(SocketServerHandle {
                     join,
                     cleanup: SocketCleanup { paths: cleanup_paths },
+                    owner_guard,
                     endpoint,
                 })
             }
@@ -144,10 +159,73 @@ pub(super) async fn start_socket_server(
             Ok(SocketServerHandle {
                 join,
                 cleanup: SocketCleanup { paths: cleanup_paths },
+                owner_guard,
                 endpoint,
             })
         }
     }
+}
+
+#[cfg(not(windows))]
+pub(super) fn acquire_daemon_owner(
+    lock_path: &Path,
+    endpoint: &str,
+) -> Result<SocketOwnerGuard, String> {
+    use std::os::fd::AsRawFd;
+
+    if let Some(parent) = lock_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|err| {
+            format!("create daemon owner lock directory {}: {err}", parent.display())
+        })?;
+    }
+
+    let file =
+        std::fs::OpenOptions::new().create(true).read(true).write(true).open(&lock_path).map_err(
+            |err| format!("open daemon socket owner lock {}: {err}", lock_path.display()),
+        )?;
+    let result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+    if result == -1 {
+        let err = std::io::Error::last_os_error();
+        if err.kind() == std::io::ErrorKind::WouldBlock {
+            return Err(daemon_already_running_message(endpoint));
+        }
+        return Err(format!("lock daemon socket owner {}: {err}", lock_path.display()));
+    }
+
+    Ok(SocketOwnerGuard { _file: file })
+}
+
+#[cfg(windows)]
+pub(super) fn acquire_daemon_owner(
+    lock_path: &Path,
+    endpoint: &str,
+) -> Result<SocketOwnerGuard, String> {
+    use std::os::windows::fs::OpenOptionsExt;
+
+    if let Some(parent) = lock_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|err| {
+            format!("create daemon owner lock directory {}: {err}", parent.display())
+        })?;
+    }
+
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .read(true)
+        .write(true)
+        .share_mode(0)
+        .open(lock_path)
+        .map_err(|err| match err.kind() {
+            std::io::ErrorKind::PermissionDenied | std::io::ErrorKind::WouldBlock => {
+                daemon_already_running_message(endpoint)
+            }
+            _ => format!("open daemon socket owner lock {}: {err}", lock_path.display()),
+        })?;
+
+    Ok(SocketOwnerGuard { _file: file })
+}
+
+fn daemon_already_running_message(attempted_endpoint: &str) -> String {
+    format!("Roux daemon already running; attempted endpoint: {attempted_endpoint}")
 }
 
 #[cfg(not(windows))]
@@ -377,5 +455,27 @@ mod tests {
         write_private_file(&path, b"secret-2", "test token").unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "secret-2");
         assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+    }
+
+    #[test]
+    fn daemon_owner_lock_prevents_second_owner_and_leaves_lock_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let lock_path = dir.path().join("roux-daemon.lock");
+
+        let first = acquire_daemon_owner(&lock_path, "unix:///tmp/roux.sock").unwrap();
+        assert!(lock_path.exists());
+
+        let second = match acquire_daemon_owner(&lock_path, "tcp://127.0.0.1:0") {
+            Ok(_) => panic!("second owner should fail while first guard is held"),
+            Err(err) => err,
+        };
+        assert_eq!(second, "Roux daemon already running; attempted endpoint: tcp://127.0.0.1:0");
+
+        drop(first);
+        assert!(lock_path.exists(), "flock path should remain as a reusable inode");
+
+        let third = acquire_daemon_owner(&lock_path, "test endpoint")
+            .expect("released lock file should be reusable");
+        drop(third);
     }
 }

@@ -1457,9 +1457,279 @@ fn mailbox_recv_args(
 }
 
 pub async fn run_stdio_server() -> anyhow::Result<()> {
+    run_stdio_startup_checks()?;
+    let parent_monitor = mcp_parent_monitor()?;
     let service = RouxMcpServer.serve(stdio()).await?;
-    service.waiting().await?;
+    match parent_monitor {
+        McpParentMonitor::Disabled => {
+            service.waiting().await?;
+        }
+        monitor => {
+            tokio::select! {
+                result = service.waiting() => {
+                    result?;
+                }
+                _ = wait_for_parent_exit(monitor) => {}
+            }
+        }
+    }
     Ok(())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct McpStdioPolicy {
+    stdin_is_terminal: bool,
+    stdout_is_terminal: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum McpLifecycleError {
+    InteractiveStdio,
+    ParentMonitoringUnavailable,
+}
+
+impl std::fmt::Display for McpLifecycleError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            McpLifecycleError::InteractiveStdio => {
+                write!(f, "roux mcp requires piped stdio from an MCP host")
+            }
+            McpLifecycleError::ParentMonitoringUnavailable => {
+                write!(f, "roux mcp could not monitor its parent process")
+            }
+        }
+    }
+}
+
+impl std::error::Error for McpLifecycleError {}
+
+fn run_stdio_startup_checks() -> Result<(), McpLifecycleError> {
+    use std::io::IsTerminal;
+
+    mcp_stdio_startup_decision(McpStdioPolicy {
+        stdin_is_terminal: std::io::stdin().is_terminal(),
+        stdout_is_terminal: std::io::stdout().is_terminal(),
+    })
+}
+
+fn mcp_stdio_startup_decision(policy: McpStdioPolicy) -> Result<(), McpLifecycleError> {
+    if policy.stdin_is_terminal || policy.stdout_is_terminal {
+        Err(McpLifecycleError::InteractiveStdio)
+    } else {
+        Ok(())
+    }
+}
+
+fn mcp_parent_monitor_startup_decision(
+    parent_pid: Option<u32>,
+) -> Result<Option<u32>, McpLifecycleError> {
+    let parent_pid = parent_pid.ok_or(McpLifecycleError::ParentMonitoringUnavailable)?;
+    Ok(should_monitor_parent(parent_pid).then_some(parent_pid))
+}
+
+#[derive(Debug)]
+enum McpParentMonitor {
+    Disabled,
+    #[cfg(unix)]
+    UnixPid(u32),
+    #[cfg(windows)]
+    WindowsProcess(WindowsParentProcess),
+}
+
+fn mcp_parent_monitor() -> Result<McpParentMonitor, McpLifecycleError> {
+    let parent_pid = mcp_parent_monitor_startup_decision(current_parent_pid())?;
+    let Some(parent_pid) = parent_pid else {
+        return Ok(McpParentMonitor::Disabled);
+    };
+
+    #[cfg(unix)]
+    {
+        return Ok(McpParentMonitor::UnixPid(parent_pid));
+    }
+
+    #[cfg(windows)]
+    {
+        return WindowsParentProcess::open(parent_pid).map(McpParentMonitor::WindowsProcess);
+    }
+
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = parent_pid;
+        Err(McpLifecycleError::ParentMonitoringUnavailable)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct McpParentSnapshot {
+    original_parent_pid: u32,
+    current_parent_pid: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum McpParentLifecycleDecision {
+    Continue,
+    Exit,
+}
+
+fn mcp_parent_lifecycle_decision(snapshot: McpParentSnapshot) -> McpParentLifecycleDecision {
+    if should_monitor_parent(snapshot.original_parent_pid)
+        && snapshot.current_parent_pid != snapshot.original_parent_pid
+    {
+        McpParentLifecycleDecision::Exit
+    } else {
+        McpParentLifecycleDecision::Continue
+    }
+}
+
+fn should_monitor_parent(parent_pid: u32) -> bool {
+    parent_pid > 1
+}
+
+async fn wait_for_original_parent_exit(original_parent_pid: u32) {
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
+    loop {
+        interval.tick().await;
+        let Some(current_parent_pid) = current_parent_pid() else {
+            return;
+        };
+        let decision = mcp_parent_lifecycle_decision(McpParentSnapshot {
+            original_parent_pid,
+            current_parent_pid,
+        });
+        if decision == McpParentLifecycleDecision::Exit {
+            return;
+        }
+    }
+}
+
+async fn wait_for_parent_exit(monitor: McpParentMonitor) {
+    match monitor {
+        McpParentMonitor::Disabled => {}
+        #[cfg(unix)]
+        McpParentMonitor::UnixPid(original_parent_pid) => {
+            wait_for_original_parent_exit(original_parent_pid).await;
+        }
+        #[cfg(windows)]
+        McpParentMonitor::WindowsProcess(parent_process) => {
+            wait_for_windows_parent_exit(parent_process).await;
+        }
+    }
+}
+
+#[cfg(unix)]
+fn current_parent_pid() -> Option<u32> {
+    Some(unsafe { libc::getppid() as u32 })
+}
+
+#[cfg(windows)]
+fn current_parent_pid() -> Option<u32> {
+    use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
+        TH32CS_SNAPPROCESS,
+    };
+    use windows_sys::Win32::System::Threading::GetCurrentProcessId;
+
+    let current_pid = unsafe { GetCurrentProcessId() };
+    let snapshot = WindowsHandle::new(unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) })?;
+    let mut entry = PROCESSENTRY32W {
+        dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32,
+        ..Default::default()
+    };
+
+    if unsafe { Process32FirstW(snapshot.raw(), &mut entry) } == 0 {
+        return None;
+    }
+
+    loop {
+        if entry.th32ProcessID == current_pid {
+            return Some(entry.th32ParentProcessID);
+        }
+        if unsafe { Process32NextW(snapshot.raw(), &mut entry) } == 0 {
+            return None;
+        }
+    }
+}
+
+#[cfg(not(any(unix, windows)))]
+fn current_parent_pid() -> Option<u32> {
+    None
+}
+
+#[cfg(windows)]
+#[derive(Debug)]
+struct WindowsParentProcess {
+    _parent_pid: u32,
+    handle: WindowsHandle,
+}
+
+#[cfg(windows)]
+impl WindowsParentProcess {
+    fn open(parent_pid: u32) -> Result<Self, McpLifecycleError> {
+        use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_SYNCHRONIZE};
+
+        let handle = unsafe { OpenProcess(PROCESS_SYNCHRONIZE, 0, parent_pid) };
+        let handle =
+            WindowsHandle::new(handle).ok_or(McpLifecycleError::ParentMonitoringUnavailable)?;
+        Ok(Self { _parent_pid: parent_pid, handle })
+    }
+
+    fn has_exited(&self) -> bool {
+        use windows_sys::Win32::Foundation::{WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT};
+        use windows_sys::Win32::System::Threading::WaitForSingleObject;
+
+        match unsafe { WaitForSingleObject(self.handle.raw(), 0) } {
+            WAIT_OBJECT_0 => true,
+            WAIT_TIMEOUT => false,
+            WAIT_FAILED => true,
+            _ => true,
+        }
+    }
+}
+
+#[cfg(windows)]
+async fn wait_for_windows_parent_exit(parent_process: WindowsParentProcess) {
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
+    loop {
+        interval.tick().await;
+        if parent_process.has_exited() {
+            return;
+        }
+    }
+}
+
+#[cfg(windows)]
+#[derive(Debug)]
+struct WindowsHandle {
+    handle: windows_sys::Win32::Foundation::HANDLE,
+}
+
+#[cfg(windows)]
+impl WindowsHandle {
+    fn new(handle: windows_sys::Win32::Foundation::HANDLE) -> Option<Self> {
+        use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
+
+        if handle.is_null() || handle == INVALID_HANDLE_VALUE {
+            None
+        } else {
+            Some(Self { handle })
+        }
+    }
+
+    fn raw(&self) -> windows_sys::Win32::Foundation::HANDLE {
+        self.handle
+    }
+}
+
+#[cfg(windows)]
+unsafe impl Send for WindowsHandle {}
+
+#[cfg(windows)]
+impl Drop for WindowsHandle {
+    fn drop(&mut self) {
+        unsafe {
+            windows_sys::Win32::Foundation::CloseHandle(self.handle);
+        }
+    }
 }
 
 async fn call_socket(request: Value) -> Result<CallToolResult, ErrorData> {
@@ -1859,6 +2129,70 @@ mod tests {
         assert!(!MCP_TOOL_NAMES.contains(&"roux_kill_pty"));
         assert!(!MCP_TOOL_NAMES.contains(&"roux_remove_worktree"));
         assert!(!MCP_TOOL_NAMES.contains(&"roux_delete_session_permanently"));
+    }
+
+    #[test]
+    fn mcp_stdio_policy_allows_piped_stdio() {
+        let policy = McpStdioPolicy { stdin_is_terminal: false, stdout_is_terminal: false };
+
+        assert_eq!(mcp_stdio_startup_decision(policy), Ok(()));
+    }
+
+    #[test]
+    fn mcp_stdio_policy_rejects_terminal_stdin() {
+        let policy = McpStdioPolicy { stdin_is_terminal: true, stdout_is_terminal: false };
+
+        assert_eq!(mcp_stdio_startup_decision(policy), Err(McpLifecycleError::InteractiveStdio));
+    }
+
+    #[test]
+    fn mcp_stdio_policy_rejects_terminal_stdout() {
+        let policy = McpStdioPolicy { stdin_is_terminal: false, stdout_is_terminal: true };
+
+        assert_eq!(mcp_stdio_startup_decision(policy), Err(McpLifecycleError::InteractiveStdio));
+    }
+
+    #[test]
+    fn mcp_parent_monitor_startup_rejects_unknown_parent_pid() {
+        assert_eq!(
+            mcp_parent_monitor_startup_decision(None),
+            Err(McpLifecycleError::ParentMonitoringUnavailable)
+        );
+    }
+
+    #[test]
+    fn mcp_parent_monitor_startup_skips_init_parent_pid() {
+        assert_eq!(mcp_parent_monitor_startup_decision(Some(1)), Ok(None));
+    }
+
+    #[test]
+    fn mcp_parent_monitor_startup_tracks_regular_parent_pid() {
+        assert_eq!(mcp_parent_monitor_startup_decision(Some(42)), Ok(Some(42)));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_parent_monitor_opens_live_parent_process() {
+        let parent_pid = current_parent_pid().expect("test process should have a parent pid");
+        if should_monitor_parent(parent_pid) {
+            let monitor =
+                WindowsParentProcess::open(parent_pid).expect("parent should be openable");
+            assert!(!monitor.has_exited());
+        }
+    }
+
+    #[test]
+    fn mcp_parent_lifecycle_exits_when_original_parent_is_gone() {
+        let snapshot = McpParentSnapshot { original_parent_pid: 42, current_parent_pid: 1 };
+
+        assert_eq!(mcp_parent_lifecycle_decision(snapshot), McpParentLifecycleDecision::Exit);
+    }
+
+    #[test]
+    fn mcp_parent_lifecycle_continues_while_original_parent_is_alive() {
+        let snapshot = McpParentSnapshot { original_parent_pid: 42, current_parent_pid: 42 };
+
+        assert_eq!(mcp_parent_lifecycle_decision(snapshot), McpParentLifecycleDecision::Continue);
     }
 
     #[test]

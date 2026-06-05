@@ -59,6 +59,12 @@ compatibility.
 should prefer capability checks over hardcoded assumptions while this protocol
 is experimental.
 
+The status payload also includes `workItemMigrationStatus` for the work-item
+board database:
+`{ "currentVersion": 7, "targetVersion": 7, "pendingVersions": [], "storage": "boardDb", "error": null }`.
+When `board.db` cannot be opened, `storage` is `"inMemory"` and `error`
+contains the open/migration failure that forced the runtime fallback.
+
 `daemon-stop` requests graceful daemon shutdown and returns
 `{ "stopping": true, "pid": ..., "socket": "...", "logPath": "..." }` before
 the daemon closes its socket and runtime services. It is used by

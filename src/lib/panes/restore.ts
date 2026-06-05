@@ -5,14 +5,8 @@ import { sessionLayouts, type LayoutNode } from "./layout";
 import { initSessionWithProfile } from "./actions";
 import { setLogicalFocus } from "./focus";
 import { log } from "$lib/logging";
-import {
-  resolveProfileRef,
-  type SpawnProfile,
-  type SpawnProfileRef,
-} from "./profiles";
-import { runProfileInPane } from "./profileRunner";
-import { spawnShell } from "$lib/tauri";
-import { renderProjectPromptForSession } from "$lib/projectPromptTemplates";
+import type { SpawnProfileRef } from "./profiles";
+import { decidePaneRestore } from "./restoreDecision";
 
 export interface RestoreSessionPanesOptions {
   initTerminal: (paneId: string) => void;
@@ -66,63 +60,27 @@ export async function restoreSessionPanes(
   });
 
   let primaryPaneId: string | null = null;
-  // Tracks non-primary shell panes whose persisted PTY was gone and that
-  // we respawned fresh during this restore. The second loop uses this to
-  // attach the new PTY (instead of the stale id from the descriptor) and
-  // to replay the spawn profile so agents come back live without user
-  // intervention — closing the cold-start gap for headless callers (MCP,
-  // CLI) that resolve panes by id and expect a live PTY.
-  const respawnedPanes = new Map<
-    string,
-    { ptyId: string; profile: SpawnProfile | null }
-  >();
 
   for (const d of restored.descriptors) {
+    const decision = decidePaneRestore({
+      descriptor: d,
+      sessionId: session.id,
+      livePtyIds: opts.livePtyIds,
+    });
+    if (decision.kind === "strip") continue;
+
     if (d.id === primaryDescriptor.id) {
       primaryPaneId = createPrimaryPane(session.id, d.spawnProfileRef, d);
-      continue;
-    }
-
-    if (shouldRespawnStaleShell(d, opts.livePtyIds)) {
-      const result = await respawnStaleShell(d, session);
-      if (result.kind === "ok") {
-        createPane({
-          id: d.id,
-          type: "shell",
-          ptyId: result.ptyId,
-          name: d.name,
-          workingDir: d.workingDir,
-          spawnProfileRef: d.spawnProfileRef,
-          provider: d.provider,
-          providerSessionId: d.providerSessionId,
-        });
-        respawnedPanes.set(d.id, {
-          ptyId: result.ptyId,
-          profile: result.profile,
-        });
-      } else {
-        log(
-          `restoreSessionPanes(${session.id}): respawn failed for ${d.id} — ${result.message}`,
-        );
-        createPane({
-          id: d.id,
-          type: "shell",
-          ptyId: "",
-          name: d.name,
-          workingDir: d.workingDir,
-          spawnProfileRef: d.spawnProfileRef,
-          provider: d.provider,
-          providerSessionId: d.providerSessionId,
-        });
-        updateInstance(d.id, { restoreError: result.message });
-      }
+      updateInstance(primaryPaneId, {
+        terminalState: decision.terminalState,
+      });
       continue;
     }
 
     createPane({
       id: d.id,
       type: d.type,
-      ptyId: d.ptyId,
+      ptyId: decision.panePtyId,
       name: d.name,
       workingDir: d.workingDir,
       command: d.command,
@@ -133,46 +91,21 @@ export async function restoreSessionPanes(
       notesScope: d.notesScope,
       notesViewMode: d.notesViewMode,
     });
+    updateInstance(d.id, { terminalState: decision.terminalState });
   }
 
   for (const d of restored.descriptors) {
     if (d.type === "markdown" || d.type === "notes") continue;
-
-    const respawn = respawnedPanes.get(d.id);
-    if (respawn) {
-      try {
-        opts.initTerminal(d.id);
-        await opts.attachPtyListeners(d.id);
-      } catch (e) {
-        log(
-          `restoreSessionPanes(${session.id}): failed to attach respawned pane ${d.id}: ${e}`,
-        );
-        continue;
-      }
-      if (respawn.profile) {
-        try {
-          const appendSystemPrompt = await renderProjectPromptForSession(
-            session,
-            respawn.profile,
-          );
-          await runProfileInPane(respawn.ptyId, respawn.profile, {
-            ...(appendSystemPrompt.trim() ? { appendSystemPrompt } : {}),
-          });
-        } catch (e) {
-          log(
-            `restoreSessionPanes(${session.id}): profile replay failed for ${d.id}: ${e}`,
-          );
-        }
-      }
-      continue;
-    }
-
-    if (!d.ptyId) continue;
-    if (!canAttachPty(d.ptyId, opts.livePtyIds)) continue;
+    const decision = decidePaneRestore({
+      descriptor: d,
+      sessionId: session.id,
+      livePtyIds: opts.livePtyIds,
+    });
+    if (decision.kind !== "attach") continue;
     try {
       opts.initTerminal(d.id);
-      if (opts.attachLivePtyToPane && opts.livePtyIds?.has(d.ptyId)) {
-        await opts.attachLivePtyToPane(d.id, d.ptyId);
+      if (opts.attachLivePtyToPane && opts.livePtyIds?.has(decision.ptyId)) {
+        await opts.attachLivePtyToPane(d.id, decision.ptyId);
       } else {
         await opts.attachPtyListeners(d.id);
       }
@@ -199,12 +132,17 @@ async function restorePrimaryOnly(
     descriptor,
   );
   if (canAttachPty(session.id, opts.livePtyIds)) {
+    updateInstance(mainPaneId, {
+      terminalState: { kind: "attached", ptyId: session.id },
+    });
     opts.initTerminal(mainPaneId);
     if (opts.attachLivePtyToPane && opts.livePtyIds?.has(session.id)) {
       await opts.attachLivePtyToPane(mainPaneId, session.id);
     } else {
       await opts.attachPtyListeners(mainPaneId);
     }
+  } else {
+    updateInstance(mainPaneId, { terminalState: { kind: "empty" } });
   }
   return mainPaneId;
 }
@@ -244,62 +182,19 @@ function canAttachPty(
   return livePtyIds?.has(ptyId) === true;
 }
 
-function shouldRespawnStaleShell(
-  descriptor: PaneStatePayload["descriptors"][number],
-  livePtyIds: ReadonlySet<string> | null | undefined,
-): boolean {
-  if (descriptor.type !== "shell") return false;
-  if (livePtyIds == null) return false;
-  if (!descriptor.ptyId) return false;
-  return !livePtyIds.has(descriptor.ptyId);
-}
-
-type RespawnResult =
-  | { kind: "ok"; ptyId: string; profile: SpawnProfile | null }
-  | { kind: "error"; message: string };
-
-async function respawnStaleShell(
-  descriptor: PaneStatePayload["descriptors"][number],
-  session: Session,
-): Promise<RespawnResult> {
-  const freshPtyId = crypto.randomUUID();
-  const profile = resolveProfileRef(descriptor.spawnProfileRef);
-  const profileId =
-    descriptor.spawnProfileRef?.kind === "registered"
-      ? descriptor.spawnProfileRef.id
-      : descriptor.spawnProfileRef?.kind === "inline"
-        ? descriptor.spawnProfileRef.profile.id
-        : null;
-  try {
-    await spawnShell(
-      freshPtyId,
-      descriptor.workingDir ?? session.worktreePath,
-      session.id,
-      descriptor.id,
-      profileId,
-      null,
-      descriptor.spawnProfileRef?.kind === "inline"
-        ? descriptor.spawnProfileRef.profile
-        : null,
-    );
-    return { kind: "ok", ptyId: freshPtyId, profile };
-  } catch (e) {
-    return { kind: "error", message: String(e) };
-  }
-}
-
 function stripKnownStaleCommandPanes(
   persisted: PaneStatePayload,
   livePtyIds: ReadonlySet<string> | null | undefined,
 ): { layout: LayoutNode | null; descriptors: PaneStatePayload["descriptors"] } {
-  if (livePtyIds == null) {
-    return { layout: persisted.layout, descriptors: persisted.descriptors };
-  }
-
   const staleCommandIds = new Set(
     persisted.descriptors
       .filter(
-        (d) => d.type === "command" && (!d.ptyId || !livePtyIds.has(d.ptyId)),
+        (d) =>
+          decidePaneRestore({
+            descriptor: d,
+            sessionId: "",
+            livePtyIds,
+          }).kind === "strip",
       )
       .map((d) => d.id),
   );

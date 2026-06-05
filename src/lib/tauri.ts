@@ -68,7 +68,18 @@ export interface DaemonStatus {
   watchCount?: number;
   processCount?: number;
   ptyCount?: number;
+  workItemMigrationStatus?: WorkItemMigrationStatus | null;
   capabilities: string[];
+}
+
+export type WorkItemMigrationStorage = "boardDb" | "inMemory";
+
+export interface WorkItemMigrationStatus {
+  currentVersion: number;
+  targetVersion: number;
+  pendingVersions: number[];
+  storage: WorkItemMigrationStorage;
+  error?: string | null;
 }
 
 export interface RuntimeCounts {

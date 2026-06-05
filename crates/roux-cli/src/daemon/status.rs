@@ -153,6 +153,7 @@ pub(super) async fn handle_daemon_status(
         "watchCount": watch_count,
         "processCount": process_count,
         "ptyCount": pty_count,
+        "workItemMigrationStatus": host.work_item_handle.migration_status(),
         "capabilities": capabilities,
     }))
 }

@@ -58,6 +58,10 @@ pub fn socket_auth_token_file_path() -> PathBuf {
     app_config_dir().join("roux-socket-token")
 }
 
+pub fn daemon_owner_lock_path() -> PathBuf {
+    app_config_dir().join("roux-daemon.lock")
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SocketEndpoint {
     Unix(PathBuf),

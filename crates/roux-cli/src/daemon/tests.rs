@@ -143,6 +143,10 @@ async fn daemon_status_is_daemon_only_socket_command() {
     assert_eq!(data["socket"], "/tmp/roux.sock");
     assert_eq!(data["logPath"], "/tmp/roux-daemon.log");
     assert_eq!(data["processCount"], 0);
+    assert_eq!(data["workItemMigrationStatus"]["currentVersion"], 7);
+    assert_eq!(data["workItemMigrationStatus"]["targetVersion"], 7);
+    assert_eq!(data["workItemMigrationStatus"]["pendingVersions"], serde_json::json!([]));
+    assert_eq!(data["workItemMigrationStatus"]["storage"], "boardDb");
     assert!(data["capabilities"].as_array().unwrap().contains(&serde_json::json!("daemon-status")));
     assert!(data["capabilities"].as_array().unwrap().contains(&serde_json::json!("daemon-stop")));
     assert!(data["capabilities"]
@@ -2915,15 +2919,15 @@ async fn daemon_socket_serves_status_request() {
         AutomationHookManager::from_config_root(dir.path()),
     );
     let log_path = dir.path().join("roux-daemon.log");
+    let owner_lock_path = dir.path().join("roux-daemon.lock");
+    let endpoint = platform::SocketEndpoint::Unix(socket_path.clone());
+    let owner_guard = acquire_daemon_owner(&owner_lock_path, &endpoint.display_value()).unwrap();
     let server = start_socket_server(
         host.clone(),
         watch_runner,
-        DaemonIdentity::new(
-            platform::SocketEndpoint::Unix(socket_path.clone()),
-            log_path.clone(),
-            None,
-        ),
+        DaemonIdentity::new(endpoint, log_path.clone(), None),
         DaemonLog::new_for_test(log_path.clone()),
+        owner_guard,
     )
     .await
     .unwrap();
@@ -2941,7 +2945,7 @@ async fn daemon_socket_serves_status_request() {
     let expected_log_path = log_path.to_string_lossy().to_string();
     assert_eq!(value["data"]["logPath"], serde_json::Value::String(expected_log_path));
 
-    server.shutdown();
+    let _owner_guard = server.shutdown();
     host.process_handle.shutdown().await;
     host.pty_handle.shutdown().await;
     host.watch_handle.shutdown().await;
@@ -2950,6 +2954,132 @@ async fn daemon_socket_serves_status_request() {
     drop(host);
     for join in joins {
         join.await.unwrap();
+    }
+}
+
+#[cfg(not(windows))]
+#[tokio::test]
+async fn daemon_socket_server_refuses_second_owner_even_if_socket_file_was_removed() {
+    let dir = tempfile::tempdir().unwrap();
+    let socket_path = dir.path().join("roux.sock");
+    let services = RuntimeHostConfig {
+        initial_sessions: Vec::new(),
+        session_persist_path: dir.path().join("sessions.json"),
+        initial_projects: Vec::new(),
+        project_persist_path: dir.path().join("projects.json"),
+        initial_watches: Vec::new(),
+        watch_persist_path: Some(dir.path().join("watches.json")),
+        work_item_db_path: dir.path().join("board.db"),
+    }
+    .build();
+    let (host, joins) = services.spawn_with(tokio::spawn);
+    let watch_runner = WatchRunner::new(
+        host.watch_handle.clone(),
+        AutomationHookManager::from_config_root(dir.path()),
+    );
+    let log_path = dir.path().join("roux-daemon.log");
+    let owner_lock_path = dir.path().join("roux-daemon.lock");
+    let endpoint = platform::SocketEndpoint::Unix(socket_path.clone());
+    let owner_guard = acquire_daemon_owner(&owner_lock_path, &endpoint.display_value()).unwrap();
+
+    let first = start_socket_server(
+        host.clone(),
+        watch_runner.clone(),
+        DaemonIdentity::new(endpoint.clone(), log_path.clone(), None),
+        DaemonLog::new_for_test(log_path.clone()),
+        owner_guard,
+    )
+    .await
+    .unwrap();
+
+    std::fs::remove_file(&socket_path).expect("test must simulate a lost socket path");
+
+    let second = acquire_daemon_owner(&owner_lock_path, &endpoint.display_value());
+
+    let failure = match second {
+        Ok(_second_owner_guard) => {
+            Some("second daemon owner lock unexpectedly acquired".to_string())
+        }
+        Err(err) if err.contains("already running") => None,
+        Err(err) => Some(format!("unexpected second-start error: {err}")),
+    };
+
+    let _owner_guard = first.shutdown();
+    host.process_handle.shutdown().await;
+    host.pty_handle.shutdown().await;
+    host.watch_handle.shutdown().await;
+    host.session_handle.shutdown().await;
+    host.project_handle.shutdown().await;
+    drop(host);
+    for join in joins {
+        join.await.unwrap();
+    }
+
+    if let Some(failure) = failure {
+        panic!("{failure}");
+    }
+}
+
+#[cfg(not(windows))]
+#[tokio::test]
+async fn daemon_socket_server_refuses_tcp_owner_while_unix_owner_is_running() {
+    let dir = tempfile::tempdir().unwrap();
+    let socket_path = dir.path().join("roux.sock");
+    let services = RuntimeHostConfig {
+        initial_sessions: Vec::new(),
+        session_persist_path: dir.path().join("sessions.json"),
+        initial_projects: Vec::new(),
+        project_persist_path: dir.path().join("projects.json"),
+        initial_watches: Vec::new(),
+        watch_persist_path: Some(dir.path().join("watches.json")),
+        work_item_db_path: dir.path().join("board.db"),
+    }
+    .build();
+    let (host, joins) = services.spawn_with(tokio::spawn);
+    let watch_runner = WatchRunner::new(
+        host.watch_handle.clone(),
+        AutomationHookManager::from_config_root(dir.path()),
+    );
+    let log_path = dir.path().join("roux-daemon.log");
+    let owner_lock_path = dir.path().join("roux-daemon.lock");
+    let unix_endpoint = platform::SocketEndpoint::Unix(socket_path.clone());
+    let owner_guard =
+        acquire_daemon_owner(&owner_lock_path, &unix_endpoint.display_value()).unwrap();
+
+    let first = start_socket_server(
+        host.clone(),
+        watch_runner.clone(),
+        DaemonIdentity::new(unix_endpoint, log_path.clone(), None),
+        DaemonLog::new_for_test(log_path.clone()),
+        owner_guard,
+    )
+    .await
+    .unwrap();
+
+    let tcp_endpoint = platform::SocketEndpoint::Tcp("127.0.0.1:0".to_string());
+    let second = acquire_daemon_owner(&owner_lock_path, &tcp_endpoint.display_value());
+
+    let failure = match second {
+        Ok(_second_owner_guard) => {
+            Some("second daemon owner lock unexpectedly acquired".to_string())
+        }
+        Err(err) if err.contains("already running") => None,
+        Err(err) => Some(format!("unexpected second-start error: {err}")),
+    };
+
+    let _owner_guard = first.shutdown();
+    host.process_handle.shutdown().await;
+    host.pty_handle.shutdown().await;
+    host.watch_handle.shutdown().await;
+    host.session_handle.shutdown().await;
+    host.project_handle.shutdown().await;
+    drop(host);
+    for join in joins {
+        join.await.unwrap();
+    }
+
+    if let Some(failure) = failure {
+        panic!("{failure}");
     }
 }
 
@@ -2976,17 +3106,16 @@ async fn daemon_socket_stop_requests_shutdown_after_response() {
         AutomationHookManager::from_config_root(dir.path()),
     );
     let log_path = dir.path().join("roux-daemon.log");
+    let owner_lock_path = dir.path().join("roux-daemon.lock");
     let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
+    let endpoint = platform::SocketEndpoint::Unix(socket_path.clone());
+    let owner_guard = acquire_daemon_owner(&owner_lock_path, &endpoint.display_value()).unwrap();
     let server = start_socket_server(
         host.clone(),
         watch_runner,
-        DaemonIdentity::new(
-            platform::SocketEndpoint::Unix(socket_path.clone()),
-            log_path.clone(),
-            None,
-        )
-        .with_shutdown(shutdown_tx),
+        DaemonIdentity::new(endpoint, log_path.clone(), None).with_shutdown(shutdown_tx),
         DaemonLog::new_for_test(log_path),
+        owner_guard,
     )
     .await
     .unwrap();
@@ -3010,7 +3139,7 @@ async fn daemon_socket_stop_requests_shutdown_after_response() {
     }
     assert!(*shutdown_rx.borrow(), "daemon-stop should signal shutdown");
 
-    server.shutdown();
+    let _owner_guard = server.shutdown();
     host.process_handle.shutdown().await;
     host.pty_handle.shutdown().await;
     host.watch_handle.shutdown().await;
