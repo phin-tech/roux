@@ -19,7 +19,11 @@ import { openWorkItemSessionStart } from "$lib/stores/ui";
 import { openMainView } from "$lib/stores/mainView";
 import type { WorkItem } from "$lib/bindings";
 import type { Attachment, WorkItemRun } from "$lib/types/workItems";
-import { openPathInFinder } from "$lib/tauri";
+import { createSessionShell, openPathInFinder } from "$lib/tauri";
+import { addSession, setActiveSession } from "$lib/stores/sessions";
+import { initSessionWithProfile } from "$lib/panes/actions";
+import { connectPaneTerminal } from "$lib/panes/terminals";
+import { runProfileInPane } from "$lib/panes/profileRunner";
 
 // jsdom lacks the Web Animations API that Svelte's transition:fade/scale use.
 if (typeof Element !== "undefined" && !Element.prototype.animate) {
@@ -70,7 +74,11 @@ vi.mock("$lib/workItems/deleteFlow", () => ({
 
 vi.mock("$lib/stores/sessions", async () => {
   const { writable } = await import("svelte/store");
-  return { sessionList: writable([]) };
+  return {
+    sessionList: writable([]),
+    addSession: vi.fn(),
+    setActiveSession: vi.fn(),
+  };
 });
 
 vi.mock("$lib/stores/ui", () => ({
@@ -88,8 +96,50 @@ vi.mock("$lib/panes/openSession", () => ({
 }));
 
 vi.mock("$lib/tauri", () => ({
+  createSessionShell: vi.fn().mockResolvedValue({
+    id: "review-agent-session",
+    name: "Review me review",
+    worktreePath: "/repo/.worktrees/review-card",
+    repoRoot: "/repo",
+    branch: "main",
+    isGitRepo: true,
+    status: "idle",
+    createdAt: 1,
+  }),
   openPathInFinder: vi.fn().mockResolvedValue(undefined),
 }));
+
+vi.mock("$lib/panes/actions", () => ({
+  initSessionWithProfile: vi.fn().mockReturnValue("review-agent-session"),
+}));
+
+vi.mock("$lib/panes/terminals", () => ({
+  connectPaneTerminal: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock("$lib/panes/profileRunner", () => ({
+  runProfileInPane: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock("$lib/panes/profiles", async () => {
+  const { writable } = await import("svelte/store");
+  const profile = {
+    id: "claude",
+    name: "Claude",
+    setupCommand: null,
+    startupCommand: "claude",
+    startupBehavior: null,
+    env: null,
+    cwdOverride: null,
+    icon: null,
+    provider: "claude",
+    source: "builtin",
+  };
+  return {
+    profileList: writable([profile]),
+    resolveProfileRef: vi.fn(() => profile),
+  };
+});
 
 function workItem(overrides: Partial<WorkItem> = {}): WorkItem {
   return {
@@ -381,6 +431,7 @@ describe("BoardPanel", () => {
       id: "wi-review",
       title: "Review me",
       status: "review",
+      repoPath: "/repo",
       sessionId: null,
     });
     seedColumns([item]);
@@ -419,6 +470,27 @@ describe("BoardPanel", () => {
     expect(openPathInFinder).toHaveBeenCalledWith(
       "/repo/.worktrees/review-card",
     );
+
+    await fireEvent.click(screen.getByText("Open agent"));
+    await vi.waitFor(() =>
+      expect(createSessionShell).toHaveBeenCalledWith(
+        "/repo",
+        "Review me review",
+        "/repo/.worktrees/review-card",
+        "main",
+        { profile: "claude" },
+      ),
+    );
+    expect(addSession).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "review-agent-session" }),
+    );
+    expect(initSessionWithProfile).toHaveBeenCalledWith(
+      "review-agent-session",
+      { kind: "registered", id: "claude" },
+    );
+    expect(connectPaneTerminal).toHaveBeenCalledWith("review-agent-session");
+    expect(runProfileInPane).toHaveBeenCalled();
+    expect(setActiveSession).toHaveBeenCalledWith("review-agent-session");
 
     await fireEvent.click(screen.getByText("Request changes"));
     const form = screen.getByTestId("work-item-request-changes-form");

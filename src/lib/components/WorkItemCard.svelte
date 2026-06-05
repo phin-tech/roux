@@ -2,7 +2,6 @@
   import Bot from "@lucide/svelte/icons/bot";
   import Check from "@lucide/svelte/icons/check";
   import ClipboardList from "@lucide/svelte/icons/clipboard-list";
-  import FileText from "@lucide/svelte/icons/file-text";
   import FolderOpen from "@lucide/svelte/icons/folder-open";
   import GitBranch from "@lucide/svelte/icons/git-branch";
   import MessageSquareWarning from "@lucide/svelte/icons/message-square-warning";
@@ -12,7 +11,6 @@
   import Terminal from "@lucide/svelte/icons/terminal";
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import type { WorkItem } from "$lib/bindings";
-  import type { Attachment } from "$lib/types/workItems";
   import type { WorkItemPhase } from "$lib/workItems/phase";
   import type { WorkItemReviewPackage } from "$lib/workItems/reviewPackage";
   import type { SessionStatus } from "$lib/types";
@@ -43,14 +41,19 @@
     ) => void | Promise<void>;
     /** Reveal the card's worktree path in the OS file manager. */
     onOpenWorktree?: (path: string) => void | Promise<void>;
+    /** Open a new agent session in the review worktree. */
+    onOpenAgent?: (
+      item: WorkItem,
+      reviewPackage: WorkItemReviewPackage,
+    ) => void | Promise<void>;
     startPending?: boolean;
     planPending?: boolean;
     acceptPending?: boolean;
     requestChangesPending?: boolean;
+    openAgentPending?: boolean;
     startError?: string | null;
     /** Derived run/column phase: drives the action affordance + blocked state. */
     phase: WorkItemPhase;
-    attachments?: Attachment[];
     reviewPackage?: WorkItemReviewPackage | null;
     attachedSessionIds?: string[];
     /** Opt-in card dragging. The full-screen board enables it; the sidebar leaves it off. */
@@ -68,13 +71,14 @@
     onAcceptReview,
     onRequestChanges,
     onOpenWorktree,
+    onOpenAgent,
     startPending = false,
     planPending = false,
     acceptPending = false,
     requestChangesPending = false,
+    openAgentPending = false,
     startError = null,
     phase,
-    attachments = [],
     reviewPackage = null,
     attachedSessionIds = [],
     draggable = false,
@@ -144,11 +148,15 @@
       !!onAcceptReview ||
       !!onRequestChanges ||
       !!onOpenWorktree ||
+      !!onOpenAgent ||
       canForceStartPlanning,
   );
   const reviewSessionId = $derived(reviewPackage?.sessionId ?? null);
   const canOpenReviewWorktree = $derived(
     !!reviewPackage?.worktreePath && !!onOpenWorktree,
+  );
+  const canOpenReviewAgent = $derived(
+    !!reviewPackage?.worktreePath && !!onOpenAgent,
   );
   const allAttachedSessionIds = $derived.by(() => {
     const ids = new Set<string>();
@@ -270,6 +278,12 @@
     onOpen?.(reviewSessionId);
   }
 
+  function handleOpenReviewAgent(): void {
+    menuOpen = false;
+    if (!reviewPackage) return;
+    void onOpenAgent?.(item, reviewPackage);
+  }
+
   function handleRequestChangesOpen(): void {
     menuOpen = false;
     requestChangesOpen = true;
@@ -281,10 +295,6 @@
     await onRequestChanges?.(item.id, item, note);
     requestChangesNote = "";
     requestChangesOpen = false;
-  }
-
-  function attachmentTitle(attachment: Attachment): string {
-    return attachment.title?.trim() || attachment.documentId;
   }
 
   function handleAttentionOpen(event: MouseEvent): void {
@@ -407,8 +417,17 @@
     </p>
   {/if}
 
-  {#if projectLabel || profileLabel || targetLabel || branchLabel}
+  {#if hasAttachedPlan || projectLabel || profileLabel || targetLabel || branchLabel}
     <div class="flex flex-wrap gap-1.5">
+      {#if hasAttachedPlan}
+        <span
+          class="inline-flex min-w-0 max-w-full items-center gap-1 rounded-md border border-green/30 bg-green/10 px-1.5 py-0.5 text-[10px] leading-4 text-green"
+          title="Plan attached"
+        >
+          <ClipboardList size={10} strokeWidth={2.2} class="shrink-0" />
+          <span class="truncate">Plan</span>
+        </span>
+      {/if}
       {#if projectLabel}
         <span class={chipClass}>
           <span class="truncate">{projectLabel}</span>
@@ -437,32 +456,12 @@
     </div>
   {/if}
 
-  {#if attachments.length > 0}
-    <div class="flex flex-wrap gap-1.5" data-testid="work-item-attachments">
-      {#each attachments as attachment (attachment.id)}
-        <span
-          class={chipClass}
-          title={`${attachmentTitle(attachment)} · ${attachment.documentId}`}
-        >
-          <FileText size={10} strokeWidth={2.2} class="shrink-0" />
-          <span class="truncate">{attachmentTitle(attachment)}</span>
-        </span>
-      {/each}
-    </div>
-  {/if}
-
   {#if item.status === "review" && reviewPackage}
     <div
       class="mt-0.5 flex flex-col gap-1.5 border-t border-border-subtle/55 pt-1.5 text-[10px] leading-4 text-text-muted"
       data-testid="work-item-review-package"
     >
       <div class="grid min-w-0 grid-cols-[3.5rem_minmax(0,1fr)] gap-x-1 gap-y-0.5">
-        {#if reviewPackage.plan}
-          <span class="text-text-subtle">Plan</span>
-          <span class="truncate" title={reviewPackage.plan.documentId}
-            >{reviewPackage.plan.title}</span
-          >
-        {/if}
         {#if reviewPackage.agentSummary}
           <span class="text-text-subtle">Summary</span>
           <span class="line-clamp-2">{reviewPackage.agentSummary}</span>
@@ -497,12 +496,6 @@
             >{reviewPackage.prUrl}</a
           >
         {/if}
-        {#if reviewPackage.feedback}
-          <span class="text-text-subtle">Feedback</span>
-          <span class="truncate" title={reviewPackage.feedback.documentId}
-            >{reviewPackage.feedback.title}</span
-          >
-        {/if}
       </div>
       <div class="flex flex-wrap items-center gap-1">
         {#if canOpenReviewWorktree}
@@ -513,6 +506,17 @@
           >
             <FolderOpen size={11} strokeWidth={2.1} />
             <span>Open worktree</span>
+          </button>
+        {/if}
+        {#if canOpenReviewAgent}
+          <button
+            type="button"
+            class="inline-flex h-6 items-center gap-1 rounded-md border border-accent-dim/35 bg-accent-dim/15 px-1.5 text-[10px] text-accent transition-colors hover:bg-accent-dim/25 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 disabled:cursor-wait disabled:opacity-60"
+            onclick={handleOpenReviewAgent}
+            disabled={openAgentPending}
+          >
+            <Bot size={11} strokeWidth={2.1} />
+            <span>{openAgentPending ? "Opening..." : "Open agent"}</span>
           </button>
         {/if}
         {#if reviewSessionId && onOpen}
@@ -722,6 +726,18 @@
       >
         <Terminal size={13} strokeWidth={2.1} />
         <span>Open terminal</span>
+      </button>
+    {/if}
+    {#if canOpenReviewAgent}
+      <button
+        type="button"
+        role="menuitem"
+        class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 disabled:cursor-wait disabled:opacity-60"
+        onclick={handleOpenReviewAgent}
+        disabled={openAgentPending}
+      >
+        <Bot size={13} strokeWidth={2.1} />
+        <span>{openAgentPending ? "Opening..." : "Open agent"}</span>
       </button>
     {/if}
     {#if onRequestChanges && item.status === "review"}

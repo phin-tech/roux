@@ -37,9 +37,14 @@
     hasAttachedPlan,
   } from "$lib/workItems/planningGate";
   import { workItemPhase } from "$lib/workItems/phase";
-  import { buildWorkItemReviewPackage } from "$lib/workItems/reviewPackage";
+  import {
+    buildWorkItemReviewPackage,
+    type WorkItemReviewPackage,
+  } from "$lib/workItems/reviewPackage";
   import type { WorkItem } from "$lib/bindings";
-  import { openPathInFinder } from "$lib/tauri";
+  import { createSessionShell, openPathInFinder } from "$lib/tauri";
+  import { addSession, setActiveSession } from "$lib/stores/sessions";
+  import { defaultAgentProfileId } from "$lib/panes/defaultAgent";
   import SidebarPanelHeader from "./SidebarPanelHeader.svelte";
   import CollapseSidebarButton from "./CollapseSidebarButton.svelte";
   import PinButton from "./PinButton.svelte";
@@ -59,6 +64,7 @@
   let planningItemIds = $state<Record<string, boolean>>({});
   let acceptingItemIds = $state<Record<string, boolean>>({});
   let requestingChangesItemIds = $state<Record<string, boolean>>({});
+  let openingAgentItemIds = $state<Record<string, boolean>>({});
   let startErrors = $state<Record<string, string>>({});
   let planErrors = $state<Record<string, string>>({});
   let deleteTarget = $state<WorkItem | null>(null);
@@ -198,6 +204,46 @@
     }
   }
 
+  async function handleOpenAgent(
+    item: WorkItem,
+    reviewPackage: WorkItemReviewPackage,
+  ) {
+    const worktreePath = reviewPackage.worktreePath;
+    if (!worktreePath || openingAgentItemIds[item.id]) return;
+    openingAgentItemIds = { ...openingAgentItemIds, [item.id]: true };
+    startErrors = withoutKey(startErrors, item.id);
+    try {
+      const profileId = item.agentProfile ?? defaultAgentProfileId();
+      const profileRef = { kind: "registered" as const, id: profileId };
+      const [{ resolveProfileRef }, { runProfileInPane }, { initSessionWithProfile }, { connectPaneTerminal }] =
+        await Promise.all([
+          import("$lib/panes/profiles"),
+          import("$lib/panes/profileRunner"),
+          import("$lib/panes/actions"),
+          import("$lib/panes/terminals"),
+        ]);
+      const repoPath = item.repoPath ?? worktreePath;
+      const session = await createSessionShell(
+        repoPath,
+        `${item.title} review`,
+        item.repoPath ? worktreePath : null,
+        reviewPackage.branch ?? item.branch,
+        { profile: profileId },
+      );
+      addSession(session);
+      const mainPaneId = initSessionWithProfile(session.id, profileRef);
+      await connectPaneTerminal(mainPaneId);
+      const profile = resolveProfileRef(profileRef);
+      if (profile) await runProfileInPane(session.id, profile, {});
+      setActiveSession(session.id);
+    } catch (err) {
+      startErrors = { ...startErrors, [item.id]: "Failed to open agent." };
+      console.error("Failed to open review agent", err);
+    } finally {
+      openingAgentItemIds = withoutKey(openingAgentItemIds, item.id);
+    }
+  }
+
   async function handleOpen(sessionId: string) {
     const result = await openSessionById(sessionId);
     if (result === "gone") {
@@ -310,7 +356,6 @@
                 {item}
                 {sessionStatus}
                 {phase}
-                attachments={itemAttachments}
                 {reviewPackage}
                 {attachedSessionIds}
                 onStart={handleStart}
@@ -321,10 +366,12 @@
                 onAcceptReview={handleAcceptReview}
                 onRequestChanges={handleRequestChanges}
                 onOpenWorktree={handleOpenWorktree}
+                onOpenAgent={handleOpenAgent}
                 startPending={!!startingItemIds[item.id]}
                 planPending={!!planningItemIds[item.id]}
                 acceptPending={!!acceptingItemIds[item.id]}
                 requestChangesPending={!!requestingChangesItemIds[item.id]}
+                openAgentPending={!!openingAgentItemIds[item.id]}
                 startError={startErrors[item.id] ??
                   planErrors[item.id] ??
                   item.startError ??

@@ -22,8 +22,11 @@ if (typeof Element !== "undefined" && !Element.prototype.scrollIntoView) {
 }
 import { editingWorkItemId, newWorkItemEditor } from "$lib/stores/ui";
 import {
+  attachmentsByWorkItem,
   runsByItem,
   createWorkItem,
+  getDocument,
+  listDocuments,
   stopWorkItemRun,
   workItems,
   updateWorkItem,
@@ -31,7 +34,11 @@ import {
 import { deleteWorkItemWithMode } from "$lib/workItems/deleteFlow";
 import { projects } from "$lib/stores/projects";
 import type { WorkItem } from "$lib/bindings";
-import type { WorkItemRun } from "$lib/types/workItems";
+import type {
+  Attachment,
+  AttachmentDocument,
+  WorkItemRun,
+} from "$lib/types/workItems";
 
 const invokeMock = vi.hoisted(() => vi.fn());
 
@@ -59,10 +66,13 @@ vi.mock("$lib/stores/workItems", async () => {
     workItems: writable<WorkItem[]>([]),
     pendingDecisionByItem: writable(new Map()),
     runsByItem: writable(new Map()),
+    attachmentsByWorkItem: writable(new Map()),
     createWorkItem: vi.fn().mockResolvedValue({}),
     updateWorkItem: vi.fn().mockResolvedValue({}),
     resolveWorkItemDecision: vi.fn().mockResolvedValue({}),
     stopWorkItemRun: vi.fn().mockResolvedValue({}),
+    listDocuments: vi.fn().mockResolvedValue([]),
+    getDocument: vi.fn(),
     WORK_ITEM_COLUMNS: ["todo", "ready", "doing", "review", "done"],
     COLUMN_LABELS: {
       todo: "To Do",
@@ -178,6 +188,24 @@ function workItemRun(overrides: Partial<WorkItemRun> = {}): WorkItemRun {
   };
 }
 
+function attachment(overrides: Partial<Attachment> = {}): Attachment {
+  return {
+    id: "att-plan",
+    documentId: "wi-1.plan",
+    targetKind: "workItem",
+    targetId: "wi-1",
+    title: "Implementation Plan",
+    contentKind: "text",
+    mimeType: "text/markdown",
+    sourcePath: null,
+    byteLen: 1024,
+    sha256: "sha",
+    createdAt: 1,
+    updatedAt: 1,
+    ...overrides,
+  };
+}
+
 describe("WorkItemEditor", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -198,6 +226,14 @@ describe("WorkItemEditor", () => {
     (runsByItem as ReturnType<typeof import("svelte/store").writable>).set(
       new Map(),
     );
+    (
+      attachmentsByWorkItem as ReturnType<typeof import("svelte/store").writable>
+    ).set(new Map());
+    vi.mocked(listDocuments).mockResolvedValue([]);
+    vi.mocked(getDocument).mockResolvedValue({
+      attachment: attachment(),
+      content: "Plan body",
+    } satisfies AttachmentDocument);
     editingWorkItemId.set(null);
     newWorkItemEditor.set(null);
   });
@@ -365,5 +401,25 @@ describe("WorkItemEditor", () => {
     );
 
     expect(stopWorkItemRun).toHaveBeenCalledWith("run-1");
+  });
+
+  it("shows and previews work item attachments in the editor", async () => {
+    const plan = attachment();
+    (
+      attachmentsByWorkItem as ReturnType<typeof import("svelte/store").writable>
+    ).set(new Map([["wi-1", [plan]]]));
+    vi.mocked(getDocument).mockResolvedValueOnce({
+      attachment: plan,
+      content: "Use the approved plan.",
+    });
+
+    render(WorkItemEditor);
+    editingWorkItemId.set("wi-1");
+
+    await screen.findByText("Attachments");
+    await fireEvent.click(screen.getByRole("button", { name: "Implementation Plan" }));
+
+    expect(getDocument).toHaveBeenCalledWith("wi-1.plan");
+    expect(await screen.findByText("Use the approved plan.")).toBeTruthy();
   });
 });
