@@ -252,9 +252,9 @@ describe("BoardPanel", () => {
     (runsByItem as ReturnType<typeof import("svelte/store").writable>).set(
       new Map(),
     );
-    (workItemRunEvents as ReturnType<typeof import("svelte/store").writable>).set(
-      [],
-    );
+    (
+      workItemRunEvents as ReturnType<typeof import("svelte/store").writable>
+    ).set([]);
     projects.set([project()]);
   });
 
@@ -341,6 +341,7 @@ describe("BoardPanel", () => {
         ],
       ]),
     );
+    projects.set([project({ repoRoots: ["/wrong-repo", "/repo"] })]);
     render(BoardPanel, { visible: true, onclose: vi.fn() });
 
     expect(screen.queryByLabelText("Approve and start work item")).toBeNull();
@@ -397,6 +398,7 @@ describe("BoardPanel", () => {
       sessionId: null,
     });
     seedColumns([item]);
+    seedWorkItemAttachments([["wi-1", [attachment({ targetId: "wi-1" })]]]);
     render(BoardPanel, { visible: true, onclose: vi.fn() });
 
     expect(screen.getByText("Configure")).toBeTruthy();
@@ -408,6 +410,28 @@ describe("BoardPanel", () => {
     });
     expect(startWorkItem).not.toHaveBeenCalled();
     expect(moveWorkItem).not.toHaveBeenCalled();
+  });
+
+  it("does not open the session prompt for an unprojected Ready card without a plan", async () => {
+    const item = workItem({
+      id: "wi-1",
+      title: "Wire task start",
+      status: "ready",
+      projectId: null,
+      sessionId: null,
+    });
+    seedColumns([item]);
+    render(BoardPanel, { visible: true, onclose: vi.fn() });
+
+    await fireEvent.click(screen.getByLabelText("Configure work item"));
+
+    expect(openWorkItemSessionStart).not.toHaveBeenCalled();
+    expect(startWorkItem).not.toHaveBeenCalled();
+    await vi.waitFor(() =>
+      expect(screen.getByRole("alert").textContent).toContain(
+        "Attach a plan before starting implementation.",
+      ),
+    );
   });
 
   it("starts planning from the card actions menu without moving the card", async () => {

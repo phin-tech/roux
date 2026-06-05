@@ -41,6 +41,7 @@
     buildWorkItemReviewPackage,
     type WorkItemReviewPackage,
   } from "$lib/workItems/reviewPackage";
+  import { resolveReviewAgentRepoRoot } from "$lib/workItems/reviewAgent";
   import type { WorkItem } from "$lib/bindings";
   import { createSessionShell, openPathInFinder } from "$lib/tauri";
   import { addSession, setActiveSession } from "$lib/stores/sessions";
@@ -105,8 +106,27 @@
   }
 
   async function handleStart(id: string, item: WorkItem, forceStart = false) {
+    const planningRun = get(activePlanningRunByItem).get(id);
+    const attachments = get(attachmentsByWorkItem).get(id) ?? [];
+    if (
+      item.status === "ready" &&
+      !canStartImplementationFromPlanning(attachments, forceStart)
+    ) {
+      if (planningRun?.sessionId) await handleOpen(planningRun.sessionId);
+      else {
+        startErrors = {
+          ...startErrors,
+          [id]: "Attach a plan before starting implementation.",
+        };
+      }
+      return;
+    }
     if (needsStartConfig(item)) {
-      openWorkItemSessionStart({ itemId: item.id, title: item.title });
+      openWorkItemSessionStart({
+        itemId: item.id,
+        title: item.title,
+        ...(forceStart ? { forceStart: true } : {}),
+      });
       return;
     }
     if (startingItemIds[id]) return;
@@ -115,21 +135,6 @@
 
     // Start creates the session/worktree and moves the card after prompt dispatch.
     try {
-      const planningRun = get(activePlanningRunByItem).get(id);
-      const attachments = get(attachmentsByWorkItem).get(id) ?? [];
-      if (
-        item.status === "ready" &&
-        !canStartImplementationFromPlanning(attachments, forceStart)
-      ) {
-        if (planningRun?.sessionId) await handleOpen(planningRun.sessionId);
-        else {
-          startErrors = {
-            ...startErrors,
-            [id]: "Attach a plan before starting implementation.",
-          };
-        }
-        return;
-      }
       if (item.status === "ready" && planningRun) {
         await stopWorkItemRun(planningRun.id);
       }
@@ -183,7 +188,11 @@
     }
   }
 
-  async function handleRequestChanges(id: string, _item: WorkItem, note: string) {
+  async function handleRequestChanges(
+    id: string,
+    _item: WorkItem,
+    note: string,
+  ) {
     if (requestingChangesItemIds[id]) return;
     requestingChangesItemIds = { ...requestingChangesItemIds, [id]: true };
     startErrors = withoutKey(startErrors, id);
@@ -215,23 +224,31 @@
     openingAgentItemIds = { ...openingAgentItemIds, [item.id]: true };
     startErrors = withoutKey(startErrors, item.id);
     try {
-      const projectRepoPath = item.projectId
+      const projectRepoRoots = item.projectId
         ? (get(projects).find((project) => project.id === item.projectId)
-            ?.repoRoots?.[0] ?? null)
-        : null;
-      const repoPath = item.repoPath ?? projectRepoPath;
+            ?.repoRoots ?? [])
+        : [];
+      const repoPath = resolveReviewAgentRepoRoot({
+        itemRepoPath: item.repoPath,
+        projectRepoRoots,
+        worktreePath,
+      });
       if (!repoPath) {
         throw new Error("review worktree repo root is not configured");
       }
       const profileId = item.agentProfile ?? defaultAgentProfileId();
       const profileRef = { kind: "registered" as const, id: profileId };
-      const [{ resolveProfileRef }, { runProfileInPane }, { initSessionWithProfile }, { connectPaneTerminal }] =
-        await Promise.all([
-          import("$lib/panes/profiles"),
-          import("$lib/panes/profileRunner"),
-          import("$lib/panes/actions"),
-          import("$lib/panes/terminals"),
-        ]);
+      const [
+        { resolveProfileRef },
+        { runProfileInPane },
+        { initSessionWithProfile },
+        { connectPaneTerminal },
+      ] = await Promise.all([
+        import("$lib/panes/profiles"),
+        import("$lib/panes/profileRunner"),
+        import("$lib/panes/actions"),
+        import("$lib/panes/terminals"),
+      ]);
       const session = await createSessionShell(
         repoPath,
         `${item.title} review`,

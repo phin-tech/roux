@@ -276,6 +276,7 @@ export function closeWorkItemEditor(): void {
 export interface WorkItemSessionStartRequest {
   itemId: string;
   title: string;
+  forceStart?: boolean;
 }
 
 export const workItemSessionStart =

@@ -294,9 +294,9 @@ describe("BoardMainView", () => {
     (runsByItem as ReturnType<typeof import("svelte/store").writable>).set(
       new Map(),
     );
-    (workItemRunEvents as ReturnType<typeof import("svelte/store").writable>).set(
-      [],
-    );
+    (
+      workItemRunEvents as ReturnType<typeof import("svelte/store").writable>
+    ).set([]);
     projects.set([project()]);
     notifications.set([]);
   });
@@ -548,6 +548,7 @@ describe("BoardMainView", () => {
       sessionId: null,
     });
     seedColumns([item]);
+    seedWorkItemAttachments([["wi-1", [attachment({ targetId: "wi-1" })]]]);
     render(BoardMainView);
 
     expect(screen.getByText("Configure")).toBeTruthy();
@@ -559,6 +560,28 @@ describe("BoardMainView", () => {
     });
     expect(startWorkItem).not.toHaveBeenCalled();
     expect(moveWorkItem).not.toHaveBeenCalled();
+  });
+
+  it("does not open the session prompt for an unprojected Ready card without a plan", async () => {
+    const item = workItem({
+      id: "wi-1",
+      title: "Wire task start",
+      status: "ready",
+      projectId: null,
+      sessionId: null,
+    });
+    seedColumns([item]);
+    render(BoardMainView);
+
+    await fireEvent.click(screen.getByLabelText("Configure work item"));
+
+    expect(openWorkItemSessionStart).not.toHaveBeenCalled();
+    expect(startWorkItem).not.toHaveBeenCalled();
+    await vi.waitFor(() =>
+      expect(screen.getByRole("alert").textContent).toContain(
+        "Attach a plan before starting implementation.",
+      ),
+    );
   });
 
   it("shows unread activity from any attached run session and opens that session", async () => {
@@ -704,21 +727,22 @@ describe("BoardMainView", () => {
         ],
       ]),
     );
-    (workItemRunEvents as ReturnType<typeof import("svelte/store").writable>).set(
-      [
-        {
-          id: "event-1",
-          runId: "run-review",
-          kind: "result",
-          payload: {
-            summary: "Implemented review package.",
-            tests: ["npm run test"],
-            changedFiles: ["src/lib/components/WorkItemCard.svelte"],
-          },
-          createdAt: 3,
+    (
+      workItemRunEvents as ReturnType<typeof import("svelte/store").writable>
+    ).set([
+      {
+        id: "event-1",
+        runId: "run-review",
+        kind: "result",
+        payload: {
+          summary: "Implemented review package.",
+          tests: ["npm run test"],
+          changedFiles: ["src/lib/components/WorkItemCard.svelte"],
         },
-      ],
-    );
+        createdAt: 3,
+      },
+    ]);
+    projects.set([project({ repoRoots: ["/wrong-repo", "/repo"] })]);
     render(BoardMainView);
 
     const reviewPackage = screen.getByTestId("work-item-review-package");
@@ -728,9 +752,7 @@ describe("BoardMainView", () => {
       screen.getByRole("button", { name: "Open plan attachments" }),
     );
     expect(openWorkItemEditor).toHaveBeenCalledWith("wi-review");
-    expect(
-      within(reviewPackage).queryByText("Implementation Plan"),
-    ).toBeNull();
+    expect(within(reviewPackage).queryByText("Implementation Plan")).toBeNull();
     expect(
       within(reviewPackage).getByText("Implemented review package."),
     ).toBeTruthy();
