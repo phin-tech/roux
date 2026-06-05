@@ -3,9 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { PaneDescriptor } from "../persistence";
 import { decidePaneRestore } from "../restoreDecision";
 
-function descriptor(
-  overrides: Partial<PaneDescriptor> = {},
-): PaneDescriptor {
+function descriptor(overrides: Partial<PaneDescriptor> = {}): PaneDescriptor {
   return {
     id: "pane-1",
     type: "shell",
