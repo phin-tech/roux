@@ -2,7 +2,6 @@
   import Bot from "@lucide/svelte/icons/bot";
   import Check from "@lucide/svelte/icons/check";
   import ClipboardList from "@lucide/svelte/icons/clipboard-list";
-  import FolderOpen from "@lucide/svelte/icons/folder-open";
   import GitBranch from "@lucide/svelte/icons/git-branch";
   import MessageSquareWarning from "@lucide/svelte/icons/message-square-warning";
   import MoreVertical from "@lucide/svelte/icons/more-vertical";
@@ -142,16 +141,8 @@
   const branchLabel = $derived(item.branch ?? null);
   const canForceStartPlanning = $derived(phase.canForceStart && !!onStart);
   const hasMenuActions = $derived(
-    !!onEdit ||
-      !!onPlan ||
-      !!onDelete ||
-      !!onAcceptReview ||
-      !!onRequestChanges ||
-      !!onOpenWorktree ||
-      !!onOpenAgent ||
-      canForceStartPlanning,
+    !!onEdit || !!onPlan || !!onDelete || canForceStartPlanning,
   );
-  const reviewSessionId = $derived(reviewPackage?.sessionId ?? null);
   const canOpenReviewWorktree = $derived(
     !!reviewPackage?.worktreePath && !!onOpenWorktree,
   );
@@ -207,6 +198,17 @@
     " border-amber/30 bg-amber/10 text-amber hover:bg-amber/15 focus-visible:ring-1 focus-visible:ring-amber/50";
   const doneActionClass =
     primaryActionClass +
+    " border-green/30 bg-green/10 text-green hover:bg-green/15 focus-visible:ring-1 focus-visible:ring-green/50";
+  const reviewActionClass =
+    "inline-flex h-7 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md border px-2 text-[11px] font-semibold shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] transition-colors focus-visible:outline-none disabled:cursor-wait disabled:opacity-60";
+  const reviewAgentActionClass =
+    reviewActionClass +
+    " border-accent-dim/35 bg-accent-dim/15 text-accent hover:bg-accent-dim/25 focus-visible:ring-1 focus-visible:ring-accent-dim/60";
+  const reviewChangesActionClass =
+    reviewActionClass +
+    " border-amber/30 bg-amber/10 text-amber hover:bg-amber/15 focus-visible:ring-1 focus-visible:ring-amber/50";
+  const reviewDoneActionClass =
+    reviewActionClass +
     " border-green/30 bg-green/10 text-green hover:bg-green/15 focus-visible:ring-1 focus-visible:ring-green/50";
 
   let menuOpen = $state(false);
@@ -272,12 +274,6 @@
     void onOpenWorktree?.(path);
   }
 
-  function handleOpenReviewTerminal(): void {
-    menuOpen = false;
-    if (!reviewSessionId) return;
-    onOpen?.(reviewSessionId);
-  }
-
   function handleOpenReviewAgent(): void {
     menuOpen = false;
     if (!reviewPackage) return;
@@ -307,6 +303,11 @@
     event.stopPropagation();
     if (!unreadActivity.targetSessionId) return;
     onOpen?.(unreadActivity.targetSessionId);
+  }
+
+  function handlePlanChipClick(): void {
+    if (!onEdit) return;
+    onEdit(item.id);
   }
 
   function handleWindowKeydown(event: KeyboardEvent): void {
@@ -420,13 +421,26 @@
   {#if hasAttachedPlan || projectLabel || profileLabel || targetLabel || branchLabel}
     <div class="flex flex-wrap gap-1.5">
       {#if hasAttachedPlan}
-        <span
-          class="inline-flex min-w-0 max-w-full items-center gap-1 rounded-md border border-green/30 bg-green/10 px-1.5 py-0.5 text-[10px] leading-4 text-green"
-          title="Plan attached"
-        >
-          <ClipboardList size={10} strokeWidth={2.2} class="shrink-0" />
-          <span class="truncate">Plan</span>
-        </span>
+        {#if onEdit}
+          <button
+            type="button"
+            class="inline-flex min-w-0 max-w-full items-center gap-1 rounded-md border border-green/30 bg-green/10 px-1.5 py-0.5 text-[10px] leading-4 text-green transition-colors hover:bg-green/15 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-green/50"
+            title="Open plan attachments"
+            aria-label="Open plan attachments"
+            onclick={handlePlanChipClick}
+          >
+            <ClipboardList size={10} strokeWidth={2.2} class="shrink-0" />
+            <span class="truncate">Plan</span>
+          </button>
+        {:else}
+          <span
+            class="inline-flex min-w-0 max-w-full items-center gap-1 rounded-md border border-green/30 bg-green/10 px-1.5 py-0.5 text-[10px] leading-4 text-green"
+            title="Plan attached"
+          >
+            <ClipboardList size={10} strokeWidth={2.2} class="shrink-0" />
+            <span class="truncate">Plan</span>
+          </span>
+        {/if}
       {/if}
       {#if projectLabel}
         <span class={chipClass}>
@@ -478,9 +492,23 @@
         {/if}
         {#if reviewPackage.worktreeLabel}
           <span class="text-text-subtle">Worktree</span>
-          <span class="truncate font-mono" title={reviewPackage.worktreePath ?? undefined}
-            >{reviewPackage.worktreeLabel}</span
-          >
+          {#if canOpenReviewWorktree}
+            <button
+              type="button"
+              class="min-w-0 truncate text-left font-mono text-text-secondary transition-colors hover:text-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
+              title={reviewPackage.worktreePath ?? undefined}
+              aria-label="Open worktree"
+              onclick={handleOpenWorktree}
+            >
+              {reviewPackage.worktreeLabel}
+            </button>
+          {:else}
+            <span
+              class="truncate font-mono"
+              title={reviewPackage.worktreePath ?? undefined}
+              >{reviewPackage.worktreeLabel}</span
+            >
+          {/if}
         {/if}
         {#if reviewPackage.branch}
           <span class="text-text-subtle">Branch</span>
@@ -495,50 +523,6 @@
             class="truncate text-green underline-offset-2 hover:underline"
             >{reviewPackage.prUrl}</a
           >
-        {/if}
-      </div>
-      <div class="flex flex-wrap items-center gap-1">
-        {#if canOpenReviewWorktree}
-          <button
-            type="button"
-            class="inline-flex h-6 items-center gap-1 rounded-md border border-border-subtle/70 bg-bg-deep/45 px-1.5 text-[10px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
-            onclick={handleOpenWorktree}
-          >
-            <FolderOpen size={11} strokeWidth={2.1} />
-            <span>Open worktree</span>
-          </button>
-        {/if}
-        {#if canOpenReviewAgent}
-          <button
-            type="button"
-            class="inline-flex h-6 items-center gap-1 rounded-md border border-accent-dim/35 bg-accent-dim/15 px-1.5 text-[10px] text-accent transition-colors hover:bg-accent-dim/25 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 disabled:cursor-wait disabled:opacity-60"
-            onclick={handleOpenReviewAgent}
-            disabled={openAgentPending}
-          >
-            <Bot size={11} strokeWidth={2.1} />
-            <span>{openAgentPending ? "Opening..." : "Open agent"}</span>
-          </button>
-        {/if}
-        {#if reviewSessionId && onOpen}
-          <button
-            type="button"
-            class="inline-flex h-6 items-center gap-1 rounded-md border border-border-subtle/70 bg-bg-deep/45 px-1.5 text-[10px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
-            onclick={handleOpenReviewTerminal}
-          >
-            <Terminal size={11} strokeWidth={2.1} />
-            <span>Open terminal</span>
-          </button>
-        {/if}
-        {#if onRequestChanges}
-          <button
-            type="button"
-            class="inline-flex h-6 items-center gap-1 rounded-md border border-amber/30 bg-amber/10 px-1.5 text-[10px] text-amber transition-colors hover:bg-amber/15 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-amber/50 disabled:cursor-wait disabled:opacity-60"
-            onclick={handleRequestChangesOpen}
-            disabled={requestChangesPending}
-          >
-            <MessageSquareWarning size={11} strokeWidth={2.1} />
-            <span>{requestChangesPending ? "Requesting..." : "Request changes"}</span>
-          </button>
         {/if}
       </div>
     </div>
@@ -583,60 +567,105 @@
     </form>
   {/if}
 
-  <div class="flex items-center gap-1.5 pt-0.5">
-    {#if phase.action.kind === "plan" && onPlan}
-      <button
-        class={amberActionClass}
-        onclick={() => onPlan?.(item.id, item)}
-        aria-label="Plan work item"
-        aria-busy={planPending}
-        disabled={planPending}
-      >
-        <ClipboardList size={11} strokeWidth={2.2} />
-        <span>{planPending ? "Planning..." : "Plan"}</span>
-      </button>
-    {:else if phase.action.kind === "accept-review" && onAcceptReview}
-      <button
-        class={doneActionClass}
-        onclick={() => onAcceptReview?.(item.id, item)}
-        aria-label="Accept work item review"
-        aria-busy={acceptPending}
-        disabled={acceptPending}
-      >
-        <Check size={11} strokeWidth={2.2} />
-        <span>{acceptPending ? "Accepting..." : "Accept done"}</span>
-      </button>
-    {:else if phase.action.kind === "open-session" && onOpen}
-      <button
-        class={accentActionClass}
-        onclick={() => primaryOpenSessionId && onOpen?.(primaryOpenSessionId)}
-        aria-label="Open terminal"
-      >
-        <Terminal size={11} strokeWidth={2.2} />
-        <span>Open terminal</span>
-      </button>
-    {:else if phase.action.kind === "open-planning" && onOpen}
-      <button
-        class={amberActionClass}
-        onclick={() => planningOpenSessionId && onOpen?.(planningOpenSessionId)}
-        aria-label="Open planning terminal"
-      >
-        <Terminal size={11} strokeWidth={2.2} />
-        <span>Open planning terminal</span>
-      </button>
-    {:else if (phase.action.kind === "approve-start" || phase.action.kind === "configure" || phase.action.kind === "start") && onStart}
-      <button
-        class={accentActionClass}
-        onclick={() => onStart?.(item.id, item)}
-        aria-label={startActionAriaLabel}
-        aria-busy={startPending}
-        disabled={startPending}
-      >
-        <Play size={10} fill="currentColor" strokeWidth={2.2} />
-        <span>{startPending ? "Starting..." : startActionText}</span>
-      </button>
-    {/if}
-  </div>
+  {#if item.status === "review"}
+    <div class="flex items-center gap-1.5 pt-0.5">
+      {#if canOpenReviewAgent}
+        <button
+          type="button"
+          class={reviewAgentActionClass}
+          onclick={handleOpenReviewAgent}
+          aria-label="Open agent"
+          aria-busy={openAgentPending}
+          disabled={openAgentPending}
+        >
+          <Bot size={12} strokeWidth={2.2} />
+          <span class="truncate">{openAgentPending ? "Opening..." : "Open agent"}</span>
+        </button>
+      {/if}
+      {#if onRequestChanges}
+        <button
+          type="button"
+          class={reviewChangesActionClass}
+          onclick={handleRequestChangesOpen}
+          aria-label="Request changes"
+          aria-busy={requestChangesPending}
+          disabled={requestChangesPending}
+        >
+          <MessageSquareWarning size={12} strokeWidth={2.2} />
+          <span class="truncate">{requestChangesPending ? "Requesting..." : "Request changes"}</span>
+        </button>
+      {/if}
+      {#if onAcceptReview}
+        <button
+          type="button"
+          class={reviewDoneActionClass}
+          onclick={handleAcceptReview}
+          aria-label="Accept work item review"
+          aria-busy={acceptPending}
+          disabled={acceptPending}
+        >
+          <Check size={12} strokeWidth={2.2} />
+          <span class="truncate">{acceptPending ? "Accepting..." : "Accept done"}</span>
+        </button>
+      {/if}
+    </div>
+  {:else}
+    <div class="flex items-center gap-1.5 pt-0.5">
+      {#if phase.action.kind === "plan" && onPlan}
+        <button
+          class={amberActionClass}
+          onclick={() => onPlan?.(item.id, item)}
+          aria-label="Plan work item"
+          aria-busy={planPending}
+          disabled={planPending}
+        >
+          <ClipboardList size={11} strokeWidth={2.2} />
+          <span>{planPending ? "Planning..." : "Plan"}</span>
+        </button>
+      {:else if phase.action.kind === "accept-review" && onAcceptReview}
+        <button
+          class={doneActionClass}
+          onclick={() => onAcceptReview?.(item.id, item)}
+          aria-label="Accept work item review"
+          aria-busy={acceptPending}
+          disabled={acceptPending}
+        >
+          <Check size={11} strokeWidth={2.2} />
+          <span>{acceptPending ? "Accepting..." : "Accept done"}</span>
+        </button>
+      {:else if phase.action.kind === "open-session" && onOpen}
+        <button
+          class={accentActionClass}
+          onclick={() => primaryOpenSessionId && onOpen?.(primaryOpenSessionId)}
+          aria-label="Open terminal"
+        >
+          <Terminal size={11} strokeWidth={2.2} />
+          <span>Open terminal</span>
+        </button>
+      {:else if phase.action.kind === "open-planning" && onOpen}
+        <button
+          class={amberActionClass}
+          onclick={() =>
+            planningOpenSessionId && onOpen?.(planningOpenSessionId)}
+          aria-label="Open planning terminal"
+        >
+          <Terminal size={11} strokeWidth={2.2} />
+          <span>Open planning terminal</span>
+        </button>
+      {:else if (phase.action.kind === "approve-start" || phase.action.kind === "configure" || phase.action.kind === "start") && onStart}
+        <button
+          class={accentActionClass}
+          onclick={() => onStart?.(item.id, item)}
+          aria-label={startActionAriaLabel}
+          aria-busy={startPending}
+          disabled={startPending}
+        >
+          <Play size={10} fill="currentColor" strokeWidth={2.2} />
+          <span>{startPending ? "Starting..." : startActionText}</span>
+        </button>
+      {/if}
+    </div>
+  {/if}
 </div>
 
 {#if menuOpen}
@@ -692,64 +721,6 @@
       >
         <Play size={13} fill="currentColor" strokeWidth={2.1} />
         <span>{startPending ? "Starting..." : "Approve & start anyway"}</span>
-      </button>
-    {/if}
-    {#if onAcceptReview && item.status === "review"}
-      <button
-        type="button"
-        role="menuitem"
-        class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 disabled:cursor-wait disabled:opacity-60"
-        onclick={handleAcceptReview}
-        disabled={acceptPending}
-      >
-        <Check size={13} strokeWidth={2.1} />
-        <span>{acceptPending ? "Accepting..." : "Accept done"}</span>
-      </button>
-    {/if}
-    {#if canOpenReviewWorktree}
-      <button
-        type="button"
-        role="menuitem"
-        class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
-        onclick={handleOpenWorktree}
-      >
-        <FolderOpen size={13} strokeWidth={2.1} />
-        <span>Open worktree</span>
-      </button>
-    {/if}
-    {#if reviewSessionId && onOpen}
-      <button
-        type="button"
-        role="menuitem"
-        class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
-        onclick={handleOpenReviewTerminal}
-      >
-        <Terminal size={13} strokeWidth={2.1} />
-        <span>Open terminal</span>
-      </button>
-    {/if}
-    {#if canOpenReviewAgent}
-      <button
-        type="button"
-        role="menuitem"
-        class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 disabled:cursor-wait disabled:opacity-60"
-        onclick={handleOpenReviewAgent}
-        disabled={openAgentPending}
-      >
-        <Bot size={13} strokeWidth={2.1} />
-        <span>{openAgentPending ? "Opening..." : "Open agent"}</span>
-      </button>
-    {/if}
-    {#if onRequestChanges && item.status === "review"}
-      <button
-        type="button"
-        role="menuitem"
-        class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 disabled:cursor-wait disabled:opacity-60"
-        onclick={handleRequestChangesOpen}
-        disabled={requestChangesPending}
-      >
-        <MessageSquareWarning size={13} strokeWidth={2.1} />
-        <span>{requestChangesPending ? "Requesting..." : "Request changes"}</span>
       </button>
     {/if}
     {#if onDelete}

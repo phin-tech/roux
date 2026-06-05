@@ -15,7 +15,7 @@ import {
   workItemRunEvents,
 } from "$lib/stores/workItems";
 import { deleteWorkItemWithMode } from "$lib/workItems/deleteFlow";
-import { openWorkItemSessionStart } from "$lib/stores/ui";
+import { openWorkItemEditor, openWorkItemSessionStart } from "$lib/stores/ui";
 import { openMainView } from "$lib/stores/mainView";
 import type { WorkItem } from "$lib/bindings";
 import type { Attachment, WorkItemRun } from "$lib/types/workItems";
@@ -466,7 +466,20 @@ describe("BoardPanel", () => {
     );
     render(BoardPanel, { visible: true, onclose: vi.fn() });
 
-    await fireEvent.click(screen.getByText("Open worktree"));
+    await fireEvent.click(
+      screen.getByRole("button", { name: "Open plan attachments" }),
+    );
+    expect(openWorkItemEditor).toHaveBeenCalledWith("wi-review");
+    const reviewPackage = screen.getByTestId("work-item-review-package");
+    expect(screen.queryByText("Open worktree")).toBeNull();
+    expect(screen.queryByText("Open terminal")).toBeNull();
+    expect(screen.getByText("Open agent")).toBeTruthy();
+    expect(screen.getByText("Request changes")).toBeTruthy();
+    expect(screen.getByText("Accept done")).toBeTruthy();
+
+    await fireEvent.click(
+      within(reviewPackage).getByRole("button", { name: "Open worktree" }),
+    );
     expect(openPathInFinder).toHaveBeenCalledWith(
       "/repo/.worktrees/review-card",
     );

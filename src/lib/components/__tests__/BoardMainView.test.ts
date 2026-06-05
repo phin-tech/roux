@@ -18,6 +18,7 @@ import {
 import { deleteWorkItemWithMode } from "$lib/workItems/deleteFlow";
 import {
   openNewWorkItemEditor,
+  openWorkItemEditor,
   openWorkItemSessionStart,
 } from "$lib/stores/ui";
 import { closeMainView } from "$lib/stores/mainView";
@@ -695,6 +696,10 @@ describe("BoardMainView", () => {
     const reviewPackage = screen.getByTestId("work-item-review-package");
     expect(reviewPackage).toBeTruthy();
     expect(screen.getByText("Plan")).toBeTruthy();
+    await fireEvent.click(
+      screen.getByRole("button", { name: "Open plan attachments" }),
+    );
+    expect(openWorkItemEditor).toHaveBeenCalledWith("wi-review");
     expect(
       within(reviewPackage).queryByText("Implementation Plan"),
     ).toBeNull();
@@ -703,8 +708,15 @@ describe("BoardMainView", () => {
     ).toBeTruthy();
     expect(within(reviewPackage).getByText("npm run test")).toBeTruthy();
     expect(within(reviewPackage).getByText("feature/review-card")).toBeTruthy();
+    expect(screen.queryByText("Open worktree")).toBeNull();
+    expect(screen.queryByText("Open terminal")).toBeNull();
+    expect(screen.getByText("Open agent")).toBeTruthy();
+    expect(screen.getByText("Request changes")).toBeTruthy();
+    expect(screen.getByText("Accept done")).toBeTruthy();
 
-    await fireEvent.click(screen.getByText("Open worktree"));
+    await fireEvent.click(
+      within(reviewPackage).getByRole("button", { name: "Open worktree" }),
+    );
     expect(openPathInFinder).toHaveBeenCalledWith(
       "/repo/.worktrees/review-card",
     );
