@@ -171,17 +171,16 @@ function normalizeReviewStages(
 function clonePhases(
   phases: Record<WorkflowPhaseId, RequiredPhaseSettings>,
 ): Record<WorkflowPhaseId, RequiredPhaseSettings> {
-  return {
-    planning: { ...phases.planning, stages: {} },
-    implementation: { ...phases.implementation, stages: {} },
-    review: {
-      ...phases.review,
-      stages: {
-        local_review: { ...phases.review.stages.local_review },
-        pr_review: { ...phases.review.stages.pr_review },
-      },
-    },
-  };
+  const cloned = {} as Record<WorkflowPhaseId, RequiredPhaseSettings>;
+  for (const phaseId of WORKFLOW_PHASE_IDS) {
+    const stages: Record<string, RequiredReviewStageSettings> = {};
+    for (const stageId of REVIEW_STAGE_IDS) {
+      const stage = phases[phaseId].stages[stageId];
+      if (stage) stages[stageId] = { ...stage };
+    }
+    cloned[phaseId] = { ...phases[phaseId], stages };
+  }
+  return cloned;
 }
 
 function nonEmpty(value: string | null | undefined): string | null {
