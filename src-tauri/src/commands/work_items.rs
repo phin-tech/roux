@@ -10,12 +10,14 @@ use roux_core::{
 #[specta::specta]
 pub(crate) async fn work_item_list(
     project_id: Option<String>,
+    include_archived: Option<bool>,
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<WorkItem>, String> {
+    let include_archived = include_archived.unwrap_or(false);
     if let Some(client) = state.daemon_client.clone().filter(|c| c.supports("work-item-list")) {
-        return client.work_item_list(project_id).await.map_err(String::from);
+        return client.work_item_list(project_id, include_archived).await.map_err(String::from);
     }
-    state.runtime.work_item_handle.list(project_id.as_deref())
+    state.runtime.work_item_handle.list_with_archived(project_id.as_deref(), include_archived)
 }
 
 #[tauri::command]
@@ -79,6 +81,30 @@ pub(crate) async fn work_item_delete(
     } else {
         Err("work item not found".to_string())
     }
+}
+
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn work_item_archive(
+    id: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<WorkItem, String> {
+    if let Some(client) = state.daemon_client.clone().filter(|c| c.supports("work-item-archive")) {
+        return client.work_item_archive(id).await.map_err(String::from);
+    }
+    state.runtime.work_item_handle.archive(&id)?.ok_or_else(|| "work item not found".to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn work_item_restore(
+    id: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<WorkItem, String> {
+    if let Some(client) = state.daemon_client.clone().filter(|c| c.supports("work-item-restore")) {
+        return client.work_item_restore(id).await.map_err(String::from);
+    }
+    state.runtime.work_item_handle.restore(&id)?.ok_or_else(|| "work item not found".to_string())
 }
 
 #[tauri::command]

@@ -119,6 +119,8 @@ export interface AttachmentInput {
 export type WorkItemEvent =
   | { type: "created"; item: WorkItem }
   | { type: "updated"; item: WorkItem }
+  | { type: "archived"; item: WorkItem }
+  | { type: "restored"; item: WorkItem }
   | { type: "moved"; id: string; status: WorkItemStatus; sortOrder: number }
   | { type: "deleted"; id: string }
   | { type: "imported"; ids: string[] }

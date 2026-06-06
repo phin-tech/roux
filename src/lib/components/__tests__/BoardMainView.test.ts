@@ -14,6 +14,8 @@ import {
   pendingDecisionByItem,
   runsByItem,
   workItemRunEvents,
+  archivedWorkItems,
+  restoreWorkItem,
 } from "$lib/stores/workItems";
 import { deleteWorkItemWithMode } from "$lib/workItems/deleteFlow";
 import {
@@ -70,12 +72,15 @@ vi.mock("$lib/stores/workItems", async () => {
     attachmentsByWorkItem: writable(new Map()),
     runsByItem: writable(new Map()),
     workItemRunEvents: writable([]),
+    archivedWorkItems: writable([]),
     acceptWorkItemReview: vi.fn().mockResolvedValue({}),
     requestWorkItemChanges: vi.fn().mockResolvedValue({}),
     moveWorkItem: vi.fn().mockResolvedValue({}),
     planWorkItem: vi.fn().mockResolvedValue("plan-sess-1"),
     startWorkItem: vi.fn().mockResolvedValue("sess-1"),
     stopWorkItemRun: vi.fn().mockResolvedValue({}),
+    archiveWorkItem: vi.fn().mockResolvedValue({}),
+    restoreWorkItem: vi.fn().mockResolvedValue({}),
     createWorkItem: vi.fn().mockResolvedValue({}),
   };
 });
@@ -174,6 +179,7 @@ function workItem(overrides: Partial<WorkItem> = {}): WorkItem {
     externalUrl: null,
     sortOrder: 0,
     pinnedPrUrl: null,
+    archivedAt: null,
     cost: null,
     createdAt: 0,
     updatedAt: 0,
@@ -291,6 +297,9 @@ describe("BoardMainView", () => {
       >
     ).set(new Map());
     seedWorkItemAttachments([]);
+    (archivedWorkItems as ReturnType<typeof import("svelte/store").writable>).set(
+      [],
+    );
     (runsByItem as ReturnType<typeof import("svelte/store").writable>).set(
       new Map(),
     );
@@ -322,6 +331,22 @@ describe("BoardMainView", () => {
 
     expect(planWorkItem).toHaveBeenCalledWith("wi-1");
     expect(startWorkItem).not.toHaveBeenCalled();
+  });
+
+  it("shows archived cards with a restore action", async () => {
+    (archivedWorkItems as ReturnType<typeof import("svelte/store").writable>).set([
+      workItem({ id: "wi-archived", title: "Old card", archivedAt: 10 }),
+    ]);
+    render(BoardMainView);
+
+    expect(screen.getByText("Archived")).toBeTruthy();
+    expect(screen.getByText("Old card")).toBeTruthy();
+
+    await fireEvent.click(
+      screen.getByRole("button", { name: "Restore Old card" }),
+    );
+
+    expect(restoreWorkItem).toHaveBeenCalledWith("wi-archived");
   });
 
   it("moves a card to the next dropped-on column", async () => {

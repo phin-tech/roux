@@ -6,7 +6,7 @@ import {
   setActiveSession,
 } from "$lib/stores/sessions";
 import { showSidebar } from "$lib/stores/sidebarLayout";
-import { closeMainView, openMainView } from "$lib/stores/mainView";
+import { closeMainView, mainViewRoute, openMainView } from "$lib/stores/mainView";
 import { openExternalTool } from "$lib/stores/externalTools";
 import type { StartupTarget } from "$lib/bindings";
 import type { WorkItemStatus } from "$lib/stores/workItems";
@@ -261,6 +261,7 @@ export const newWorkItemEditor = writable<NewWorkItemEditorRequest | null>(
 export function openWorkItemEditor(id: string): void {
   newWorkItemEditor.set(null);
   editingWorkItemId.set(id);
+  openMainView({ kind: "workItemDetail", itemId: id });
 }
 
 export function openNewWorkItemEditor(request: NewWorkItemEditorRequest): void {
@@ -269,8 +270,12 @@ export function openNewWorkItemEditor(request: NewWorkItemEditorRequest): void {
 }
 
 export function closeWorkItemEditor(): void {
+  const route = get(mainViewRoute);
   editingWorkItemId.set(null);
   newWorkItemEditor.set(null);
+  if (route?.kind === "workItemDetail") {
+    closeMainView();
+  }
 }
 
 export interface WorkItemSessionStartRequest {

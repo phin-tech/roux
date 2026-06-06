@@ -301,11 +301,13 @@ export const commands = {
 	renameProject: (id: string, name: string) => typedError<null, string>(__TAURI_INVOKE("rename_project", { id, name })),
 	updateProject: (id: string, patch: ProjectUpdate) => typedError<Project, string>(__TAURI_INVOKE("update_project", { id, patch })),
 	setSessionProject: (sessionId: string, projectId: string | null) => typedError<null, string>(__TAURI_INVOKE("set_session_project", { sessionId, projectId })),
-	workItemList: (projectId: string | null) => typedError<WorkItem[], string>(__TAURI_INVOKE("work_item_list", { projectId })),
+	workItemList: (projectId: string | null, includeArchived: boolean | null) => typedError<WorkItem[], string>(__TAURI_INVOKE("work_item_list", { projectId, includeArchived })),
 	workItemCreate: (input: WorkItemInput) => typedError<WorkItem, string>(__TAURI_INVOKE("work_item_create", { input })),
 	workItemUpdate: (id: string, input: WorkItemInput) => typedError<WorkItem, string>(__TAURI_INVOKE("work_item_update", { id, input })),
 	workItemMove: (id: string, status: WorkItemStatus, sortOrder: number) => typedError<WorkItem, string>(__TAURI_INVOKE("work_item_move", { id, status, sortOrder })),
 	workItemDelete: (id: string) => typedError<string, string>(__TAURI_INVOKE("work_item_delete", { id })),
+	workItemArchive: (id: string) => typedError<WorkItem, string>(__TAURI_INVOKE("work_item_archive", { id })),
+	workItemRestore: (id: string) => typedError<WorkItem, string>(__TAURI_INVOKE("work_item_restore", { id })),
 	workItemAttachSession: (id: string, sessionId: string) => typedError<WorkItem, string>(__TAURI_INVOKE("work_item_attach_session", { id, sessionId })),
 	workItemDetachSession: (id: string) => typedError<WorkItem, string>(__TAURI_INVOKE("work_item_detach_session", { id })),
 	workItemPlan: (id: string, profile: string | null, repoPath: string | null, name: string | null, worktreePath: string | null, replaceActive: boolean) => typedError<WorkItemPlanResult, string>(__TAURI_INVOKE("work_item_plan", { id, profile, repoPath, name, worktreePath, replaceActive })),
@@ -1623,6 +1625,12 @@ export type WorkItem = {
 	externalUrl: string | null,
 	sortOrder: number,
 	pinnedPrUrl: string | null,
+	/**
+	 *  Soft-delete marker for completed or hidden cards. Archived cards remain
+	 *  queryable for history and restore flows but are hidden from the board by
+	 *  default.
+	 */
+	archivedAt: number | null,
 	// Reserved for future cost-capture; never read in v1.
 	cost: number | null,
 	createdAt: number,

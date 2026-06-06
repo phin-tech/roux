@@ -670,7 +670,9 @@ Session/work item document attachments are stored in the same daemon-owned DB.
 `work-item-list`
 
 Returns all work items. Optional `args.projectId` / `args.project_id` filters
-to one project.
+to one project. By default archived cards are hidden; pass
+`args.includeArchived` / `args.include_archived` to include cards with
+`archivedAt` set.
 
 `work-item-create`
 
@@ -699,6 +701,17 @@ Valid `status` values: `"todo"`, `"ready"`, `"doing"`, `"review"`, `"done"`.
 `work-item-delete`
 
 Requires `args.id`. Returns `{ "id": "..." }` on success.
+
+`work-item-archive`
+
+Requires `args.id`. Soft-archives the card by setting `archivedAt`. The daemon
+rejects cards with active runs. If the card is bound to a session, the daemon
+kills the session PTYs and archives the session record. Returns the updated
+item.
+
+`work-item-restore`
+
+Requires `args.id`. Clears `archivedAt` and returns the updated item.
 
 `work-item-plan`
 
@@ -825,7 +838,8 @@ the task prompt so the agent addresses requested changes before unrelated work.
 Daemon-owned review acceptance. Requires `args.id` (also accepts
 `workItemId` / `work_item_id`). The daemon finds the card's review-requested
 implementation run, moves that run to `done`, appends a status-change event
-with `reason: "reviewAccepted"`, moves the card to `done`, and returns:
+with `reason: "reviewAccepted"`, moves the card to `done`, archives the linked
+implementation session, and returns:
 
 ```json
 {
@@ -835,7 +849,6 @@ with `reason: "reviewAccepted"`, moves the card to `done`, and returns:
 ```
 
 If the card has no implementation run in review, the daemon returns an error.
-The linked session remains available; cleanup is a separate explicit action.
 
 `work-item-runs-list`
 
@@ -852,8 +865,10 @@ attaches to the linked PTY and appends `text` events for observed output chunks.
 When the linked PTY exits, the daemon records a `statusChanged` event. For
 implementation runs, exit code `0` marks the run `review` and moves the card to
 `review`; any non-zero or unknown exit marks the run `failed`. Planning/review
-runs with exit code `0` are marked `done`. Explicitly stopped or already
-review-requested runs are not overwritten by later PTY exit events.
+runs with exit code `0` are marked `done`; when no other active run shares the
+linked session, the daemon removes that session's PTYs and archives the session
+record. Explicitly stopped or already review-requested runs are not overwritten
+by later PTY exit events.
 
 `work-item-run-stop`
 
@@ -948,7 +963,7 @@ Frame shapes (newline-delimited JSON, `"type"` tag):
 
 - `{ "type": "ready" }` — sent once on stream open.
 - `{ "type": "event", "event": { ... } }` — one frame per `WorkItemEvent`
-  (created/updated/moved/deleted/imported/sessionBound).
+  (created/updated/archived/restored/moved/deleted/imported/sessionBound).
 - `{ "type": "warning", "message": "..." }` — broadcast buffer overflowed.
 
 ## Document Commands

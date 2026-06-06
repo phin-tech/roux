@@ -3,6 +3,7 @@ import type { SettingsCategoryId } from "$lib/settings/categories";
 
 export type MainViewRoute =
   | { kind: "board" }
+  | { kind: "workItemDetail"; itemId: string }
   | { kind: "sessionDetail"; sessionId: string }
   | { kind: "externalTool"; runId: string }
   | {
@@ -37,6 +38,9 @@ export function toggleMainView(route: MainViewRoute): void {
 function routesEqual(a: MainViewRoute, b: MainViewRoute): boolean {
   if (a.kind !== b.kind) return false;
   if (a.kind === "board" && b.kind === "board") return true;
+  if (a.kind === "workItemDetail" && b.kind === "workItemDetail") {
+    return a.itemId === b.itemId;
+  }
   if (a.kind === "sessionDetail" && b.kind === "sessionDetail") {
     return a.sessionId === b.sessionId;
   }

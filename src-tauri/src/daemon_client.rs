@@ -231,8 +231,9 @@ impl DaemonClient {
     pub(crate) async fn work_item_list(
         &self,
         project_id: Option<String>,
+        include_archived: bool,
     ) -> DaemonClientResult<Vec<roux_core::WorkItem>> {
-        self.sdk.work_item_list(project_id).await.map_err(DaemonClientError::from)
+        self.sdk.work_item_list(project_id, include_archived).await.map_err(DaemonClientError::from)
     }
 
     pub(crate) async fn work_item_create(
@@ -261,6 +262,20 @@ impl DaemonClient {
 
     pub(crate) async fn work_item_delete(&self, id: String) -> DaemonClientResult<String> {
         self.sdk.work_item_delete(id).await.map_err(DaemonClientError::from)
+    }
+
+    pub(crate) async fn work_item_archive(
+        &self,
+        id: String,
+    ) -> DaemonClientResult<roux_core::WorkItem> {
+        self.sdk.work_item_archive(id).await.map_err(DaemonClientError::from)
+    }
+
+    pub(crate) async fn work_item_restore(
+        &self,
+        id: String,
+    ) -> DaemonClientResult<roux_core::WorkItem> {
+        self.sdk.work_item_restore(id).await.map_err(DaemonClientError::from)
     }
 
     pub(crate) async fn work_item_attach_session(

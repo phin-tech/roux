@@ -160,6 +160,7 @@ function workItem(overrides: Partial<WorkItem> = {}): WorkItem {
     externalUrl: null,
     sortOrder: 0,
     pinnedPrUrl: null,
+    archivedAt: null,
     cost: null,
     createdAt: 0,
     updatedAt: 0,
@@ -402,6 +403,15 @@ describe("WorkItemEditor", () => {
     await screen.findByText("Run History");
     expect(screen.getByText("blocked")).toBeTruthy();
     expect(screen.getByText("roux/run-1")).toBeTruthy();
+  });
+
+  it("renders as a full-height work view when requested", async () => {
+    render(WorkItemEditor, { surface: "main" });
+    editingWorkItemId.set("wi-1");
+
+    const detail = await screen.findByRole("region", { name: "Edit card" });
+    expect(detail.className).toContain("h-full");
+    expect(screen.queryByRole("dialog", { name: "Edit card" })).toBeNull();
   });
 
   it("stops an active run from run history", async () => {

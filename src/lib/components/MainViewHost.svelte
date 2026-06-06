@@ -11,12 +11,15 @@
     restartExternalToolRun,
     setExternalToolLogsOpen,
   } from "$lib/stores/externalTools";
+  import { workItems } from "$lib/stores/workItems";
+  import { closeWorkItemEditor, editingWorkItemId } from "$lib/stores/ui";
   import { focusExternalToolSettings } from "$lib/stores/settingsFocus";
   import BoardMainView from "./BoardMainView.svelte";
   import ExternalToolMainView from "./ExternalToolMainView.svelte";
   import MainViewShell from "./MainViewShell.svelte";
   import SettingsPanel from "./SettingsPanel.svelte";
   import SessionDetailView from "./SessionDetailView.svelte";
+  import WorkItemEditor from "./WorkItemEditor.svelte";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import SettingsIcon from "@lucide/svelte/icons/settings";
   import ScrollText from "@lucide/svelte/icons/scroll-text";
@@ -32,11 +35,18 @@
       ? ($externalToolRuns.get(route.runId) ?? null)
       : null,
   );
+  let workItem = $derived(
+    route?.kind === "workItemDetail"
+      ? ($workItems.find((item) => item.id === route.itemId) ?? null)
+      : null,
+  );
   let title = $derived.by(() => {
     if (!route) return "";
     switch (route.kind) {
       case "board":
         return "Board";
+      case "workItemDetail":
+        return workItem?.title ?? "Card Details";
       case "sessionDetail":
         return session ? sessionDisplayName(session) : "Session Details";
       case "externalTool":
@@ -50,6 +60,8 @@
     switch (route.kind) {
       case "board":
         return null;
+      case "workItemDetail":
+        return workItem ? workItem.status : "Card no longer available";
       case "sessionDetail":
         if (!session) return "Session no longer available";
         return [session.status, session.branch, session.worktreePath]
@@ -73,6 +85,8 @@
     switch (route.kind) {
       case "board":
         return "Close Board";
+      case "workItemDetail":
+        return "Close Card Details";
       case "sessionDetail":
         return "Close Session Details";
       case "externalTool":
@@ -83,6 +97,10 @@
   });
 
   function closeRoute(): void {
+    if (route?.kind === "workItemDetail") {
+      closeWorkItemEditor();
+      return;
+    }
     if (route?.kind === "externalTool") {
       void closeExternalToolRun(route.runId);
       return;
@@ -99,6 +117,13 @@
       externalToolId: externalToolRun.toolId,
     });
   }
+
+  $effect(() => {
+    if (route?.kind !== "workItemDetail") return;
+    if ($editingWorkItemId !== route.itemId) {
+      editingWorkItemId.set(route.itemId);
+    }
+  });
 </script>
 
 {#if route}
@@ -145,6 +170,8 @@
   <MainViewShell {title} {subtitle} {closeLabel} onclose={closeRoute} {actions}>
     {#if route.kind === "board"}
       <BoardMainView />
+    {:else if route.kind === "workItemDetail"}
+      <WorkItemEditor surface="main" includeCreate={false} />
     {:else if route.kind === "sessionDetail"}
       <SessionDetailView sessionId={route.sessionId} />
     {:else if route.kind === "externalTool"}

@@ -21,6 +21,9 @@ import {
   startWorkItem,
   stopWorkItemRun,
   WORK_ITEM_COLUMNS,
+  archivedWorkItems,
+  archiveWorkItem,
+  restoreWorkItem,
 } from "../workItems";
 import {
   documentAttach as tauriDocumentAttach,
@@ -29,6 +32,8 @@ import {
   workItemReviewAccept as tauriWorkItemReviewAccept,
   workItemReviewRequestChanges as tauriWorkItemReviewRequestChanges,
   workItemStart as tauriWorkItemStart,
+  workItemArchive as tauriWorkItemArchive,
+  workItemRestore as tauriWorkItemRestore,
   workItemRunsList as tauriWorkItemRunsList,
   workItemRunStop as tauriWorkItemRunStop,
   workItemRunEvents as tauriWorkItemRunEvents,
@@ -48,6 +53,8 @@ vi.mock("$lib/tauri", () => ({
   workItemUpdate: vi.fn(),
   workItemMove: vi.fn(),
   workItemDelete: vi.fn(),
+  workItemArchive: vi.fn(),
+  workItemRestore: vi.fn(),
   workItemPlan: vi.fn(),
   workItemReviewAccept: vi.fn(),
   workItemReviewRequestChanges: vi.fn(),
@@ -83,6 +90,7 @@ function makeItem(overrides: Partial<WorkItem> = {}): WorkItem {
     externalUrl: null,
     sortOrder: 0,
     pinnedPrUrl: null,
+    archivedAt: null,
     cost: null,
     createdAt: Date.now(),
     updatedAt: Date.now(),
@@ -225,6 +233,59 @@ describe("workItems store", () => {
       const list = get(workItems);
       expect(list).toHaveLength(1);
       expect(list[0].id).toBe(b.id);
+    });
+  });
+
+  describe("archive state", () => {
+    it("hydrates active and archived cards then hides archived cards from columns", async () => {
+      const active = makeItem({
+        id: "active",
+        status: "todo",
+        archivedAt: null,
+      });
+      const archived = makeItem({
+        id: "archived",
+        status: "todo",
+        archivedAt: 10,
+      });
+      vi.mocked(tauriWorkItemList).mockResolvedValueOnce([active, archived]);
+
+      await hydrateWorkItems();
+
+      expect(tauriWorkItemList).toHaveBeenCalledWith(null, true);
+      expect(get(itemsByColumn).get("todo")?.map((item) => item.id)).toEqual([
+        "active",
+      ]);
+      expect(get(archivedWorkItems).map((item) => item.id)).toEqual([
+        "archived",
+      ]);
+    });
+
+    it("archives and restores cards in local state", async () => {
+      const active = makeItem({ id: "wi-1", archivedAt: null });
+      const archived = { ...active, archivedAt: 10 };
+      workItems.set([active]);
+      vi.mocked(tauriWorkItemArchive).mockResolvedValueOnce(archived);
+      vi.mocked(tauriWorkItemRestore).mockResolvedValueOnce(active);
+
+      await archiveWorkItem("wi-1");
+      expect(get(archivedWorkItems).map((item) => item.id)).toEqual(["wi-1"]);
+
+      await restoreWorkItem("wi-1");
+      expect(get(archivedWorkItems)).toEqual([]);
+      expect(get(workItems)[0].archivedAt).toBeNull();
+    });
+
+    it("applies archived and restored work item events", () => {
+      const active = makeItem({ id: "wi-1", archivedAt: null });
+      const archived = { ...active, archivedAt: 10 };
+      workItems.set([active]);
+
+      applyWorkItemEvent({ type: "archived", item: archived });
+      expect(get(workItems)[0].archivedAt).toBe(10);
+
+      applyWorkItemEvent({ type: "restored", item: active });
+      expect(get(workItems)[0].archivedAt).toBeNull();
     });
   });
 

@@ -165,6 +165,7 @@ function workItem(overrides: Partial<WorkItem> = {}): WorkItem {
     externalUrl: null,
     sortOrder: 0,
     pinnedPrUrl: null,
+    archivedAt: null,
     cost: null,
     createdAt: 0,
     updatedAt: 0,

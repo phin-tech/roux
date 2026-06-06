@@ -31,28 +31,56 @@
     deleteWorkItemWithMode,
     type WorkItemDeleteMode,
   } from "$lib/workItems/deleteFlow";
+  import { buildWorkItemHistoryRows } from "$lib/workItems/history";
   import { logError } from "$lib/logging";
   import type { WorkItemInput, Worktree } from "$lib/bindings";
   import type { Attachment, AttachmentDocument } from "$lib/types/workItems";
   import WorkItemDeleteDialog from "./WorkItemDeleteDialog.svelte";
   import RepoPickerField from "./RepoPickerField.svelte";
 
+  interface Props {
+    surface?: "modal" | "main";
+    includeExisting?: boolean;
+    includeCreate?: boolean;
+  }
+
   type BranchBase = "main" | "originMain";
 
+  const {
+    surface = "modal",
+    includeExisting = true,
+    includeCreate = true,
+  }: Props = $props();
+  const isMainSurface = $derived(surface === "main");
   const item = $derived(
-    $editingWorkItemId
+    includeExisting && $editingWorkItemId
       ? ($workItems.find((i) => i.id === $editingWorkItemId) ?? null)
       : null,
   );
-  const createRequest = $derived($newWorkItemEditor);
+  const createRequest = $derived(includeCreate ? $newWorkItemEditor : null);
   const editorOpen = $derived(!!item || !!createRequest);
   const isCreating = $derived(!!createRequest);
+  const editorLabel = $derived(isCreating ? "New card" : "Edit card");
   const pendingDecision = $derived(
     item ? ($pendingDecisionByItem.get(item.id) ?? null) : null,
   );
   const itemRuns = $derived(item ? ($runsByItem.get(item.id) ?? []) : []);
   const itemAttachments = $derived(
     item ? ($attachmentsByWorkItem.get(item.id) ?? []) : [],
+  );
+  const historyRows = $derived(
+    item
+      ? buildWorkItemHistoryRows({
+          cardEvents: [
+            { kind: "created", createdAt: item.createdAt },
+            ...(item.archivedAt
+              ? ([{ kind: "archived", createdAt: item.archivedAt }] as const)
+              : []),
+          ],
+          runs: itemRuns,
+          attachments: itemAttachments,
+        })
+      : [],
   );
 
   let title = $state("");
@@ -382,6 +410,11 @@
     }
   }
 
+  function onWindowKeydown(e: KeyboardEvent): void {
+    if (!editorOpen || e.defaultPrevented) return;
+    onKeydown(e);
+  }
+
   const sectionLabel =
     "text-[11px] font-semibold uppercase tracking-wider text-text-muted";
   const inputClass =
@@ -392,24 +425,31 @@
     "cursor-pointer rounded-xl border border-accent-dim/20 bg-accent-dim/15 px-5 py-2 text-[13px] font-medium text-accent hover:bg-accent-dim/24 disabled:opacity-50";
 </script>
 
+<svelte:window onkeydown={onWindowKeydown} />
+
 {#if editorOpen}
   <div
-    class="fixed inset-0 z-50 flex items-center justify-center bg-black/65 backdrop-blur-md"
+    class={isMainSurface
+      ? "flex h-full min-h-0 flex-col bg-bg-deep"
+      : "fixed inset-0 z-50 flex items-center justify-center bg-black/65 backdrop-blur-md"}
     transition:fade={{ duration: 120 }}
     onkeydown={onKeydown}
-    role="dialog"
-    aria-modal="true"
+    role={isMainSurface ? "region" : "dialog"}
+    aria-modal={isMainSurface ? undefined : "true"}
+    aria-label={editorLabel}
     tabindex="-1"
   >
     <div
-      class="ui-dialog flex max-h-[90vh] w-[640px] max-w-[92vw] flex-col overflow-hidden rounded-2xl"
+      class={isMainSurface
+        ? "flex h-full min-h-0 w-full flex-col overflow-hidden bg-bg-deep"
+        : "ui-dialog flex max-h-[90vh] w-[640px] max-w-[92vw] flex-col overflow-hidden rounded-2xl"}
       transition:scale={{ duration: 150, start: 0.96 }}
     >
       <div class="border-b border-hairline bg-bg-surface/30 px-6 pb-4 pt-5">
         <h2
           class="mb-1 text-base font-semibold tracking-tight text-text-primary"
         >
-          {isCreating ? "New card" : "Edit card"}
+          {editorLabel}
         </h2>
         <p class="text-xs text-text-muted">
           Pick card details and where this task should run
@@ -654,6 +694,31 @@
                   </div>
                 </section>
               {/if}
+            </section>
+          {/if}
+
+          {#if item && historyRows.length > 0}
+            <section class="flex flex-col gap-2 border-t border-hairline pt-4">
+              <p class={sectionLabel}>Card History</p>
+              <div
+                class="flex flex-col overflow-hidden rounded-md border border-border-subtle"
+              >
+                {#each historyRows as row (row.id)}
+                  <div
+                    class="flex items-center justify-between gap-3 border-b border-hairline px-3 py-2 last:border-b-0"
+                  >
+                    <span class="min-w-0 truncate text-[12px] text-text-secondary">
+                      {row.label}
+                    </span>
+                    <time
+                      class="shrink-0 text-[11px] text-text-muted"
+                      datetime={String(row.at)}
+                    >
+                      {runLabel(row.at)}
+                    </time>
+                  </div>
+                {/each}
+              </div>
             </section>
           {/if}
 
