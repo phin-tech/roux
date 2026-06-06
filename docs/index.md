@@ -16,39 +16,39 @@ Roux lets you run multiple Claude Code sessions side-by-side with split panes, s
 
 - **Multi-session**
 
-    Run independent Claude Code sessions side-by-side, each with its own git worktree.
+  Run independent Claude Code sessions side-by-side, each with its own git worktree.
 
 - **Split & stacked panes**
 
-    Horizontal and vertical splits with same-direction flattening, plus Zellij-style tab stacking.
+  Horizontal and vertical splits with same-direction flattening, plus Zellij-style tab stacking.
 
 - **Shell terminals**
 
-    Open shell panes alongside Claude for running commands without leaving the window.
+  Open shell panes alongside Claude for running commands without leaving the window.
 
 - **Layouts & persistence**
 
-    KDL-based session templates and pane layouts that survive restarts; shell panes respawn automatically.
+  KDL-based session templates and pane layouts that survive restarts; shell panes respawn automatically.
 
 - **Session restore**
 
-    Reconnect and restore full split/shell layouts from saved pane state, with a history pane for closed sessions.
+  Reconnect and restore full split/shell layouts from saved pane state, with a history pane for closed sessions.
 
 - **Command palette & leader mode**
 
-    Reach every action via ++cmd+k++, or Vimish pane/session actions via ++cmd+;++ with inline rename.
+  Reach every action via ++cmd+k++, or Vimish pane/session actions via ++cmd+;++ with inline rename.
 
 - **Configurable keymap**
 
-    Every shortcut lives in an editable KDL file; ships with `default` and `tmux` presets.
+  Every shortcut lives in an editable KDL file; ships with `default` and `tmux` presets.
 
 - **Projects & Kanban**
 
-    Group sessions across repos, save blueprints, and plan card-based agent work on a daemon-owned board.
+  Group sessions across repos, save blueprints, and plan card-based agent work on a daemon-owned board.
 
 - **CLI bridge & MCP**
 
-    Script panes and sessions from the terminal with `roux`, and expose sessions, panes, and notes through `roux mcp`.
+  Script panes and sessions from the terminal with `roux`, and expose sessions, panes, and notes through `roux mcp`.
 
 </div>
 
