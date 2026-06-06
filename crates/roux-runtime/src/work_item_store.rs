@@ -654,7 +654,7 @@ impl WorkItemStore {
         now: u64,
     ) -> SqlResult<Option<WorkItem>> {
         self.ensure_session_unbound_or_self(id, session_id)?;
-        self.conn.execute(
+        let changed = self.conn.execute(
             "UPDATE work_items SET
                 session_id = ?2,
                 status = ?3,
@@ -665,7 +665,8 @@ impl WorkItemStore {
                 base_branch = COALESCE(?8, base_branch),
                 start_error = NULL,
                 updated_at = ?9
-             WHERE id = ?1",
+             WHERE id = ?1
+               AND archived_at IS NULL",
             params![
                 id,
                 session_id,
@@ -678,6 +679,9 @@ impl WorkItemStore {
                 now as i64,
             ],
         )?;
+        if changed == 0 {
+            return Ok(None);
+        }
         self.get(id)
     }
 
@@ -819,7 +823,9 @@ impl WorkItemStore {
         }
         let changed = self.conn.execute(
             "UPDATE work_items
-             SET archived_at = ?2, updated_at = ?2
+             SET archived_at = ?2,
+                 session_id = NULL,
+                 updated_at = ?2
              WHERE id = ?1",
             params![id, now as i64],
         )?;
@@ -952,6 +958,20 @@ impl WorkItemStore {
         let is_terminal = is_terminal_work_item_run_status(&status);
         let started_at = (status == WorkItemRunStatus::Running).then_some(now as i64);
         let tx = self.conn.transaction()?;
+        let archived_at = tx
+            .query_row(
+                "SELECT archived_at FROM work_items WHERE id = ?1",
+                params![work_item_id],
+                |row| row.get::<_, Option<i64>>(0),
+            )
+            .optional()?;
+        if archived_at.flatten().is_some() {
+            tx.rollback()?;
+            return Err(rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CONSTRAINT),
+                Some("archived work item cannot create runs".into()),
+            ));
+        }
         if !is_terminal {
             let active: bool = tx.query_row(
                 "SELECT EXISTS(
@@ -2008,6 +2028,47 @@ mod tests {
 
         let item = store.get("i-1").unwrap().unwrap();
         assert_eq!(item.archived_at, None);
+    }
+
+    #[test]
+    fn archive_clears_linked_session() {
+        let mut store = WorkItemStore::open_in_memory().unwrap();
+        store.create("i-1".into(), input("Bound"), 1000).unwrap();
+        store.set_session("i-1", "sess-1", 1100).unwrap();
+
+        let archived = store.archive("i-1", 1200).unwrap().unwrap();
+
+        assert_eq!(archived.archived_at, Some(1200));
+        assert_eq!(archived.session_id, None);
+    }
+
+    #[test]
+    fn create_run_rejects_archived_items() {
+        let mut store = WorkItemStore::open_in_memory().unwrap();
+        store.create("i-1".into(), input("Archived"), 1000).unwrap();
+        store.archive("i-1", 1100).unwrap();
+
+        let err = store
+            .create_run("run-1".into(), "i-1", Some("sess-1"), None, None, None, None, 1200)
+            .unwrap_err();
+
+        assert!(err.to_string().contains("archived work item"));
+        assert!(store.list_runs(Some("i-1")).unwrap().is_empty());
+    }
+
+    #[test]
+    fn complete_start_ignores_archived_items() {
+        let mut store = WorkItemStore::open_in_memory().unwrap();
+        store.create("i-1".into(), input("Archived"), 1000).unwrap();
+        store.archive("i-1", 1100).unwrap();
+
+        let item =
+            store.complete_start("i-1", "sess-1", None, None, None, None, 0.0, 1200).unwrap();
+
+        assert!(item.is_none());
+        let archived = store.get("i-1").unwrap().unwrap();
+        assert_eq!(archived.session_id, None);
+        assert_eq!(archived.status, WorkItemStatus::Todo);
     }
 
     #[test]

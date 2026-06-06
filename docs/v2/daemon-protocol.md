@@ -707,7 +707,8 @@ Requires `args.id`. Returns `{ "id": "..." }` on success.
 Requires `args.id`. Soft-archives the card by setting `archivedAt`. The daemon
 rejects cards with active runs. If the card is bound to a session, the daemon
 kills the session PTYs and archives the session record. Returns the updated
-item.
+item. Archiving also clears the card's `sessionId` so restore does not reconnect
+it to an archived/dead session.
 
 `work-item-restore`
 
@@ -717,6 +718,8 @@ Requires `args.id`. Clears `archivedAt` and returns the updated item.
 
 Daemon-owned planning action. Requires `args.id`. Optional args: `repoPath`,
 `profile`, `name`, `worktreePath`, and `replaceActive`.
+
+Archived cards are rejected; restore the card before planning it.
 
 The daemon creates or reuses one active planning run for the card, creates a
 planning session/PTY, generates a planning prompt, launches the selected
@@ -749,10 +752,11 @@ Daemon-owned autonomous Start action. Requires `args.id`. Optional args:
 `fetchFirst`. `forceStart: true` records that implementation was started
 without an attached approved plan.
 
-The daemon rejects cards that already have an active run and cards without a
-repo path or project repo to derive from. Start profile resolution is request
-`profile`, then card `agentProfile`, then `settings.kanban.defaultAgentProfile`.
-Plain-shell and type-only profiles are not valid Start profiles.
+The daemon rejects archived cards, cards that already have an active run, and
+cards without a repo path or project repo to derive from. Restore archived cards
+before starting them. Start profile resolution is request `profile`, then card
+`agentProfile`, then `settings.kanban.defaultAgentProfile`. Plain-shell and
+type-only profiles are not valid Start profiles.
 
 On success for an unbound card, the daemon creates or reuses the card's
 dedicated worktree, creates a daemon session/PTY, creates a `starting`

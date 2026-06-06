@@ -92,6 +92,17 @@ pub(crate) async fn work_item_archive(
     if let Some(client) = state.daemon_client.clone().filter(|c| c.supports("work-item-archive")) {
         return client.work_item_archive(id).await.map_err(String::from);
     }
+    let item = state
+        .runtime
+        .work_item_handle
+        .get(&id)?
+        .ok_or_else(|| "work item not found".to_string())?;
+    if state.runtime.work_item_handle.has_active_run(&id)? {
+        return Err("active work item run".to_string());
+    }
+    if let Some(session_id) = item.session_id.as_deref() {
+        archive_linked_session(&state, session_id).await?;
+    }
     state.runtime.work_item_handle.archive(&id)?.ok_or_else(|| "work item not found".to_string())
 }
 
@@ -105,6 +116,16 @@ pub(crate) async fn work_item_restore(
         return client.work_item_restore(id).await.map_err(String::from);
     }
     state.runtime.work_item_handle.restore(&id)?.ok_or_else(|| "work item not found".to_string())
+}
+
+async fn archive_linked_session(state: &AppState, session_id: &str) -> Result<(), String> {
+    let ptys = state.runtime.pty_handle.list().await.map_err(|err| err.to_string())?;
+    for pty in ptys {
+        if pty.info.session_id.as_deref() == Some(session_id) {
+            let _ = state.runtime.pty_handle.remove(&pty.id).await;
+        }
+    }
+    state.runtime.session_handle.archive(session_id).await.map_err(|err| err.to_string())
 }
 
 #[tauri::command]

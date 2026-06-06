@@ -152,6 +152,13 @@ fn has_arg(args: &serde_json::Value, names: &[&str]) -> bool {
     names.iter().any(|name| args.get(*name).is_some())
 }
 
+fn reject_archived_work_item(item: &roux_core::WorkItem) -> Result<(), Response> {
+    if item.archived_at.is_some() {
+        return Err(Response::err("archived work item must be restored before starting work"));
+    }
+    Ok(())
+}
+
 pub(super) async fn handle_work_item_move(req: Request, host: &RuntimeHost) -> Response {
     let Some(id) = optional_string_arg(&req.args, &["id"]) else {
         return Response::err("id required");
@@ -779,6 +786,7 @@ async fn plan_work_item_run_with_hooks(
         Ok(None) => return Err(Response::err("work item not found")),
         Err(err) => return Err(Response::err(err)),
     };
+    reject_archived_work_item(&item)?;
     let replace_active = bool_arg(&req.args, &["replaceActive", "replace_active"]).unwrap_or(false);
 
     if let Some(run) = active_work_item_run(host, &item_id)? {
@@ -1106,6 +1114,7 @@ async fn start_work_item_run_with_hooks(
         Ok(None) => return Err(Response::err("work item not found")),
         Err(err) => return Err(Response::err(err)),
     };
+    reject_archived_work_item(&item)?;
     let force_start = bool_arg(&req.args, &["forceStart", "force_start"]).unwrap_or(false);
 
     if item.session_id.is_none() {
@@ -4199,6 +4208,62 @@ mod tests {
         assert!(!archive.ok);
         assert!(archive.error.as_deref().unwrap_or("").contains("active work item run"));
 
+        shutdown_host(host, joins).await;
+    }
+
+    #[tokio::test]
+    async fn daemon_work_item_start_rejects_archived_cards() {
+        let dir = tempfile::tempdir().unwrap();
+        let (host, identity, joins) = make_host_and_identity(&dir).await;
+        let item = host
+            .work_item_handle
+            .create(roux_core::WorkItemInput {
+                title: "Archived start".into(),
+                repo_path: Some("/repo".into()),
+                agent_profile: Some("claude".into()),
+                ..Default::default()
+            })
+            .unwrap();
+        host.work_item_handle.archive(&item.id).unwrap();
+
+        let resp = handle_request(
+            req("work-item-start", serde_json::json!({ "id": item.id })),
+            &host,
+            &identity,
+        )
+        .await;
+
+        assert!(!resp.ok);
+        assert!(resp.error.as_deref().unwrap_or("").contains("archived work item"));
+        assert!(host.work_item_handle.list_runs(Some(&item.id)).unwrap().is_empty());
+        shutdown_host(host, joins).await;
+    }
+
+    #[tokio::test]
+    async fn daemon_work_item_plan_rejects_archived_cards() {
+        let dir = tempfile::tempdir().unwrap();
+        let (host, identity, joins) = make_host_and_identity(&dir).await;
+        let item = host
+            .work_item_handle
+            .create(roux_core::WorkItemInput {
+                title: "Archived plan".into(),
+                repo_path: Some("/repo".into()),
+                agent_profile: Some("claude".into()),
+                ..Default::default()
+            })
+            .unwrap();
+        host.work_item_handle.archive(&item.id).unwrap();
+
+        let resp = handle_request(
+            req("work-item-plan", serde_json::json!({ "id": item.id })),
+            &host,
+            &identity,
+        )
+        .await;
+
+        assert!(!resp.ok);
+        assert!(resp.error.as_deref().unwrap_or("").contains("archived work item"));
+        assert!(host.work_item_handle.list_runs(Some(&item.id)).unwrap().is_empty());
         shutdown_host(host, joins).await;
     }
 
