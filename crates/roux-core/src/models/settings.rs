@@ -359,18 +359,12 @@ pub enum KanbanWorkflowPhaseCategory {
     Review,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type, Default)]
 #[serde(rename_all = "camelCase", default)]
 pub struct KanbanReviewStageSettings {
     pub label: String,
     pub agent_profile: Option<String>,
     pub instructions: String,
-}
-
-impl Default for KanbanReviewStageSettings {
-    fn default() -> Self {
-        Self { label: String::new(), agent_profile: None, instructions: String::new() }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
