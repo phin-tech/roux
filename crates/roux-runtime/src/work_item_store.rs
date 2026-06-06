@@ -1391,6 +1391,7 @@ impl WorkItemStore {
         let review_stage_id =
             review_stage_id.unwrap_or_else(|| roux_core::FIRST_REVIEW_STAGE_ID.to_string());
         add_review_stage_payload_fields(&mut payload, &review_stage_id, None);
+        set_payload_string_field(&mut payload, "status", WorkItemRunStatus::Review.as_str());
         let payload = serde_json::to_string(&payload)
             .map_err(|err| rusqlite::Error::ToSqlConversionFailure(Box::new(err)))?;
         let changed = tx.execute(
@@ -1858,9 +1859,7 @@ fn add_review_stage_payload_fields(
     review_stage_id: &str,
     next_review_stage_id: Option<&str>,
 ) {
-    let Value::Object(object) = payload else {
-        return;
-    };
+    let object = payload_object_mut(payload);
     object.insert("reviewStageId".into(), Value::String(review_stage_id.to_string()));
     object.insert(
         "reviewStageLabel".into(),
@@ -1876,10 +1875,18 @@ fn add_review_stage_payload_fields(
 }
 
 fn set_payload_string_field(payload: &mut Value, key: &str, value: &str) {
-    let Value::Object(object) = payload else {
-        return;
-    };
+    let object = payload_object_mut(payload);
     object.insert(key.to_string(), Value::String(value.to_string()));
+}
+
+fn payload_object_mut(payload: &mut Value) -> &mut serde_json::Map<String, Value> {
+    if !payload.is_object() {
+        *payload = Value::Object(serde_json::Map::new());
+    }
+    match payload {
+        Value::Object(object) => object,
+        _ => unreachable!("payload was normalized to an object"),
+    }
 }
 
 fn session_already_bound_error(session_id: &str, work_item_id: &str) -> rusqlite::Error {
@@ -2225,6 +2232,24 @@ mod tests {
     }
 
     #[test]
+    fn request_review_enriches_non_object_payload_with_review_stage_fields() {
+        let mut store = WorkItemStore::open_in_memory().unwrap();
+        store.create("i-1".into(), input("Task"), 1000).unwrap();
+        store
+            .create_run("run-1".into(), "i-1", Some("sess-1"), None, None, None, None, 1100)
+            .unwrap();
+
+        let (_, _, event, _) = store
+            .request_review("run-1", "event-1".into(), serde_json::json!("ptyExit"), None, 1200)
+            .unwrap()
+            .expect("run should request review");
+
+        assert_eq!(event.payload["status"], "review");
+        assert_eq!(event.payload["reviewStageId"], "local_review");
+        assert_eq!(event.payload["reviewStageLabel"], "Local Review");
+    }
+
+    #[test]
     fn accept_review_advances_local_review_to_pr_review() {
         let mut store = WorkItemStore::open_in_memory().unwrap();
         store.create("i-1".into(), input("Task"), 1000).unwrap();
@@ -2257,6 +2282,36 @@ mod tests {
         assert_eq!(run.status, roux_core::WorkItemRunStatus::Review);
         assert_eq!(event.payload["reviewStageId"], "local_review");
         assert_eq!(event.payload["nextReviewStageId"], "pr_review");
+    }
+
+    #[test]
+    fn accept_review_enriches_non_object_payload_with_review_stage_fields() {
+        let mut store = WorkItemStore::open_in_memory().unwrap();
+        store.create("i-1".into(), input("Task"), 1000).unwrap();
+        store
+            .create_run("run-1".into(), "i-1", Some("sess-1"), None, None, None, None, 1100)
+            .unwrap();
+        store
+            .request_review(
+                "run-1",
+                "event-1".into(),
+                serde_json::json!({ "status": "review" }),
+                None,
+                1200,
+            )
+            .unwrap()
+            .expect("run should request review");
+
+        let (_, _, event) = store
+            .accept_review("i-1", "event-2".into(), serde_json::json!("accepted"), 1300)
+            .unwrap()
+            .expect("local review should advance");
+
+        assert_eq!(event.payload["status"], "review");
+        assert_eq!(event.payload["reviewStageId"], "local_review");
+        assert_eq!(event.payload["reviewStageLabel"], "Local Review");
+        assert_eq!(event.payload["nextReviewStageId"], "pr_review");
+        assert_eq!(event.payload["nextReviewStageLabel"], "PR Review");
     }
 
     #[test]
