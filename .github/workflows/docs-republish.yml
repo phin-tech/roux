@@ -73,10 +73,14 @@ jobs:
             git fetch origin gh-pages:gh-pages --depth=1
           fi
 
+      - name: Install Cairo for social cards
+        run: sudo apt-get update && sudo apt-get install -y libcairo2-dev libfreetype6-dev libffi-dev libjpeg-dev libpng-dev libz-dev
+
       - name: Republish versioned docs
         env:
           VERSION: ${{ steps.version.outputs.version }}
           UPDATE_LATEST: ${{ inputs.update_latest }}
+          SOCIAL_CARDS: "true"
         run: |
           set -euo pipefail
           if [[ "$UPDATE_LATEST" == "true" ]]; then
@@ -92,25 +96,8 @@ jobs:
           mkdir -p site
           git archive gh-pages | tar -x -C site
 
-      - name: Checkout primary site source
-        run: |
-          git fetch origin main --depth=1
-          git checkout --detach FETCH_HEAD
-
-      - name: Build primary docs site
-        run: mkdocs build --site-dir site/docs --strict
-
-      - name: Overlay landing site
-        run: |
-          cp -R docs/landing/. site/
-          VERSION_TAG="$(git tag --list 'v*' --sort=-v:refname | grep -Ev '-' | head -n1 || true)"
-          if [[ -n "$VERSION_TAG" ]]; then
-            VERSION="${VERSION_TAG#v}"
-            sed -i \
-              -e "s|<span data-version-issue>LATEST</span>|<span data-version-issue>${VERSION}</span>|g" \
-              -e "s|<span data-version-tag>v0.LATEST</span>|<span data-version-tag>${VERSION_TAG}</span>|g" \
-              site/index.html
-          fi
+      - name: Overlay /docs back-compat redirect
+        run: cp -R docs/landing/. site/
 
       - name: Push gh-pages history
         run: git push origin gh-pages
