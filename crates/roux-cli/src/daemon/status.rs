@@ -89,6 +89,7 @@ pub(super) async fn handle_daemon_status(
         "work-item-detach-session",
         "work-item-plan",
         "work-item-start",
+        "work-item-start-fix-ci",
         "work-item-review-accept",
         "work-item-review-request",
         "work-item-review-request-changes",

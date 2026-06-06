@@ -4517,6 +4517,7 @@ mod tests {
             "work-item-attach-session",
             "work-item-detach-session",
             "work-item-start",
+            "work-item-start-fix-ci",
             "work-item-review-request",
             "work-item-events",
         ] {

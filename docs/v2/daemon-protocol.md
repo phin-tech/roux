@@ -761,7 +761,10 @@ Daemon-owned autonomous Start action. Requires `args.id`. Optional args:
 `fetchFirst`, and `fixCi`. `forceStart: true` records that implementation was
 started without an attached approved plan. `fixCi: true` keeps the normal
 implementation run lifecycle but renders the dispatched prompt in CI-repair
-mode, focused on the card's pinned PR and failing checks.
+mode, focused on the card's pinned PR and failing checks. Clients must only
+send `fixCi: true` when `daemon-status.capabilities` includes
+`work-item-start-fix-ci`; otherwise they should reject locally instead of
+silently downgrading to a normal start.
 
 The daemon rejects archived cards, cards that already have an active run, and
 cards without a repo path or project repo to derive from. Restore archived cards

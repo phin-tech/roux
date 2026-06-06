@@ -992,18 +992,17 @@ export async function workItemStart(
   options: WorkItemStartOptions = {},
 ): Promise<import("$lib/bindings").WorkItemStartResult> {
   const { commands } = await import("$lib/bindings");
-  const r = await commands.workItemStart(
-    id,
-    options.profile ?? null,
-    options.repoPath ?? null,
-    options.name ?? null,
-    options.worktreePath ?? null,
-    options.branch ?? null,
-    options.base ?? null,
-    options.fetchFirst ?? null,
-    options.forceStart ?? null,
-    options.fixCi ?? null,
-  );
+  const r = await commands.workItemStart(id, {
+    profile: options.profile ?? null,
+    repoPath: options.repoPath ?? null,
+    name: options.name ?? null,
+    worktreePath: options.worktreePath ?? null,
+    branch: options.branch ?? null,
+    base: options.base ?? null,
+    fetchFirst: options.fetchFirst ?? null,
+    forceStart: options.forceStart ?? null,
+    fixCi: options.fixCi ?? null,
+  });
   if (r.status === "error") throw new Error(r.error);
   return r.data;
 }

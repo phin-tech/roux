@@ -289,10 +289,7 @@ function worktrunkMetadata(
   };
 }
 
-function seedWorktreeMetadata(
-  path: string,
-  metadata: WorktrunkMetadata,
-): void {
+function seedWorktreeMetadata(path: string, metadata: WorktrunkMetadata): void {
   const worktree: Worktree = {
     path,
     branch: "feature/review-card",

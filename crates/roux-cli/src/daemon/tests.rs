@@ -154,6 +154,10 @@ async fn daemon_status_is_daemon_only_socket_command() {
         .unwrap()
         .contains(&serde_json::json!("daemon-pty-attach")));
     assert!(data["capabilities"].as_array().unwrap().contains(&serde_json::json!("worktree-list")));
+    assert!(data["capabilities"]
+        .as_array()
+        .unwrap()
+        .contains(&serde_json::json!("work-item-start-fix-ci")));
     assert!(data["capabilities"].as_array().unwrap().contains(&serde_json::json!("watch-list")));
     assert!(data["capabilities"].as_array().unwrap().contains(&serde_json::json!("watch-events")));
     assert!(data["capabilities"]
