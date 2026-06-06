@@ -50,6 +50,9 @@ jobs:
             git archive FETCH_HEAD | tar -x -C site
           fi
 
+      - name: Install Cairo for social cards
+        run: sudo apt-get update && sudo apt-get install -y libcairo2-dev libfreetype6-dev libffi-dev libjpeg-dev libpng-dev libz-dev
+
       - name: Build docs
         run: mkdocs build --site-dir site/docs --strict
 

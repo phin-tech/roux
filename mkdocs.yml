@@ -25,23 +25,37 @@ theme:
     - navigation.top
     - navigation.tracking
     - navigation.indexes
+    - navigation.footer
     - content.code.copy
     - content.action.edit
     - search.suggest
     - search.highlight
     - toc.follow
-  font:
-    text: IBM Plex Mono
-    code: IBM Plex Mono
   palette:
-    scheme: slate
-    primary: black
-    accent: pink
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: teal
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: teal
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
   icon:
     repo: fontawesome/brands/github
 
-extra_css:
-  - stylesheets/retro.css
+plugins:
+  - search
+  # Social cards (Open Graph/Twitter preview images) are generated at build
+  # time and require Cairo/imaging libs. Gate to CI so local `mkdocs serve`
+  # works without them; GitHub Actions sets CI=true.
+  - social:
+      enabled: !ENV [CI, false]
 
 markdown_extensions:
   - admonition

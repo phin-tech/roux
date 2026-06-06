@@ -12,29 +12,47 @@ Roux lets you run multiple Claude Code sessions side-by-side with split panes, s
 
 ## Highlights
 
-- **Multi-session** — run independent Claude Code sessions, each with its own git worktree
-- **Split panes** — horizontal and vertical splits with same-direction flattening
-- **Stacked panes** — Zellij-style tab stacking
-- **Collapsible session rail** — shrink the sidebar to a slim strip of session dots without giving up quick session switching
-- **Layouts** — KDL-based session templates that define multi-pane setups with spawn profiles
-- **Session restore on reconnect** — restores full split/shell layouts from saved pane state
-- **Session history** — closed sessions move into a history pane where you can restore them, open their notes, or delete them forever
-- **Shell terminals** — open shell panes alongside Claude for running commands
-- **Multiline editor** — docked terminal input editor with terminal-selection reinput, command corrections, context chips, and shell-style editing keys
-- **Command palette** — quick access to every action via ++cmd+k++
-- **Leader mode** — Vimish pane and session actions via ++cmd+;++ with inline pane rename
-- **Configurable keymap** — every shortcut lives in a KDL file you can edit; ships with `default` and `tmux` presets, supports sticky/passthrough modes and per-tree HUD timing
-- **Layout persistence** — pane layouts survive app restarts; shell panes respawn automatically
-- **Session from PR URL** — paste a GitHub PR URL in New Session and Roux prepares the review branch/worktree
-- **Independent terminal themes** — keep the terminal palette separate from the app chrome, including user-imported `.itermcolors` themes
-- **Native menu bar** — File/Edit/View/Session/Pane/Tools/Window/Help menus on macOS, Windows, and Linux
-- **Doctor panel** — inspect and reinstall CLI/hooks/skill integrations from Settings
-- **Agent notifications** — configure Claude Code hooks and Codex TUI notifications from Settings
-- **Projects** — group sessions across repos, save session blueprints, and inject project context
-- **Kanban board** — plan card-based agent work, start daemon-owned runs, and resolve blocked decisions
-- **Multi-scoped notes vault** — plain-text notes sidebar (++cmd+b++) with four scopes (global / project / repo / session), backed by an Obsidian-compatible markdown vault. Scriptable from `roux notes <scope> <verb>` and exposed to agents through per-PTY env vars. Experimental.
-- **CLI bridge** — `roux` for scripting: split panes, create sessions, run commands, send text, and focus panes from the terminal
-- **MCP integration** — expose Roux sessions, panes, latest terminal output, and notes to supported MCP hosts through `roux mcp`
+<div class="grid cards" markdown>
+
+- **Multi-session**
+
+    Run independent Claude Code sessions side-by-side, each with its own git worktree.
+
+- **Split & stacked panes**
+
+    Horizontal and vertical splits with same-direction flattening, plus Zellij-style tab stacking.
+
+- **Shell terminals**
+
+    Open shell panes alongside Claude for running commands without leaving the window.
+
+- **Layouts & persistence**
+
+    KDL-based session templates and pane layouts that survive restarts; shell panes respawn automatically.
+
+- **Session restore**
+
+    Reconnect and restore full split/shell layouts from saved pane state, with a history pane for closed sessions.
+
+- **Command palette & leader mode**
+
+    Reach every action via ++cmd+k++, or Vimish pane/session actions via ++cmd+;++ with inline rename.
+
+- **Configurable keymap**
+
+    Every shortcut lives in an editable KDL file; ships with `default` and `tmux` presets.
+
+- **Projects & Kanban**
+
+    Group sessions across repos, save blueprints, and plan card-based agent work on a daemon-owned board.
+
+- **CLI bridge & MCP**
+
+    Script panes and sessions from the terminal with `roux`, and expose sessions, panes, and notes through `roux mcp`.
+
+</div>
+
+For the full feature set — notes vault, watches, automation hooks, notifications, terminal themes, and more — see the [Features overview](features/index.md).
 
 ## Next steps
 
