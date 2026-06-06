@@ -253,9 +253,11 @@ describe("workItems store", () => {
       await hydrateWorkItems();
 
       expect(tauriWorkItemList).toHaveBeenCalledWith(null, true);
-      expect(get(itemsByColumn).get("todo")?.map((item) => item.id)).toEqual([
-        "active",
-      ]);
+      expect(
+        get(itemsByColumn)
+          .get("todo")
+          ?.map((item) => item.id),
+      ).toEqual(["active"]);
       expect(get(archivedWorkItems).map((item) => item.id)).toEqual([
         "archived",
       ]);

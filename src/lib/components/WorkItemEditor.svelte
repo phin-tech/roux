@@ -707,7 +707,9 @@
                   <div
                     class="flex items-center justify-between gap-3 border-b border-hairline px-3 py-2 last:border-b-0"
                   >
-                    <span class="min-w-0 truncate text-[12px] text-text-secondary">
+                    <span
+                      class="min-w-0 truncate text-[12px] text-text-secondary"
+                    >
                       {row.label}
                     </span>
                     <time

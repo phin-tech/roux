@@ -297,9 +297,9 @@ describe("BoardMainView", () => {
       >
     ).set(new Map());
     seedWorkItemAttachments([]);
-    (archivedWorkItems as ReturnType<typeof import("svelte/store").writable>).set(
-      [],
-    );
+    (
+      archivedWorkItems as ReturnType<typeof import("svelte/store").writable>
+    ).set([]);
     (runsByItem as ReturnType<typeof import("svelte/store").writable>).set(
       new Map(),
     );
@@ -334,9 +334,9 @@ describe("BoardMainView", () => {
   });
 
   it("shows archived cards with a restore action", async () => {
-    (archivedWorkItems as ReturnType<typeof import("svelte/store").writable>).set([
-      workItem({ id: "wi-archived", title: "Old card", archivedAt: 10 }),
-    ]);
+    (
+      archivedWorkItems as ReturnType<typeof import("svelte/store").writable>
+    ).set([workItem({ id: "wi-archived", title: "Old card", archivedAt: 10 })]);
     render(BoardMainView);
 
     expect(screen.getByText("Archived")).toBeTruthy();

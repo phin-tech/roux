@@ -6,7 +6,11 @@ import {
   setActiveSession,
 } from "$lib/stores/sessions";
 import { showSidebar } from "$lib/stores/sidebarLayout";
-import { closeMainView, mainViewRoute, openMainView } from "$lib/stores/mainView";
+import {
+  closeMainView,
+  mainViewRoute,
+  openMainView,
+} from "$lib/stores/mainView";
 import { openExternalTool } from "$lib/stores/externalTools";
 import type { StartupTarget } from "$lib/bindings";
 import type { WorkItemStatus } from "$lib/stores/workItems";
