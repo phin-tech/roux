@@ -38,6 +38,8 @@ Thumbs.db
 # Docs site
 site/
 .mkdocs-venv/
+# mkdocs-material social plugin card cache
+.cache/
 docs/.venv/
 docs/__pycache__/
 # roborev snapshots

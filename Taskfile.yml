@@ -620,9 +620,3 @@ tasks:
         fi
         echo "Watching run ${RUN_ID}..."
         gh run watch "${RUN_ID}" --exit-status
-
-  docs:landing:
-    desc: "Serve the retro landing page locally at http://127.0.0.1:8765/"
-    dir: docs/landing
-    cmds:
-      - python3 -m http.server 8765

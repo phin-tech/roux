@@ -1,6 +1,6 @@
 site_name: Roux
 site_description: A desktop terminal multiplexer for Claude Code
-site_url: https://phin-tech.github.io/roux/docs/
+site_url: https://phin-tech.github.io/roux/
 repo_url: https://github.com/phin-tech/roux
 repo_name: phin-tech/roux
 edit_uri: edit/main/docs/
@@ -25,23 +25,44 @@ theme:
     - navigation.top
     - navigation.tracking
     - navigation.indexes
+    - navigation.footer
     - content.code.copy
     - content.action.edit
     - search.suggest
     - search.highlight
     - toc.follow
-  font:
-    text: IBM Plex Mono
-    code: IBM Plex Mono
   palette:
-    scheme: slate
-    primary: black
-    accent: pink
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: teal
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: teal
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
   icon:
     repo: fontawesome/brands/github
 
-extra_css:
-  - stylesheets/retro.css
+plugins:
+  - search
+  # Social cards (Open Graph/Twitter preview images) are generated at build
+  # time and require Cairo/imaging libs. Off by default so local builds and
+  # strict link-checks work without Cairo; the deploy workflows set
+  # SOCIAL_CARDS=true on the steps that publish the site.
+  - social:
+      enabled: !ENV [SOCIAL_CARDS, false]
+
+# Version selector dropdown, backed by mike (versions published to gh-pages).
+# Reads versions.json at the deploy root; populated by the docs workflows.
+extra:
+  version:
+    provider: mike
 
 markdown_extensions:
   - admonition

@@ -5,7 +5,7 @@ description = "Build environment for the Roux documentation site (mkdocs-materia
 requires-python = ">=3.12"
 dependencies = [
     "mike>=2.2.0",
-    "mkdocs-material==9.5.39",
+    "mkdocs-material[imaging]==9.5.39",
 ]
 
 [tool.uv]
