@@ -2119,18 +2119,12 @@ fn record_work_item_run_pty_exit(
                 "generation": generation,
                 "reviewRequested": review_requested,
             });
-            if let Ok(Some(updated_run)) =
+            if review_requested {
+                let _ = host.work_item_handle.request_review(run_id, payload, None);
+            } else if let Ok(Some(updated_run)) =
                 host.work_item_handle.set_run_status(run_id, status.clone(), payload)
             {
-                if review_requested {
-                    if let Ok(Some(item)) = host.work_item_handle.get(&run.work_item_id) {
-                        let _ = host.work_item_handle.move_item(
-                            &run.work_item_id,
-                            roux_core::WorkItemStatus::Review,
-                            item.sort_order,
-                        );
-                    }
-                } else if status == roux_core::WorkItemRunStatus::Done {
+                if status == roux_core::WorkItemRunStatus::Done {
                     let cleanup_host = host.clone();
                     tokio::spawn(async move {
                         let _ = cleanup_stopped_work_item_run_session(&cleanup_host, &updated_run)
@@ -5297,6 +5291,8 @@ mod tests {
                 && event.payload["status"] == "review"
                 && event.payload["reason"] == "ptyExit"
                 && event.payload["reviewRequested"] == true
+                && event.payload["reviewStageId"] == "local_review"
+                && event.payload["reviewStageLabel"] == "Local Review"
         }));
 
         shutdown_host(host, joins).await;
