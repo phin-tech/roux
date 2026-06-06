@@ -75,6 +75,11 @@
   let deleting = $state(false);
   let deleteError = $state<string | null>(null);
 
+  interface WorkItemStartActionOptions {
+    forceStart?: boolean;
+    fixCi?: boolean;
+  }
+
   const sessionStatusMap = derived(sessionList, ($sessions) => {
     const m = new Map<string, SessionStatus>();
     for (const s of $sessions) m.set(s.id, s.status);
@@ -107,7 +112,13 @@
     return [...ids];
   }
 
-  async function handleStart(id: string, item: WorkItem, forceStart = false) {
+  async function handleStart(
+    id: string,
+    item: WorkItem,
+    options: WorkItemStartActionOptions = {},
+  ) {
+    const forceStart = !!options.forceStart;
+    const fixCi = !!options.fixCi;
     const planningRun = get(activePlanningRunByItem).get(id);
     const attachments = get(attachmentsByWorkItem).get(id) ?? [];
     if (
@@ -128,6 +139,7 @@
         itemId: item.id,
         title: item.title,
         ...(forceStart ? { forceStart: true } : {}),
+        ...(fixCi ? { fixCi: true } : {}),
       });
       return;
     }
@@ -140,8 +152,12 @@
       if (item.status === "ready" && planningRun) {
         await stopWorkItemRun(planningRun.id);
       }
-      if (forceStart) await startWorkItem(id, { forceStart: true });
-      else await startWorkItem(id);
+      if (forceStart || fixCi) {
+        await startWorkItem(id, {
+          ...(forceStart ? { forceStart: true } : {}),
+          ...(fixCi ? { fixCi: true } : {}),
+        });
+      } else await startWorkItem(id);
     } catch (err) {
       startErrors = { ...startErrors, [id]: formatWorkItemStartError(err) };
       console.error("Failed to start work item", err);

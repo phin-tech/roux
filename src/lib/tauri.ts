@@ -984,6 +984,7 @@ export interface WorkItemStartOptions {
   base?: string | null;
   fetchFirst?: boolean | null;
   forceStart?: boolean | null;
+  fixCi?: boolean | null;
 }
 
 export async function workItemStart(
@@ -1001,6 +1002,7 @@ export async function workItemStart(
     options.base ?? null,
     options.fetchFirst ?? null,
     options.forceStart ?? null,
+    options.fixCi ?? null,
   );
   if (r.status === "error") throw new Error(r.error);
   return r.data;

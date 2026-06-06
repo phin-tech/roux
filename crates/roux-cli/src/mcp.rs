@@ -245,6 +245,8 @@ pub struct WorkItemStartParams {
     pub fetch_first: bool,
     #[serde(default)]
     pub force_start: bool,
+    #[serde(default)]
+    pub fix_ci: bool,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -800,7 +802,7 @@ impl RouxMcpServer {
     }
 
     #[tool(
-        description = "Start a Kanban board work item as a daemon-owned autonomous run. Returns the updated card, run, and session after the daemon dispatches the task prompt."
+        description = "Start a Kanban board work item as a daemon-owned autonomous run. Pass fixCi=true to focus the prompt on repairing failing CI for the card's pinned PR. Returns the updated card, run, and session after the daemon dispatches the task prompt."
     )]
     async fn roux_start_work_item(
         &self,
@@ -2018,6 +2020,9 @@ fn build_work_item_start_request(params: WorkItemStartParams) -> Value {
     if params.force_start {
         args.insert("forceStart".into(), Value::Bool(true));
     }
+    if params.fix_ci {
+        args.insert("fixCi".into(), Value::Bool(true));
+    }
     json!({
         "command": "work-item-start",
         "args": Value::Object(args),
@@ -2287,6 +2292,7 @@ mod tests {
             base: Some("origin/main".into()),
             fetch_first: true,
             force_start: true,
+            fix_ci: true,
         });
 
         assert_eq!(request["command"], "work-item-start");
@@ -2298,6 +2304,7 @@ mod tests {
         assert_eq!(request["args"]["base"], "origin/main");
         assert_eq!(request["args"]["fetchFirst"], true);
         assert_eq!(request["args"]["forceStart"], true);
+        assert_eq!(request["args"]["fixCi"], true);
     }
 
     #[test]

@@ -392,6 +392,7 @@ export interface WorkItemStartOptions {
   base?: string | null;
   fetchFirst?: boolean | null;
   forceStart?: boolean | null;
+  fixCi?: boolean | null;
 }
 
 export async function startWorkItem(

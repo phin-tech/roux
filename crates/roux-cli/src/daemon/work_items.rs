@@ -740,6 +740,13 @@ fn latest_review_implementation_run(
 }
 
 type ProfileDispatchFuture<'a> = Pin<Box<dyn Future<Output = Result<String, String>> + Send + 'a>>;
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct WorkItemStartDispatchOptions {
+    force_start: bool,
+    fix_ci: bool,
+}
+
 type ProfileDispatcher = for<'a> fn(
     &'a RuntimeHost,
     &'a roux_core::WorkItem,
@@ -747,7 +754,7 @@ type ProfileDispatcher = for<'a> fn(
     &'a str,
     &'a str,
     &'a DaemonIdentity,
-    bool,
+    WorkItemStartDispatchOptions,
 ) -> ProfileDispatchFuture<'a>;
 type AfterSessionCreatedHook = fn(&RuntimeHost, &str, &roux_core::Session);
 
@@ -758,17 +765,9 @@ fn real_profile_dispatcher<'a>(
     session_id: &'a str,
     profile_id: &'a str,
     identity: &'a DaemonIdentity,
-    force_start: bool,
+    options: WorkItemStartDispatchOptions,
 ) -> ProfileDispatchFuture<'a> {
-    Box::pin(run_dispatched_profile(
-        host,
-        item,
-        run_id,
-        session_id,
-        profile_id,
-        identity,
-        force_start,
-    ))
+    Box::pin(run_dispatched_profile(host, item, run_id, session_id, profile_id, identity, options))
 }
 
 fn real_planning_profile_dispatcher<'a>(
@@ -778,7 +777,7 @@ fn real_planning_profile_dispatcher<'a>(
     session_id: &'a str,
     profile_id: &'a str,
     identity: &'a DaemonIdentity,
-    _force_start: bool,
+    _options: WorkItemStartDispatchOptions,
 ) -> ProfileDispatchFuture<'a> {
     Box::pin(run_dispatched_planning_profile(host, item, run_id, session_id, profile_id, identity))
 }
@@ -956,7 +955,7 @@ async fn plan_work_item_run_with_hooks(
         &session_id,
         &profile_id,
         identity,
-        false,
+        WorkItemStartDispatchOptions::default(),
     )
     .await
     {
@@ -1133,6 +1132,8 @@ async fn start_work_item_run_with_hooks(
     };
     reject_archived_work_item(&item)?;
     let force_start = bool_arg(&req.args, &["forceStart", "force_start"]).unwrap_or(false);
+    let fix_ci = bool_arg(&req.args, &["fixCi", "fix_ci"]).unwrap_or(false);
+    let dispatch_options = WorkItemStartDispatchOptions { force_start, fix_ci };
 
     if item.session_id.is_none() {
         match host.work_item_handle.has_active_run(&item_id) {
@@ -1320,7 +1321,7 @@ async fn start_work_item_run_with_hooks(
             &session_id,
             &profile_id,
             identity,
-            force_start,
+            dispatch_options,
         )
         .await
         {
@@ -1519,7 +1520,7 @@ async fn start_work_item_run_with_hooks(
         &session_id,
         &profile_id,
         identity,
-        force_start,
+        dispatch_options,
     )
     .await
     {
@@ -2385,12 +2386,17 @@ async fn run_dispatched_profile(
     session_id: &str,
     profile_id: &str,
     identity: &DaemonIdentity,
-    force_start: bool,
+    options: WorkItemStartDispatchOptions,
 ) -> Result<String, String> {
     let session = host.session_handle.get(session_id).await.ok().flatten();
     let settings = load_daemon_settings();
-    let plan_context = load_work_item_plan_prompt_context(host, &item.id, force_start);
+    let plan_context = load_work_item_plan_prompt_context(host, &item.id, options.force_start);
     let review_feedback = load_work_item_review_feedback_prompt_context(host, &item.id);
+    let prompt_mode = if options.fix_ci {
+        WorkItemTaskPromptMode::FixCi
+    } else {
+        WorkItemTaskPromptMode::Implement
+    };
     let task_prompt = render_work_item_task_prompt(
         item,
         run_id,
@@ -2398,6 +2404,7 @@ async fn run_dispatched_profile(
         &settings,
         plan_context.as_ref(),
         review_feedback.as_ref(),
+        prompt_mode,
     );
     run_dispatched_profile_with_task_prompt(
         host,
@@ -2410,6 +2417,12 @@ async fn run_dispatched_profile(
         false,
     )
     .await
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WorkItemTaskPromptMode {
+    Implement,
+    FixCi,
 }
 
 async fn run_dispatched_planning_profile(
@@ -2798,6 +2811,7 @@ fn render_work_item_task_prompt(
     settings: &roux_core::RouxSettings,
     plan_context: Option<&WorkItemPlanPromptContext>,
     review_feedback: Option<&WorkItemReviewFeedbackPromptContext>,
+    mode: WorkItemTaskPromptMode,
 ) -> String {
     let item_id = sanitize_card_prompt_field(&item.id);
     let run_id = sanitize_card_prompt_field(run_id);
@@ -2805,6 +2819,8 @@ fn render_work_item_task_prompt(
     let body = item.body.as_deref().map(sanitize_card_prompt_field).unwrap_or_default();
     let external_url =
         item.external_url.as_deref().map(sanitize_card_prompt_field).unwrap_or_default();
+    let pinned_pr_url =
+        item.pinned_pr_url.as_deref().map(sanitize_card_prompt_field).unwrap_or_default();
     let repo_path = item.repo_path.as_deref().map(sanitize_card_prompt_field);
     let worktree_path = session
         .map(|session| sanitize_card_prompt_field(&session.worktree_path))
@@ -2820,7 +2836,14 @@ fn render_work_item_task_prompt(
     let roux_cli_path = sanitize_card_prompt_field(&resolve_roux_cli_prompt_path());
 
     let mut prompt = String::new();
-    prompt.push_str("Start work on this Roux board card.\n\nTitle:\n");
+    match mode {
+        WorkItemTaskPromptMode::Implement => {
+            prompt.push_str("Start work on this Roux board card.\n\nTitle:\n");
+        }
+        WorkItemTaskPromptMode::FixCi => {
+            prompt.push_str("Fix failing CI for this Roux board card.\n\nTitle:\n");
+        }
+    }
     prompt.push_str(if title.is_empty() { "Untitled" } else { &title });
     if !body.is_empty() {
         prompt.push_str("\n\nDescription:\n");
@@ -2829,6 +2852,10 @@ fn render_work_item_task_prompt(
     if !external_url.is_empty() {
         prompt.push_str("\n\nExternal link:\n");
         prompt.push_str(&external_url);
+    }
+    if !pinned_pr_url.is_empty() {
+        prompt.push_str("\n\nPull request:\n");
+        prompt.push_str(&pinned_pr_url);
     }
     append_plan_prompt_context(&mut prompt, plan_context);
     append_review_feedback_prompt_context(&mut prompt, review_feedback);
@@ -2849,11 +2876,23 @@ fn render_work_item_task_prompt(
     prompt.push_str(agent_profile.as_deref().unwrap_or("unspecified"));
     prompt.push_str("\n- Roux session id: ");
     prompt.push_str(session_id.as_deref().unwrap_or("unknown"));
+    prompt.push_str("\n- Pull request URL: ");
+    prompt.push_str(if pinned_pr_url.is_empty() { "unspecified" } else { &pinned_pr_url });
     prompt.push_str("\n- Roux CLI path: ");
     prompt.push_str(&roux_cli_path);
     prompt.push_str("\n- Roux CLI help: `");
     prompt.push_str(&roux_cli_path);
     prompt.push_str(" --help`");
+
+    if mode == WorkItemTaskPromptMode::FixCi {
+        prompt.push_str(
+            "\n\nFix CI mode:\n\
+             - Inspect the linked PR and failing CI logs before editing when available.\n\
+             - Focus only on changes required to make CI green for this PR.\n\
+             - Avoid unrelated refactors, feature work, or review-stage changes.\n\
+             - Re-run the failing checks locally when possible before requesting review again.",
+        );
+    }
 
     prompt.push_str(
         "\n\nInstructions:\n\
@@ -3437,7 +3476,7 @@ mod tests {
         _session_id: &'a str,
         _profile_id: &'a str,
         _identity: &'a DaemonIdentity,
-        _force_start: bool,
+        _options: WorkItemStartDispatchOptions,
     ) -> ProfileDispatchFuture<'a> {
         Box::pin(async { Err("simulated prompt dispatch failure".to_string()) })
     }
@@ -3449,7 +3488,7 @@ mod tests {
         session_id: &'a str,
         _profile_id: &'a str,
         _identity: &'a DaemonIdentity,
-        _force_start: bool,
+        _options: WorkItemStartDispatchOptions,
     ) -> ProfileDispatchFuture<'a> {
         Box::pin(async { Ok(session_id.to_string()) })
     }
@@ -3469,7 +3508,7 @@ mod tests {
         session_id: &'a str,
         _profile_id: &'a str,
         _identity: &'a DaemonIdentity,
-        _force_start: bool,
+        _options: WorkItemStartDispatchOptions,
     ) -> ProfileDispatchFuture<'a> {
         Box::pin(dispatch_dummy_agent(host, item, run_id, session_id))
     }
@@ -3668,6 +3707,7 @@ mod tests {
             &roux_core::RouxSettings::default(),
             None,
             None,
+            WorkItemTaskPromptMode::Implement,
         );
 
         assert!(prompt.contains("Title:\nFix tests"));
@@ -3739,6 +3779,7 @@ mod tests {
             &roux_core::RouxSettings::default(),
             Some(&plan),
             None,
+            WorkItemTaskPromptMode::Implement,
         );
 
         assert!(prompt.contains("Approved implementation plan:"));
@@ -3785,6 +3826,7 @@ mod tests {
             &roux_core::RouxSettings::default(),
             Some(&WorkItemPlanPromptContext::ForceStartedWithoutPlan),
             None,
+            WorkItemTaskPromptMode::Implement,
         );
 
         assert!(prompt.contains("No approved plan was attached; implementation was force-started."));
@@ -3831,12 +3873,62 @@ mod tests {
             &roux_core::RouxSettings::default(),
             None,
             Some(&feedback),
+            WorkItemTaskPromptMode::Implement,
         );
 
         assert!(prompt.contains("Requested review changes:"));
         assert!(prompt.contains("Document id: wi-1.feedback"));
         assert!(prompt.contains("Please add coverage for the retry path."));
         assert!(prompt.contains("address them before taking unrelated implementation work"));
+    }
+
+    #[test]
+    fn work_item_task_prompt_fix_ci_mode_focuses_on_pr_ci_failures() {
+        let item = roux_core::WorkItem {
+            id: "wi-1".into(),
+            project_id: None,
+            title: "Fix PR checks".into(),
+            body: Some("The PR is failing frontend checks.".into()),
+            status: roux_core::WorkItemStatus::Review,
+            review_stage_id: Some("pr_review".into()),
+            parent_id: None,
+            agent_profile: Some("codex".into()),
+            repo_path: Some("/repo/main".into()),
+            base_branch: Some("main".into()),
+            worktree_path: Some("/repo/.worktrees/card".into()),
+            branch: Some("feature/card".into()),
+            fetch_first: None,
+            start_error: None,
+            session_id: None,
+            provider: None,
+            external_id: None,
+            external_url: None,
+            sort_order: 0.0,
+            pinned_pr_url: Some("https://github.com/phin-tech/roux/pull/240".into()),
+            archived_at: None,
+            cost: None,
+            created_at: 0,
+            updated_at: 0,
+        };
+
+        let prompt = render_work_item_task_prompt(
+            &item,
+            "run-ci",
+            None,
+            &roux_core::RouxSettings::default(),
+            None,
+            None,
+            WorkItemTaskPromptMode::FixCi,
+        );
+
+        assert!(prompt.starts_with("Fix failing CI for this Roux board card."));
+        assert!(prompt.contains("Pull request:\nhttps://github.com/phin-tech/roux/pull/240"));
+        assert!(prompt.contains("Pull request URL: https://github.com/phin-tech/roux/pull/240"));
+        assert!(prompt.contains("Fix CI mode:"));
+        assert!(prompt.contains("Inspect the linked PR and failing CI logs"));
+        assert!(prompt.contains("Focus only on changes required to make CI green"));
+        assert!(prompt.contains("Avoid unrelated refactors"));
+        assert!(prompt.contains("work-item review request run-ci"));
     }
 
     #[test]
@@ -3949,7 +4041,15 @@ mod tests {
         assert!(plan_prompt.contains("roux document attach --work-item wi-1"));
         assert!(!plan_prompt.contains("\"type\":\"decision\""));
 
-        let task_prompt = render_work_item_task_prompt(&item, "run-1", None, &settings, None, None);
+        let task_prompt = render_work_item_task_prompt(
+            &item,
+            "run-1",
+            None,
+            &settings,
+            None,
+            None,
+            WorkItemTaskPromptMode::Implement,
+        );
         assert!(task_prompt.contains("roux document list --work-item wi-1"));
         assert!(task_prompt.contains("roux document get <document-id>"));
         assert!(

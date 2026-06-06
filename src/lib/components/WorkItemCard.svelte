@@ -10,6 +10,7 @@
   import Play from "@lucide/svelte/icons/play";
   import Terminal from "@lucide/svelte/icons/terminal";
   import Trash2 from "@lucide/svelte/icons/trash-2";
+  import Wrench from "@lucide/svelte/icons/wrench";
   import type { WorkItem } from "$lib/bindings";
   import type { WorkItemPhase } from "$lib/workItems/phase";
   import type { WorkItemReviewPackage } from "$lib/workItems/reviewPackage";
@@ -21,10 +22,19 @@
   import { settings } from "$lib/stores/settings";
   import { reviewStageLabel } from "$lib/workItems/reviewStages";
 
+  interface WorkItemStartActionOptions {
+    forceStart?: boolean;
+    fixCi?: boolean;
+  }
+
   interface Props {
     item: WorkItem;
     sessionStatus?: SessionStatus | null;
-    onStart?: (id: string, item: WorkItem, forceStart?: boolean) => void;
+    onStart?: (
+      id: string,
+      item: WorkItem,
+      options?: WorkItemStartActionOptions,
+    ) => void;
     /** Start or open a planning run for this work item. */
     onPlan?: (id: string, item: WorkItem, replaceActive?: boolean) => void;
     /** Open the card's bound session (by session id). */
@@ -148,6 +158,12 @@
   });
   const branchLabel = $derived(item.branch ?? null);
   const canForceStartPlanning = $derived(phase.canForceStart && !!onStart);
+  const canFixCi = $derived(
+    item.status === "review" &&
+      item.reviewStageId === "pr_review" &&
+      !!item.pinnedPrUrl &&
+      !!onStart,
+  );
   const hasMenuActions = $derived(
     !!onEdit || !!onPlan || !!onDelete || !!onArchive || canForceStartPlanning,
   );
@@ -269,7 +285,12 @@
 
   function handleForceStart(): void {
     menuOpen = false;
-    onStart?.(item.id, item, true);
+    onStart?.(item.id, item, { forceStart: true });
+  }
+
+  function handleFixCi(): void {
+    menuOpen = false;
+    onStart?.(item.id, item, { fixCi: true });
   }
 
   function handleDelete(): void {
@@ -637,6 +658,20 @@
 
   {#if item.status === "review"}
     <div class="flex items-center gap-1.5 pt-0.5">
+      {#if canFixCi}
+        <button
+          type="button"
+          class={reviewChangesActionClass}
+          onclick={handleFixCi}
+          aria-label="Fix CI"
+          aria-busy={startPending}
+          disabled={startPending}
+        >
+          <Wrench size={12} strokeWidth={2.2} />
+          <span class="truncate">{startPending ? "Starting..." : "Fix CI"}</span
+          >
+        </button>
+      {/if}
       {#if canOpenReviewAgent}
         <button
           type="button"

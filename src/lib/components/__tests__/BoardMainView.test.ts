@@ -707,6 +707,24 @@ describe("BoardMainView", () => {
     );
   });
 
+  it("starts a PR review card in fix CI mode", async () => {
+    seedColumns([
+      workItem({
+        id: "wi-review",
+        title: "Fix checks",
+        status: "review",
+        reviewStageId: "pr_review",
+        projectId: "proj-1",
+        pinnedPrUrl: "https://github.com/phin-tech/roux/pull/90",
+      }),
+    ]);
+    render(BoardMainView);
+
+    await fireEvent.click(screen.getByRole("button", { name: "Fix CI" }));
+
+    expect(startWorkItem).toHaveBeenCalledWith("wi-review", { fixCi: true });
+  });
+
   it("shows review package details and requests changes with a note", async () => {
     settings.set({
       ...DEFAULT_SETTINGS,

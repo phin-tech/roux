@@ -832,6 +832,7 @@
           base: defaultBase.base,
           fetchFirst: defaultBase.fetchFirst,
           forceStart: workItemStart.forceStart,
+          fixCi: workItemStart.fixCi,
         });
         await openSessionById(sessionId);
         resetAndClose();

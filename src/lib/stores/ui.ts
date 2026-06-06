@@ -286,6 +286,7 @@ export interface WorkItemSessionStartRequest {
   itemId: string;
   title: string;
   forceStart?: boolean;
+  fixCi?: boolean;
 }
 
 export const workItemSessionStart =

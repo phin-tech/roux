@@ -900,6 +900,7 @@ impl Roux {
         base: Option<String>,
         fetch_first: Option<bool>,
         force_start: Option<bool>,
+        fix_ci: Option<bool>,
     ) -> RouxResult<roux_core::WorkItemStartResult> {
         let args = work_item_start_args(
             id.into(),
@@ -911,6 +912,7 @@ impl Roux {
             base,
             fetch_first,
             force_start,
+            fix_ci,
         );
         self.command(CommandRequest::new("work-item-start").args(args)).await
     }
@@ -1248,6 +1250,7 @@ fn work_item_start_args(
     base: Option<String>,
     fetch_first: Option<bool>,
     force_start: Option<bool>,
+    fix_ci: Option<bool>,
 ) -> Value {
     let mut args = serde_json::json!({ "id": id });
     if let Some(profile) = profile {
@@ -1273,6 +1276,9 @@ fn work_item_start_args(
     }
     if let Some(force_start) = force_start {
         args["forceStart"] = Value::Bool(force_start);
+    }
+    if let Some(fix_ci) = fix_ci {
+        args["fixCi"] = Value::Bool(fix_ci);
     }
     args
 }

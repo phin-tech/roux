@@ -169,6 +169,7 @@ pub(crate) async fn work_item_start(
     base: Option<String>,
     fetch_first: Option<bool>,
     force_start: Option<bool>,
+    fix_ci: Option<bool>,
     state: tauri::State<'_, AppState>,
 ) -> Result<WorkItemStartResult, String> {
     if let Some(client) = state.daemon_client.clone().filter(|c| c.supports("work-item-start")) {
@@ -183,6 +184,7 @@ pub(crate) async fn work_item_start(
                 base,
                 fetch_first,
                 force_start,
+                fix_ci,
             )
             .await
             .map_err(String::from);
