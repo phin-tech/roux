@@ -47,6 +47,24 @@ impl std::fmt::Display for WorkItemStatus {
     }
 }
 
+pub const FIRST_REVIEW_STAGE_ID: &str = "local_review";
+pub const FINAL_REVIEW_STAGE_ID: &str = "pr_review";
+
+pub fn review_stage_label(id: &str) -> String {
+    match id {
+        FIRST_REVIEW_STAGE_ID => "Local Review".to_string(),
+        FINAL_REVIEW_STAGE_ID => "PR Review".to_string(),
+        _ => id.to_string(),
+    }
+}
+
+pub fn next_review_stage_id(id: &str) -> Option<&'static str> {
+    match id {
+        FIRST_REVIEW_STAGE_ID => Some(FINAL_REVIEW_STAGE_ID),
+        _ => None,
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum WorkItemMigrationStorage {
@@ -112,6 +130,10 @@ pub struct WorkItem {
     pub title: String,
     pub body: Option<String>,
     pub status: WorkItemStatus,
+    /// Stable id of the review gate the card is currently satisfying.
+    /// Labels are resolved from workflow metadata so display text can change
+    /// without rewriting stored cards.
+    pub review_stage_id: Option<String>,
     /// Repo to use when starting the card. If unset, the daemon derives it from
     /// the attached project.
     pub repo_path: Option<String>,

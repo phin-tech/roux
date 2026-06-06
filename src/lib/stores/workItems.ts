@@ -358,7 +358,9 @@ export async function moveWorkItem(
   status: WorkItemStatus,
   sortOrder: number,
 ): Promise<WorkItem> {
-  return tauriWorkItemMove(id, status, sortOrder);
+  const item = await tauriWorkItemMove(id, status, sortOrder);
+  upsertItem(item);
+  return item;
 }
 
 export async function deleteWorkItem(id: string): Promise<void> {

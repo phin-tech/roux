@@ -162,6 +162,7 @@ describe("NewSessionDialog profile defaults", () => {
         externalUrl: null,
         sortOrder: 0,
         pinnedPrUrl: null,
+        reviewStageId: null,
         archivedAt: null,
         cost: null,
         createdAt: 0,

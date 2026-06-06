@@ -13,6 +13,7 @@ import {
   runsByItem,
   hydrateWorkItems,
   applyWorkItemEvent,
+  moveWorkItem,
   acceptWorkItemReview,
   requestWorkItemChanges,
   attachDocument,
@@ -28,6 +29,7 @@ import {
 import {
   documentAttach as tauriDocumentAttach,
   documentList as tauriDocumentList,
+  workItemMove as tauriWorkItemMove,
   workItemPlan as tauriWorkItemPlan,
   workItemReviewAccept as tauriWorkItemReviewAccept,
   workItemReviewRequestChanges as tauriWorkItemReviewRequestChanges,
@@ -90,6 +92,7 @@ function makeItem(overrides: Partial<WorkItem> = {}): WorkItem {
     externalUrl: null,
     sortOrder: 0,
     pinnedPrUrl: null,
+    reviewStageId: null,
     archivedAt: null,
     cost: null,
     createdAt: Date.now(),
@@ -221,6 +224,30 @@ describe("workItems store", () => {
       const result = get(workItems)[0];
       expect(result.status).toBe("doing");
       expect(result.sortOrder).toBe(1);
+    });
+  });
+
+  describe("moveWorkItem", () => {
+    it("upserts the returned item so review stage metadata stays fresh", async () => {
+      const item = makeItem({
+        id: "wi-1",
+        status: "todo",
+        sortOrder: 0,
+        reviewStageId: null,
+      });
+      const moved = {
+        ...item,
+        status: "review" as const,
+        sortOrder: 1,
+        reviewStageId: "local_review",
+      };
+      workItems.set([item]);
+      vi.mocked(tauriWorkItemMove).mockResolvedValue(moved);
+
+      await expect(moveWorkItem("wi-1", "review", 1)).resolves.toEqual(moved);
+
+      expect(tauriWorkItemMove).toHaveBeenCalledWith("wi-1", "review", 1);
+      expect(get(workItems)[0]).toEqual(moved);
     });
   });
 

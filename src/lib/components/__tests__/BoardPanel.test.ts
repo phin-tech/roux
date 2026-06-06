@@ -165,6 +165,7 @@ function workItem(overrides: Partial<WorkItem> = {}): WorkItem {
     externalUrl: null,
     sortOrder: 0,
     pinnedPrUrl: null,
+    reviewStageId: null,
     archivedAt: null,
     cost: null,
     createdAt: 0,
@@ -452,11 +453,13 @@ describe("BoardPanel", () => {
       id: "wi-review",
       title: "Review me",
       status: "review",
+      reviewStageId: "local_review",
       sessionId: "sess-1",
     });
     seedColumns([item]);
     render(BoardPanel, { visible: true, onclose: vi.fn() });
 
+    expect(screen.getByText("Accept Local Review")).toBeTruthy();
     await fireEvent.click(screen.getByLabelText("Accept work item review"));
 
     expect(acceptWorkItemReview).toHaveBeenCalledWith("wi-review");
@@ -472,6 +475,7 @@ describe("BoardPanel", () => {
       id: "wi-review",
       title: "Review me",
       status: "review",
+      reviewStageId: "pr_review",
       projectId: "proj-1",
       repoPath: null,
       sessionId: null,
@@ -517,7 +521,8 @@ describe("BoardPanel", () => {
     expect(screen.queryByText("Open terminal")).toBeNull();
     expect(screen.getByText("Open agent")).toBeTruthy();
     expect(screen.getByText("Request changes")).toBeTruthy();
-    expect(screen.getByText("Accept done")).toBeTruthy();
+    expect(within(reviewPackage).getByText("PR Review")).toBeTruthy();
+    expect(screen.getByText("Accept PR Review")).toBeTruthy();
 
     await fireEvent.click(
       within(reviewPackage).getByRole("button", { name: "Open worktree" }),

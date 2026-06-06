@@ -18,6 +18,7 @@
   import { clearDraggedWorkItem, writeWorkItemDragData } from "$lib/board/drag";
   import { unreadBySession } from "$lib/stores/notifications";
   import { projects } from "$lib/stores/projects";
+  import { reviewStageLabel } from "$lib/workItems/reviewStages";
 
   interface Props {
     item: WorkItem;
@@ -150,6 +151,10 @@
     !!onEdit || !!onPlan || !!onDelete || !!onArchive || canForceStartPlanning,
   );
   const reviewSessionId = $derived(reviewPackage?.sessionId ?? null);
+  const reviewStageName = $derived(reviewStageLabel(item.reviewStageId));
+  const acceptReviewText = $derived(
+    reviewStageName ? `Accept ${reviewStageName}` : "Accept done",
+  );
   const canOpenReviewWorktree = $derived(
     !!reviewPackage?.worktreePath && !!onOpenWorktree,
   );
@@ -519,6 +524,10 @@
       <div
         class="grid min-w-0 grid-cols-[3.5rem_minmax(0,1fr)] gap-x-1 gap-y-0.5"
       >
+        {#if reviewStageName}
+          <span class="text-text-subtle">Stage</span>
+          <span data-testid="work-item-review-stage">{reviewStageName}</span>
+        {/if}
         {#if reviewPackage.agentSummary}
           <span class="text-text-subtle">Summary</span>
           <span class="line-clamp-2">{reviewPackage.agentSummary}</span>
@@ -666,7 +675,7 @@
         >
           <Check size={12} strokeWidth={2.2} />
           <span class="truncate"
-            >{acceptPending ? "Accepting..." : "Accept done"}</span
+            >{acceptPending ? "Accepting..." : acceptReviewText}</span
           >
         </button>
       {/if}
@@ -693,7 +702,9 @@
           disabled={acceptPending}
         >
           <Check size={11} strokeWidth={2.2} />
-          <span>{acceptPending ? "Accepting..." : "Accept done"}</span>
+          <span class="truncate"
+            >{acceptPending ? "Accepting..." : acceptReviewText}</span
+          >
         </button>
       {:else if phase.action.kind === "open-session" && onOpen}
         <button

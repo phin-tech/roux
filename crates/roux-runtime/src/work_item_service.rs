@@ -150,8 +150,9 @@ impl WorkItemHandle {
             .unwrap()
             .move_item(id, status.clone(), sort_order, now)
             .map_err(|e| format!("work-item move: {e}"))?;
-        if item.is_some() {
+        if let Some(ref item) = item {
             self.broadcast(WorkItemEvent::Moved { id: id.to_string(), status, sort_order });
+            self.broadcast(WorkItemEvent::Updated { item: item.clone() });
         }
         Ok(item)
     }
@@ -954,7 +955,7 @@ mod tests {
     }
 
     #[test]
-    fn move_item_broadcasts_moved_event() {
+    fn move_item_broadcasts_moved_and_updated_events() {
         let handle = WorkItemHandle::in_memory();
         let item = handle.create(input("Task")).unwrap();
         // Subscribe after create so the create broadcast is already gone.
@@ -962,9 +963,11 @@ mod tests {
 
         handle.move_item(&item.id, WorkItemStatus::Doing, 1.0).unwrap();
 
-        // The only event in the channel is the Moved event.
+        // Move sends the lightweight placement event plus the full updated item.
         let event = rx.try_recv().expect("Moved event should be broadcast");
         assert!(matches!(event, WorkItemEvent::Moved { .. }));
+        let event = rx.try_recv().expect("Updated event should be broadcast");
+        assert!(matches!(event, WorkItemEvent::Updated { .. }));
     }
 
     #[test]

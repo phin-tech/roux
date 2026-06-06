@@ -28,6 +28,7 @@ function workItem(overrides: Partial<WorkItem> = {}): WorkItem {
     externalUrl: null,
     sortOrder: 0,
     pinnedPrUrl: "https://github.com/phin-tech/roux/pull/90",
+    reviewStageId: null,
     archivedAt: null,
     cost: null,
     createdAt: 0,

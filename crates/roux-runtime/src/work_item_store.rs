@@ -20,7 +20,7 @@ use roux_core::{
     WorkItemRunStatus, WorkItemStatus,
 };
 
-pub const WORK_ITEM_SCHEMA_VERSION: i64 = 8;
+pub const WORK_ITEM_SCHEMA_VERSION: i64 = 9;
 
 type ReviewRequestStoreResult =
     Option<(WorkItem, WorkItemRun, WorkItemRunEvent, Option<WorkItemRunEvent>)>;
@@ -87,6 +87,7 @@ impl WorkItemStore {
                     title       TEXT NOT NULL,
                     body        TEXT,
                     status      TEXT NOT NULL DEFAULT 'todo',
+                    review_stage_id TEXT,
                     repo_path   TEXT,
                     agent_profile TEXT,
                     base_branch TEXT,
@@ -236,6 +237,17 @@ impl WorkItemStore {
             conn.execute_batch("PRAGMA user_version = 8;")?;
             version = 8;
         }
+        if version < 9 {
+            add_column_if_missing(&conn, "work_items", "review_stage_id", "TEXT")?;
+            conn.execute(
+                "UPDATE work_items
+                 SET review_stage_id = ?1
+                 WHERE status = ?2 AND review_stage_id IS NULL",
+                params![roux_core::FIRST_REVIEW_STAGE_ID, WorkItemStatus::Review.as_str()],
+            )?;
+            conn.execute_batch("PRAGMA user_version = 9;")?;
+            version = 9;
+        }
         debug_assert!(version >= WORK_ITEM_SCHEMA_VERSION);
         Ok(WorkItemStore { conn })
     }
@@ -254,7 +266,7 @@ impl WorkItemStore {
         include_archived: bool,
     ) -> SqlResult<Vec<WorkItem>> {
         let sql = if project_id.is_some() && include_archived {
-            "SELECT id, project_id, parent_id, title, body, status, repo_path,
+            "SELECT id, project_id, parent_id, title, body, status, review_stage_id, repo_path,
                     agent_profile, base_branch, worktree_path, branch, fetch_first,
                     start_error, session_id,
                     provider, external_id, external_url, sort_order, pinned_pr_url,
@@ -263,7 +275,7 @@ impl WorkItemStore {
              WHERE project_id = ?1
              ORDER BY sort_order, created_at"
         } else if project_id.is_some() {
-            "SELECT id, project_id, parent_id, title, body, status, repo_path,
+            "SELECT id, project_id, parent_id, title, body, status, review_stage_id, repo_path,
                     agent_profile, base_branch, worktree_path, branch, fetch_first,
                     start_error, session_id,
                     provider, external_id, external_url, sort_order, pinned_pr_url,
@@ -272,7 +284,7 @@ impl WorkItemStore {
              WHERE project_id = ?1 AND archived_at IS NULL
              ORDER BY sort_order, created_at"
         } else if include_archived {
-            "SELECT id, project_id, parent_id, title, body, status, repo_path,
+            "SELECT id, project_id, parent_id, title, body, status, review_stage_id, repo_path,
                     agent_profile, base_branch, worktree_path, branch, fetch_first,
                     start_error, session_id,
                     provider, external_id, external_url, sort_order, pinned_pr_url,
@@ -280,7 +292,7 @@ impl WorkItemStore {
              FROM work_items
              ORDER BY sort_order, created_at"
         } else {
-            "SELECT id, project_id, parent_id, title, body, status, repo_path,
+            "SELECT id, project_id, parent_id, title, body, status, review_stage_id, repo_path,
                     agent_profile, base_branch, worktree_path, branch, fetch_first,
                     start_error, session_id,
                     provider, external_id, external_url, sort_order, pinned_pr_url,
@@ -303,7 +315,7 @@ impl WorkItemStore {
     pub fn get(&self, id: &str) -> SqlResult<Option<WorkItem>> {
         self.conn
             .query_row(
-                "SELECT id, project_id, parent_id, title, body, status, repo_path,
+                "SELECT id, project_id, parent_id, title, body, status, review_stage_id, repo_path,
                         agent_profile, base_branch, worktree_path, branch, fetch_first,
                         start_error, session_id,
                         provider, external_id, external_url, sort_order, pinned_pr_url,
@@ -317,16 +329,18 @@ impl WorkItemStore {
 
     pub fn create(&mut self, id: String, input: WorkItemInput, now: u64) -> SqlResult<WorkItem> {
         let status = input.status.as_ref().unwrap_or(&WorkItemStatus::Todo).as_str().to_string();
+        let review_stage_id =
+            (status == WorkItemStatus::Review.as_str()).then_some(roux_core::FIRST_REVIEW_STAGE_ID);
         let sort_order = input.sort_order.unwrap_or(0.0);
         let (provider, external_id, external_url) = split_external_ref(input.external_ref.as_ref());
 
         self.conn.execute(
             "INSERT INTO work_items
-             (id, project_id, parent_id, title, body, status, repo_path,
+             (id, project_id, parent_id, title, body, status, review_stage_id, repo_path,
               agent_profile, base_branch, worktree_path, branch, fetch_first,
               start_error, provider, external_id, external_url, sort_order,
               created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
             params![
                 id,
                 input.project_id,
@@ -334,6 +348,7 @@ impl WorkItemStore {
                 input.title,
                 input.body,
                 status,
+                review_stage_id,
                 input.repo_path,
                 input.agent_profile,
                 input.base_branch,
@@ -401,6 +416,11 @@ impl WorkItemStore {
                 title       = ?2,
                 body        = CASE WHEN ?20 THEN ?3 ELSE body END,
                 status      = COALESCE(?4, status),
+                review_stage_id = CASE
+                    WHEN ?4 = ?29 THEN COALESCE(review_stage_id, ?31)
+                    WHEN ?4 = ?30 THEN NULL
+                    ELSE review_stage_id
+                END,
                 repo_path   = CASE WHEN ?21 THEN ?5 ELSE repo_path END,
                 agent_profile = CASE WHEN ?22 THEN ?6 ELSE agent_profile END,
                 base_branch = CASE WHEN ?23 THEN ?7 ELSE base_branch END,
@@ -445,6 +465,9 @@ impl WorkItemStore {
                 fetch_first_present,
                 input.project_id_present(),
                 input.parent_id_present(),
+                WorkItemStatus::Review.as_str(),
+                WorkItemStatus::Done.as_str(),
+                roux_core::FIRST_REVIEW_STAGE_ID,
             ],
         )?;
         self.get(id)
@@ -458,8 +481,25 @@ impl WorkItemStore {
         now: u64,
     ) -> SqlResult<Option<WorkItem>> {
         self.conn.execute(
-            "UPDATE work_items SET status = ?2, sort_order = ?3, updated_at = ?4 WHERE id = ?1",
-            params![id, status.as_str(), sort_order, now as i64],
+            "UPDATE work_items
+             SET status = ?2,
+                 review_stage_id = CASE
+                     WHEN ?2 = ?5 THEN COALESCE(review_stage_id, ?6)
+                     WHEN ?2 = ?7 THEN NULL
+                     ELSE review_stage_id
+                 END,
+                 sort_order = ?3,
+                 updated_at = ?4
+             WHERE id = ?1",
+            params![
+                id,
+                status.as_str(),
+                sort_order,
+                now as i64,
+                WorkItemStatus::Review.as_str(),
+                roux_core::FIRST_REVIEW_STAGE_ID,
+                WorkItemStatus::Done.as_str(),
+            ],
         )?;
         self.get(id)
     }
@@ -890,9 +930,23 @@ impl WorkItemStore {
                     title      = ?2,
                     body       = COALESCE(?3, body),
                     status     = COALESCE(?4, status),
+                    review_stage_id = CASE
+                        WHEN ?4 = ?6 THEN COALESCE(review_stage_id, ?8)
+                        WHEN ?4 = ?7 THEN NULL
+                        ELSE review_stage_id
+                    END,
                     updated_at = ?5
                  WHERE id = ?1",
-                params![eid, input.title, input.body, status, now as i64],
+                params![
+                    eid,
+                    input.title,
+                    input.body,
+                    status,
+                    now as i64,
+                    WorkItemStatus::Review.as_str(),
+                    WorkItemStatus::Done.as_str(),
+                    roux_core::FIRST_REVIEW_STAGE_ID,
+                ],
             )?;
             self.get(&eid)?.ok_or(rusqlite::Error::QueryReturnedNoRows)
         } else {
@@ -1188,59 +1242,90 @@ impl WorkItemStore {
         &mut self,
         work_item_id: &str,
         event_id: String,
-        payload: Value,
+        mut payload: Value,
         now: u64,
     ) -> SqlResult<Option<(WorkItem, WorkItemRun, WorkItemRunEvent)>> {
         if self.get(work_item_id)?.is_none() {
             return Ok(None);
         }
-        let payload = serde_json::to_string(&payload)
-            .map_err(|err| rusqlite::Error::ToSqlConversionFailure(Box::new(err)))?;
         let tx = self.conn.transaction()?;
-        let run_id = tx
+        let run_row = tx
             .query_row(
-                "SELECT id
-                 FROM work_item_runs
-                 WHERE work_item_id = ?1
-                   AND kind = ?2
-                   AND status = ?3
-                 ORDER BY updated_at DESC, rowid DESC
+                "SELECT runs.id, items.review_stage_id
+                 FROM work_item_runs runs
+                 JOIN work_items items ON items.id = runs.work_item_id
+                 WHERE runs.work_item_id = ?1
+                   AND runs.kind = ?2
+                   AND runs.status = ?3
+                   AND items.status = ?4
+                 ORDER BY runs.updated_at DESC, runs.rowid DESC
                  LIMIT 1",
                 params![
                     work_item_id,
                     WorkItemRunKind::Implementation.as_str(),
                     WorkItemRunStatus::Review.as_str(),
+                    WorkItemStatus::Review.as_str(),
                 ],
-                |row| row.get::<_, String>(0),
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
             )
             .optional()?;
-        let Some(run_id) = run_id else {
+        let Some((run_id, review_stage_id)) = run_row else {
             tx.rollback()?;
             return Ok(None);
         };
-        let changed = tx.execute(
-            "UPDATE work_item_runs
-             SET status = ?2,
-                 updated_at = ?3,
-                 ended_at = COALESCE(ended_at, ?3)
-             WHERE id = ?1 AND status = ?4",
-            params![
-                run_id,
-                WorkItemRunStatus::Done.as_str(),
-                now as i64,
-                WorkItemRunStatus::Review.as_str(),
-            ],
-        )?;
-        if changed == 0 {
-            tx.rollback()?;
-            return Ok(None);
+        let review_stage_id =
+            review_stage_id.unwrap_or_else(|| roux_core::FIRST_REVIEW_STAGE_ID.to_string());
+        let next_stage_id = roux_core::next_review_stage_id(&review_stage_id);
+        add_review_stage_payload_fields(&mut payload, &review_stage_id, next_stage_id);
+        if next_stage_id.is_some() {
+            set_payload_string_field(&mut payload, "status", WorkItemRunStatus::Review.as_str());
+            let changed = tx.execute(
+                "UPDATE work_item_runs
+                 SET updated_at = ?2
+                 WHERE id = ?1 AND status = ?3",
+                params![run_id, now as i64, WorkItemRunStatus::Review.as_str()],
+            )?;
+            if changed == 0 {
+                tx.rollback()?;
+                return Ok(None);
+            }
+            tx.execute(
+                "UPDATE work_items
+                 SET status = ?2,
+                     review_stage_id = ?3,
+                     updated_at = ?4
+                 WHERE id = ?1",
+                params![work_item_id, WorkItemStatus::Review.as_str(), next_stage_id, now as i64,],
+            )?;
+        } else {
+            let changed = tx.execute(
+                "UPDATE work_item_runs
+                 SET status = ?2,
+                     updated_at = ?3,
+                     ended_at = COALESCE(ended_at, ?3)
+                 WHERE id = ?1 AND status = ?4",
+                params![
+                    run_id,
+                    WorkItemRunStatus::Done.as_str(),
+                    now as i64,
+                    WorkItemRunStatus::Review.as_str(),
+                ],
+            )?;
+            if changed == 0 {
+                tx.rollback()?;
+                return Ok(None);
+            }
+            tx.execute(
+                "UPDATE work_items
+                 SET status = ?2,
+                     review_stage_id = NULL,
+                     updated_at = ?3
+                 WHERE id = ?1",
+                params![work_item_id, WorkItemStatus::Done.as_str(), now as i64],
+            )?;
         }
-        tx.execute(
-            "UPDATE work_items
-             SET status = ?2, updated_at = ?3
-             WHERE id = ?1",
-            params![work_item_id, WorkItemStatus::Done.as_str(), now as i64],
-        )?;
+        let payload = serde_json::to_string(&payload)
+            .map_err(|err| rusqlite::Error::ToSqlConversionFailure(Box::new(err)))?;
         tx.execute(
             "INSERT INTO work_item_run_events (id, run_id, kind, payload, created_at)
              VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -1264,12 +1349,10 @@ impl WorkItemStore {
         &mut self,
         run_id: &str,
         event_id: String,
-        payload: Value,
+        mut payload: Value,
         result_event: Option<(String, Value)>,
         now: u64,
     ) -> SqlResult<ReviewRequestStoreResult> {
-        let payload = serde_json::to_string(&payload)
-            .map_err(|err| rusqlite::Error::ToSqlConversionFailure(Box::new(err)))?;
         let result_event = result_event
             .map(|(id, payload)| {
                 serde_json::to_string(&payload)
@@ -1280,14 +1363,21 @@ impl WorkItemStore {
         let tx = self.conn.transaction()?;
         let run_row = tx
             .query_row(
-                "SELECT work_item_id, kind
-                 FROM work_item_runs
-                 WHERE id = ?1",
+                "SELECT runs.work_item_id, runs.kind, items.review_stage_id
+                 FROM work_item_runs runs
+                 JOIN work_items items ON items.id = runs.work_item_id
+                 WHERE runs.id = ?1",
                 params![run_id],
-                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                    ))
+                },
             )
             .optional()?;
-        let Some((work_item_id, kind)) = run_row else {
+        let Some((work_item_id, kind, review_stage_id)) = run_row else {
             tx.rollback()?;
             return Ok(None);
         };
@@ -1298,6 +1388,12 @@ impl WorkItemStore {
                 Some("work item review can only be requested for implementation runs".into()),
             ));
         }
+        let review_stage_id =
+            review_stage_id.unwrap_or_else(|| roux_core::FIRST_REVIEW_STAGE_ID.to_string());
+        add_review_stage_payload_fields(&mut payload, &review_stage_id, None);
+        set_payload_string_field(&mut payload, "status", WorkItemRunStatus::Review.as_str());
+        let payload = serde_json::to_string(&payload)
+            .map_err(|err| rusqlite::Error::ToSqlConversionFailure(Box::new(err)))?;
         let changed = tx.execute(
             "UPDATE work_item_runs
              SET status = ?2,
@@ -1322,9 +1418,16 @@ impl WorkItemStore {
         }
         tx.execute(
             "UPDATE work_items
-             SET status = ?2, updated_at = ?3
+             SET status = ?2,
+                 review_stage_id = COALESCE(review_stage_id, ?4),
+                 updated_at = ?3
              WHERE id = ?1",
-            params![work_item_id, WorkItemStatus::Review.as_str(), now as i64],
+            params![
+                work_item_id,
+                WorkItemStatus::Review.as_str(),
+                now as i64,
+                roux_core::FIRST_REVIEW_STAGE_ID,
+            ],
         )?;
         tx.execute(
             "INSERT INTO work_item_run_events (id, run_id, kind, payload, created_at)
@@ -1382,26 +1485,26 @@ impl WorkItemStore {
         {
             object.insert("feedbackDocumentId".into(), Value::String(document_id.clone()));
         }
-        let payload = serde_json::to_string(&payload)
-            .map_err(|err| rusqlite::Error::ToSqlConversionFailure(Box::new(err)))?;
         let feedback_attachment_id = feedback.as_ref().map(|(id, _, _, _)| id.clone());
         let tx = self.conn.transaction()?;
         let run_row = tx
             .query_row(
-                "SELECT work_item_id, kind, status
-                 FROM work_item_runs
-                 WHERE id = ?1",
+                "SELECT runs.work_item_id, runs.kind, runs.status, items.review_stage_id
+                 FROM work_item_runs runs
+                 JOIN work_items items ON items.id = runs.work_item_id
+                 WHERE runs.id = ?1",
                 params![run_id],
                 |row| {
                     Ok((
                         row.get::<_, String>(0)?,
                         row.get::<_, String>(1)?,
                         row.get::<_, String>(2)?,
+                        row.get::<_, Option<String>>(3)?,
                     ))
                 },
             )
             .optional()?;
-        let Some((work_item_id, kind, status)) = run_row else {
+        let Some((work_item_id, kind, status, review_stage_id)) = run_row else {
             tx.rollback()?;
             return Ok(None);
         };
@@ -1427,6 +1530,11 @@ impl WorkItemStore {
                 ));
             }
         }
+        let review_stage_id =
+            review_stage_id.unwrap_or_else(|| roux_core::FIRST_REVIEW_STAGE_ID.to_string());
+        add_review_stage_payload_fields(&mut payload, &review_stage_id, None);
+        let payload = serde_json::to_string(&payload)
+            .map_err(|err| rusqlite::Error::ToSqlConversionFailure(Box::new(err)))?;
         let changed = tx.execute(
             "UPDATE work_item_runs
              SET status = ?2,
@@ -1746,6 +1854,41 @@ fn option_field_changed<T: PartialEq>(present: bool, next: Option<T>, current: O
     present && next != current
 }
 
+fn add_review_stage_payload_fields(
+    payload: &mut Value,
+    review_stage_id: &str,
+    next_review_stage_id: Option<&str>,
+) {
+    let object = payload_object_mut(payload);
+    object.insert("reviewStageId".into(), Value::String(review_stage_id.to_string()));
+    object.insert(
+        "reviewStageLabel".into(),
+        Value::String(roux_core::review_stage_label(review_stage_id)),
+    );
+    if let Some(next_review_stage_id) = next_review_stage_id {
+        object.insert("nextReviewStageId".into(), Value::String(next_review_stage_id.to_string()));
+        object.insert(
+            "nextReviewStageLabel".into(),
+            Value::String(roux_core::review_stage_label(next_review_stage_id)),
+        );
+    }
+}
+
+fn set_payload_string_field(payload: &mut Value, key: &str, value: &str) {
+    let object = payload_object_mut(payload);
+    object.insert(key.to_string(), Value::String(value.to_string()));
+}
+
+fn payload_object_mut(payload: &mut Value) -> &mut serde_json::Map<String, Value> {
+    if !payload.is_object() {
+        *payload = Value::Object(serde_json::Map::new());
+    }
+    match payload {
+        Value::Object(object) => object,
+        _ => unreachable!("payload was normalized to an object"),
+    }
+}
+
 fn session_already_bound_error(session_id: &str, work_item_id: &str) -> rusqlite::Error {
     rusqlite::Error::SqliteFailure(
         rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CONSTRAINT),
@@ -1763,23 +1906,24 @@ fn row_to_work_item(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkItem> {
         title: row.get(3)?,
         body: row.get(4)?,
         status,
-        repo_path: row.get(6)?,
-        agent_profile: row.get(7)?,
-        base_branch: row.get(8)?,
-        worktree_path: row.get(9)?,
-        branch: row.get(10)?,
-        fetch_first: row.get(11)?,
-        start_error: row.get(12)?,
-        session_id: row.get(13)?,
-        provider: row.get(14)?,
-        external_id: row.get(15)?,
-        external_url: row.get(16)?,
-        sort_order: row.get(17)?,
-        pinned_pr_url: row.get(18)?,
-        archived_at: row.get::<_, Option<i64>>(19)?.map(|value| value as u64),
-        cost: row.get(20)?,
-        created_at: row.get::<_, i64>(21)? as u64,
-        updated_at: row.get::<_, i64>(22)? as u64,
+        review_stage_id: row.get(6)?,
+        repo_path: row.get(7)?,
+        agent_profile: row.get(8)?,
+        base_branch: row.get(9)?,
+        worktree_path: row.get(10)?,
+        branch: row.get(11)?,
+        fetch_first: row.get(12)?,
+        start_error: row.get(13)?,
+        session_id: row.get(14)?,
+        provider: row.get(15)?,
+        external_id: row.get(16)?,
+        external_url: row.get(17)?,
+        sort_order: row.get(18)?,
+        pinned_pr_url: row.get(19)?,
+        archived_at: row.get::<_, Option<i64>>(20)?.map(|value| value as u64),
+        cost: row.get(21)?,
+        created_at: row.get::<_, i64>(22)? as u64,
+        updated_at: row.get::<_, i64>(23)? as u64,
     })
 }
 
@@ -1958,9 +2102,9 @@ mod tests {
 
     #[test]
     fn pending_migrations_are_versions_after_current() {
-        assert_eq!(roux_core::pending_work_item_migrations(4, 8), vec![5, 6, 7, 8]);
-        assert!(roux_core::pending_work_item_migrations(8, 8).is_empty());
-        assert!(roux_core::pending_work_item_migrations(9, 8).is_empty());
+        assert_eq!(roux_core::pending_work_item_migrations(4, 9), vec![5, 6, 7, 8, 9]);
+        assert!(roux_core::pending_work_item_migrations(9, 9).is_empty());
+        assert!(roux_core::pending_work_item_migrations(10, 9).is_empty());
     }
 
     #[test]
@@ -1968,7 +2112,7 @@ mod tests {
         let store = WorkItemStore::open_in_memory().unwrap();
         let version: i64 =
             store.conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
-        assert_eq!(version, 8);
+        assert_eq!(version, 9);
     }
 
     #[test]
@@ -1979,11 +2123,12 @@ mod tests {
             let store = WorkItemStore::open(&path).unwrap();
             let version: i64 =
                 store.conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
-            assert_eq!(version, 8);
+            assert_eq!(version, 9);
             assert!(table_has_column(&store.conn, "work_items", "repo_path").unwrap());
             assert!(table_has_column(&store.conn, "work_items", "branch").unwrap());
             assert!(table_has_column(&store.conn, "work_items", "fetch_first").unwrap());
             assert!(table_has_column(&store.conn, "work_items", "archived_at").unwrap());
+            assert!(table_has_column(&store.conn, "work_items", "review_stage_id").unwrap());
             assert!(table_has_column(&store.conn, "work_item_runs", "kind").unwrap());
             assert!(table_has_column(&store.conn, "work_item_runs", "pty_id").unwrap());
         }
@@ -1991,11 +2136,12 @@ mod tests {
         let store = WorkItemStore::open(&path).unwrap();
         let version: i64 =
             store.conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
-        assert_eq!(version, 8);
+        assert_eq!(version, 9);
         assert!(table_has_column(&store.conn, "work_items", "repo_path").unwrap());
         assert!(table_has_column(&store.conn, "work_items", "branch").unwrap());
         assert!(table_has_column(&store.conn, "work_items", "fetch_first").unwrap());
         assert!(table_has_column(&store.conn, "work_items", "archived_at").unwrap());
+        assert!(table_has_column(&store.conn, "work_items", "review_stage_id").unwrap());
         assert!(table_has_column(&store.conn, "work_item_runs", "kind").unwrap());
         assert!(table_has_column(&store.conn, "work_item_runs", "pty_id").unwrap());
     }
@@ -2059,6 +2205,234 @@ mod tests {
         let archived = store.archive("i-1", 1200).unwrap().unwrap();
 
         assert_eq!(archived.archived_at, Some(1100));
+    }
+
+    #[test]
+    fn request_review_sets_first_review_stage() {
+        let mut store = WorkItemStore::open_in_memory().unwrap();
+        store.create("i-1".into(), input("Task"), 1000).unwrap();
+        store
+            .create_run("run-1".into(), "i-1", Some("sess-1"), None, None, None, None, 1100)
+            .unwrap();
+
+        store
+            .request_review(
+                "run-1",
+                "event-1".into(),
+                serde_json::json!({ "status": "review" }),
+                None,
+                1200,
+            )
+            .unwrap()
+            .expect("run should request review");
+
+        let item = store.get("i-1").unwrap().unwrap();
+        assert_eq!(item.status, WorkItemStatus::Review);
+        assert_eq!(item.review_stage_id.as_deref(), Some("local_review"));
+    }
+
+    #[test]
+    fn request_review_enriches_non_object_payload_with_review_stage_fields() {
+        let mut store = WorkItemStore::open_in_memory().unwrap();
+        store.create("i-1".into(), input("Task"), 1000).unwrap();
+        store
+            .create_run("run-1".into(), "i-1", Some("sess-1"), None, None, None, None, 1100)
+            .unwrap();
+
+        let (_, _, event, _) = store
+            .request_review("run-1", "event-1".into(), serde_json::json!("ptyExit"), None, 1200)
+            .unwrap()
+            .expect("run should request review");
+
+        assert_eq!(event.payload["status"], "review");
+        assert_eq!(event.payload["reviewStageId"], "local_review");
+        assert_eq!(event.payload["reviewStageLabel"], "Local Review");
+    }
+
+    #[test]
+    fn accept_review_advances_local_review_to_pr_review() {
+        let mut store = WorkItemStore::open_in_memory().unwrap();
+        store.create("i-1".into(), input("Task"), 1000).unwrap();
+        store
+            .create_run("run-1".into(), "i-1", Some("sess-1"), None, None, None, None, 1100)
+            .unwrap();
+        store
+            .request_review(
+                "run-1",
+                "event-1".into(),
+                serde_json::json!({ "status": "review" }),
+                None,
+                1200,
+            )
+            .unwrap()
+            .expect("run should request review");
+
+        let (item, run, event) = store
+            .accept_review(
+                "i-1",
+                "event-2".into(),
+                serde_json::json!({ "status": "done", "reason": "reviewAccepted" }),
+                1300,
+            )
+            .unwrap()
+            .expect("local review should advance");
+
+        assert_eq!(item.status, WorkItemStatus::Review);
+        assert_eq!(item.review_stage_id.as_deref(), Some("pr_review"));
+        assert_eq!(run.status, roux_core::WorkItemRunStatus::Review);
+        assert_eq!(event.payload["reviewStageId"], "local_review");
+        assert_eq!(event.payload["nextReviewStageId"], "pr_review");
+    }
+
+    #[test]
+    fn accept_review_enriches_non_object_payload_with_review_stage_fields() {
+        let mut store = WorkItemStore::open_in_memory().unwrap();
+        store.create("i-1".into(), input("Task"), 1000).unwrap();
+        store
+            .create_run("run-1".into(), "i-1", Some("sess-1"), None, None, None, None, 1100)
+            .unwrap();
+        store
+            .request_review(
+                "run-1",
+                "event-1".into(),
+                serde_json::json!({ "status": "review" }),
+                None,
+                1200,
+            )
+            .unwrap()
+            .expect("run should request review");
+
+        let (_, _, event) = store
+            .accept_review("i-1", "event-2".into(), serde_json::json!("accepted"), 1300)
+            .unwrap()
+            .expect("local review should advance");
+
+        assert_eq!(event.payload["status"], "review");
+        assert_eq!(event.payload["reviewStageId"], "local_review");
+        assert_eq!(event.payload["reviewStageLabel"], "Local Review");
+        assert_eq!(event.payload["nextReviewStageId"], "pr_review");
+        assert_eq!(event.payload["nextReviewStageLabel"], "PR Review");
+    }
+
+    #[test]
+    fn request_changes_preserves_review_stage_for_fix_loop() {
+        let mut store = WorkItemStore::open_in_memory().unwrap();
+        store.create("i-1".into(), input("Task"), 1000).unwrap();
+        store
+            .create_run("run-1".into(), "i-1", Some("sess-1"), None, None, None, None, 1100)
+            .unwrap();
+        store
+            .request_review(
+                "run-1",
+                "event-1".into(),
+                serde_json::json!({ "status": "review" }),
+                None,
+                1200,
+            )
+            .unwrap()
+            .expect("run should request review");
+        store
+            .accept_review(
+                "i-1",
+                "event-2".into(),
+                serde_json::json!({ "status": "done", "reason": "reviewAccepted" }),
+                1300,
+            )
+            .unwrap()
+            .expect("local review should advance");
+
+        store
+            .request_changes(
+                "run-1",
+                WorkItemStatus::Doing,
+                "event-3".into(),
+                serde_json::json!({ "status": "changesRequested" }),
+                None,
+                1400,
+            )
+            .unwrap()
+            .expect("review should request changes");
+
+        let item = store.get("i-1").unwrap().unwrap();
+        assert_eq!(item.status, WorkItemStatus::Doing);
+        assert_eq!(item.review_stage_id.as_deref(), Some("pr_review"));
+    }
+
+    #[test]
+    fn accept_review_finishes_final_stage_and_clears_review_stage() {
+        let mut store = WorkItemStore::open_in_memory().unwrap();
+        store.create("i-1".into(), input("Task"), 1000).unwrap();
+        store
+            .create_run("run-1".into(), "i-1", Some("sess-1"), None, None, None, None, 1100)
+            .unwrap();
+        store
+            .request_review(
+                "run-1",
+                "event-1".into(),
+                serde_json::json!({ "status": "review" }),
+                None,
+                1200,
+            )
+            .unwrap()
+            .expect("run should request review");
+        store
+            .accept_review(
+                "i-1",
+                "event-2".into(),
+                serde_json::json!({ "status": "done", "reason": "reviewAccepted" }),
+                1300,
+            )
+            .unwrap()
+            .expect("local review should advance");
+
+        let (item, run, event) = store
+            .accept_review(
+                "i-1",
+                "event-3".into(),
+                serde_json::json!({ "status": "done", "reason": "reviewAccepted" }),
+                1400,
+            )
+            .unwrap()
+            .expect("final review should finish");
+
+        assert_eq!(item.status, WorkItemStatus::Done);
+        assert_eq!(item.review_stage_id, None);
+        assert_eq!(run.status, roux_core::WorkItemRunStatus::Done);
+        assert_eq!(event.payload["reviewStageId"], "pr_review");
+    }
+
+    #[test]
+    fn accept_review_rejects_run_when_card_is_no_longer_in_review() {
+        let mut store = WorkItemStore::open_in_memory().unwrap();
+        store.create("i-1".into(), input("Task"), 1000).unwrap();
+        store
+            .create_run("run-1".into(), "i-1", Some("sess-1"), None, None, None, None, 1100)
+            .unwrap();
+        store
+            .request_review(
+                "run-1",
+                "event-1".into(),
+                serde_json::json!({ "status": "review" }),
+                None,
+                1200,
+            )
+            .unwrap()
+            .expect("run should request review");
+        store.move_item("i-1", WorkItemStatus::Done, 1.0, 1300).unwrap().unwrap();
+
+        let result = store
+            .accept_review(
+                "i-1",
+                "event-2".into(),
+                serde_json::json!({ "status": "done", "reason": "reviewAccepted" }),
+                1400,
+            )
+            .unwrap();
+
+        assert!(result.is_none());
+        let item = store.get("i-1").unwrap().unwrap();
+        assert_eq!(item.status, WorkItemStatus::Done);
+        assert_eq!(item.review_stage_id, None);
     }
 
     #[test]
@@ -2162,7 +2536,7 @@ mod tests {
         let store = WorkItemStore::open(&path).unwrap();
         let version: i64 =
             store.conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
-        assert_eq!(version, 8);
+        assert_eq!(version, 9);
         for column in [
             "repo_path",
             "agent_profile",
@@ -2177,6 +2551,7 @@ mod tests {
         assert!(table_has_column(&store.conn, "work_item_runs", "kind").unwrap());
         assert!(table_has_column(&store.conn, "work_item_runs", "pty_id").unwrap());
         assert!(table_has_column(&store.conn, "work_items", "archived_at").unwrap());
+        assert!(table_has_column(&store.conn, "work_items", "review_stage_id").unwrap());
         let item = store.get("missing").unwrap();
         assert!(item.is_none());
     }
@@ -3085,6 +3460,38 @@ mod tests {
 
         let items = store.list(None).unwrap();
         assert_eq!(items.len(), 1, "no duplicates");
+    }
+
+    #[test]
+    fn upsert_by_external_sets_review_stage_when_status_moves_to_review() {
+        let mut store = WorkItemStore::open_in_memory().unwrap();
+        store
+            .upsert_by_external("i-1".into(), input_with_ref("Old title", "gh", "123"), 1000)
+            .unwrap();
+
+        let mut review_input = input_with_ref("Needs review", "gh", "123");
+        review_input.status = Some(WorkItemStatus::Review);
+        let updated = store.upsert_by_external("i-new".into(), review_input, 2000).unwrap();
+
+        assert_eq!(updated.id, "i-1");
+        assert_eq!(updated.status, WorkItemStatus::Review);
+        assert_eq!(updated.review_stage_id.as_deref(), Some("local_review"));
+    }
+
+    #[test]
+    fn upsert_by_external_clears_review_stage_when_status_moves_to_done() {
+        let mut store = WorkItemStore::open_in_memory().unwrap();
+        let mut review_input = input_with_ref("Needs review", "gh", "123");
+        review_input.status = Some(WorkItemStatus::Review);
+        store.upsert_by_external("i-1".into(), review_input, 1000).unwrap();
+
+        let mut done_input = input_with_ref("Finished", "gh", "123");
+        done_input.status = Some(WorkItemStatus::Done);
+        let updated = store.upsert_by_external("i-new".into(), done_input, 2000).unwrap();
+
+        assert_eq!(updated.id, "i-1");
+        assert_eq!(updated.status, WorkItemStatus::Done);
+        assert_eq!(updated.review_stage_id, None);
     }
 
     #[test]
