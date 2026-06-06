@@ -21,6 +21,8 @@
   import { projects } from "$lib/stores/projects";
   import { settings } from "$lib/stores/settings";
   import { reviewStageLabel } from "$lib/workItems/reviewStages";
+  import { worktreeMetadataFor } from "$lib/stores/worktreeMetadata";
+  import { ciChipFor } from "$lib/ciIcon";
 
   interface WorkItemStartActionOptions {
     forceStart?: boolean;
@@ -179,6 +181,17 @@
   );
   const canOpenReviewAgent = $derived(
     !!reviewPackage?.worktreePath && !!onOpenAgent,
+  );
+  const reviewWorktreeMetadata = $derived(
+    reviewPackage?.worktreePath
+      ? worktreeMetadataFor(reviewPackage.worktreePath)
+      : null,
+  );
+  const reviewWorktreeMeta = $derived(
+    reviewWorktreeMetadata ? $reviewWorktreeMetadata : null,
+  );
+  const reviewCiChip = $derived(
+    ciChipFor(reviewWorktreeMeta?.ciStatus ?? null),
   );
   const allAttachedSessionIds = $derived.by(() => {
     const ids = new Set<string>();
@@ -591,6 +604,19 @@
         {#if reviewPackage.branch}
           <span class="text-text-subtle">Branch</span>
           <span class="truncate font-mono">{reviewPackage.branch}</span>
+        {/if}
+        {#if reviewCiChip}
+          {@const Icon = reviewCiChip.icon}
+          {@const running = reviewWorktreeMeta?.ciStatus === "running"}
+          <span class="text-text-subtle">CI</span>
+          <span
+            class={`inline-flex min-w-0 items-center gap-1 ${reviewCiChip.color} ${reviewWorktreeMeta?.ciStale ? "opacity-60" : ""}`}
+            title={`CI: ${reviewCiChip.label}${reviewWorktreeMeta?.ciStale ? " (stale)" : ""}`}
+            aria-label={`CI ${reviewCiChip.label}`}
+          >
+            <Icon size={11} class={running ? "animate-spin" : ""} />
+            <span class="truncate">{reviewCiChip.label}</span>
+          </span>
         {/if}
         {#if reviewSessionId && onOpen}
           <span class="text-text-subtle">Session</span>
