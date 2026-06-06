@@ -1,0 +1,2252 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A desktop terminal multiplexer for Claude Code">
+      
+      
+      
+        <link rel="canonical" href="https://phin-tech.github.io/roux/dev/features/mailbox/">
+      
+      
+        <link rel="prev" href="../notifications/">
+      
+      
+        <link rel="next" href="../watches/">
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.5.39">
+    
+    
+      
+        <title>Mailbox & Bus - Roux</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.8c3ca2c6.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.06af60db.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+      
+        <meta  property="og:type"  content="website" >
+      
+        <meta  property="og:title"  content="Mailbox & Bus - Roux" >
+      
+        <meta  property="og:description"  content="A desktop terminal multiplexer for Claude Code" >
+      
+        <meta  property="og:image"  content="https://phin-tech.github.io/roux/dev/assets/images/social/features/mailbox.png" >
+      
+        <meta  property="og:image:type"  content="image/png" >
+      
+        <meta  property="og:image:width"  content="1200" >
+      
+        <meta  property="og:image:height"  content="630" >
+      
+        <meta  property="og:url"  content="https://phin-tech.github.io/roux/dev/features/mailbox/" >
+      
+        <meta  name="twitter:card"  content="summary_large_image" >
+      
+        <meta  name="twitter:title"  content="Mailbox & Bus - Roux" >
+      
+        <meta  name="twitter:description"  content="A desktop terminal multiplexer for Claude Code" >
+      
+        <meta  name="twitter:image"  content="https://phin-tech.github.io/roux/dev/assets/images/social/features/mailbox.png" >
+      
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="teal">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#mailbox" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Roux" class="md-header__button md-logo" aria-label="Roux" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Roux
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Mailbox & Bus
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="teal"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="teal"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      <label class="md-header__button md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+      </label>
+      <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/phin-tech/roux" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.6.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2024 Fonticons, Inc.--><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8M97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    phin-tech/roux
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../whats-new/" class="md-tabs__link">
+        
+  
+    
+  
+  What's New
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../install/" class="md-tabs__link">
+        
+  
+    
+  
+  Install
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../getting-started/" class="md-tabs__link">
+        
+  
+    
+  
+  Getting Started
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../" class="md-tabs__link">
+          
+  
+    
+  
+  Features
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../keyboard-shortcuts/" class="md-tabs__link">
+        
+  
+    
+  
+  Keyboard Shortcuts
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../settings/" class="md-tabs__link">
+        
+  
+    
+  
+  Settings
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../troubleshooting/" class="md-tabs__link">
+        
+  
+    
+  
+  Troubleshooting
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Roux" class="md-nav__button md-logo" aria-label="Roux" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Roux
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/phin-tech/roux" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.6.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2024 Fonticons, Inc.--><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8M97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    phin-tech/roux
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Home
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../whats-new/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    What's New
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../install/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Install
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Getting Started
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+        
+          
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../" class="md-nav__link ">
+              
+  
+  <span class="md-ellipsis">
+    Features
+  </span>
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5" id="__nav_5_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            Features
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../panes/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Panes
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../editor/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Multiline Editor
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sessions/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Sessions
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../projects/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Projects
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../layouts/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Layouts
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../worktrees/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Worktrees
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../library/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Library
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notifications/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Notifications
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  <span class="md-ellipsis">
+    Mailbox & Bus
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  <span class="md-ellipsis">
+    Mailbox & Bus
+  </span>
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-three-layers" class="md-nav__link">
+    <span class="md-ellipsis">
+      The three layers
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#aliases" class="md-nav__link">
+    <span class="md-ellipsis">
+      Aliases
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Aliases">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-aliases-get-bound" class="md-nav__link">
+    <span class="md-ellipsis">
+      How aliases get bound
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#inspecting-aliases" class="md-nav__link">
+    <span class="md-ellipsis">
+      Inspecting aliases
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#releasing" class="md-nav__link">
+    <span class="md-ellipsis">
+      Releasing
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-me-alias" class="md-nav__link">
+    <span class="md-ellipsis">
+      The me alias
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#project-scoping" class="md-nav__link">
+    <span class="md-ellipsis">
+      Project scoping
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#group-aliases" class="md-nav__link">
+    <span class="md-ellipsis">
+      Group aliases
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#mailbox_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      Mailbox
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Mailbox">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#posting" class="md-nav__link">
+    <span class="md-ellipsis">
+      Posting
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#reading" class="md-nav__link">
+    <span class="md-ellipsis">
+      Reading
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#acking-with-results" class="md-nav__link">
+    <span class="md-ellipsis">
+      Acking with results
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#threaded-replies" class="md-nav__link">
+    <span class="md-ellipsis">
+      Threaded replies
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#senders-view" class="md-nav__link">
+    <span class="md-ellipsis">
+      Sender's view
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#unsend-retract" class="md-nav__link">
+    <span class="md-ellipsis">
+      Unsend (retract)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dismiss-recipient-side-hide" class="md-nav__link">
+    <span class="md-ellipsis">
+      Dismiss (recipient-side hide)
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bus" class="md-nav__link">
+    <span class="md-ellipsis">
+      Bus
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Bus">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#subscriptions" class="md-nav__link">
+    <span class="md-ellipsis">
+      Subscriptions
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-mailbox-panel-ui" class="md-nav__link">
+    <span class="md-ellipsis">
+      The Mailbox panel (UI)
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The Mailbox panel (UI)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-deliver-button" class="md-nav__link">
+    <span class="md-ellipsis">
+      The Deliver button
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#environment-variables" class="md-nav__link">
+    <span class="md-ellipsis">
+      Environment variables
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-agents-discover-the-mailbox" class="md-nav__link">
+    <span class="md-ellipsis">
+      How agents discover the mailbox
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#mcp" class="md-nav__link">
+    <span class="md-ellipsis">
+      MCP
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#persistence" class="md-nav__link">
+    <span class="md-ellipsis">
+      Persistence
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#retention" class="md-nav__link">
+    <span class="md-ellipsis">
+      Retention
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#discipline" class="md-nav__link">
+    <span class="md-ellipsis">
+      Discipline
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#common-workflows" class="md-nav__link">
+    <span class="md-ellipsis">
+      Common workflows
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Common workflows">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#tell-my-reviewer-im-ready" class="md-nav__link">
+    <span class="md-ellipsis">
+      "Tell my reviewer I'm ready"
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#coordinate-two-agents-on-a-worktree" class="md-nav__link">
+    <span class="md-ellipsis">
+      "Coordinate two agents on a worktree"
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#broadcast-that-the-build-went-green" class="md-nav__link">
+    <span class="md-ellipsis">
+      "Broadcast that the build went green"
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#send-me-a-note-from-a-script" class="md-nav__link">
+    <span class="md-ellipsis">
+      "Send me a note from a script"
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#troubleshooting" class="md-nav__link">
+    <span class="md-ellipsis">
+      Troubleshooting
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../watches/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Watches
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hooks/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Automation hooks
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    CLI
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notes/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Notes
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../keymap/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Keymap
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../keyboard-shortcuts/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Keyboard Shortcuts
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../settings/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Settings
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../troubleshooting/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    Troubleshooting
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-three-layers" class="md-nav__link">
+    <span class="md-ellipsis">
+      The three layers
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#aliases" class="md-nav__link">
+    <span class="md-ellipsis">
+      Aliases
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Aliases">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-aliases-get-bound" class="md-nav__link">
+    <span class="md-ellipsis">
+      How aliases get bound
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#inspecting-aliases" class="md-nav__link">
+    <span class="md-ellipsis">
+      Inspecting aliases
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#releasing" class="md-nav__link">
+    <span class="md-ellipsis">
+      Releasing
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-me-alias" class="md-nav__link">
+    <span class="md-ellipsis">
+      The me alias
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#project-scoping" class="md-nav__link">
+    <span class="md-ellipsis">
+      Project scoping
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#group-aliases" class="md-nav__link">
+    <span class="md-ellipsis">
+      Group aliases
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#mailbox_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      Mailbox
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Mailbox">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#posting" class="md-nav__link">
+    <span class="md-ellipsis">
+      Posting
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#reading" class="md-nav__link">
+    <span class="md-ellipsis">
+      Reading
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#acking-with-results" class="md-nav__link">
+    <span class="md-ellipsis">
+      Acking with results
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#threaded-replies" class="md-nav__link">
+    <span class="md-ellipsis">
+      Threaded replies
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#senders-view" class="md-nav__link">
+    <span class="md-ellipsis">
+      Sender's view
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#unsend-retract" class="md-nav__link">
+    <span class="md-ellipsis">
+      Unsend (retract)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dismiss-recipient-side-hide" class="md-nav__link">
+    <span class="md-ellipsis">
+      Dismiss (recipient-side hide)
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bus" class="md-nav__link">
+    <span class="md-ellipsis">
+      Bus
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Bus">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#subscriptions" class="md-nav__link">
+    <span class="md-ellipsis">
+      Subscriptions
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-mailbox-panel-ui" class="md-nav__link">
+    <span class="md-ellipsis">
+      The Mailbox panel (UI)
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The Mailbox panel (UI)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-deliver-button" class="md-nav__link">
+    <span class="md-ellipsis">
+      The Deliver button
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#environment-variables" class="md-nav__link">
+    <span class="md-ellipsis">
+      Environment variables
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-agents-discover-the-mailbox" class="md-nav__link">
+    <span class="md-ellipsis">
+      How agents discover the mailbox
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#mcp" class="md-nav__link">
+    <span class="md-ellipsis">
+      MCP
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#persistence" class="md-nav__link">
+    <span class="md-ellipsis">
+      Persistence
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#retention" class="md-nav__link">
+    <span class="md-ellipsis">
+      Retention
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#discipline" class="md-nav__link">
+    <span class="md-ellipsis">
+      Discipline
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#common-workflows" class="md-nav__link">
+    <span class="md-ellipsis">
+      Common workflows
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Common workflows">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#tell-my-reviewer-im-ready" class="md-nav__link">
+    <span class="md-ellipsis">
+      "Tell my reviewer I'm ready"
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#coordinate-two-agents-on-a-worktree" class="md-nav__link">
+    <span class="md-ellipsis">
+      "Coordinate two agents on a worktree"
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#broadcast-that-the-build-went-green" class="md-nav__link">
+    <span class="md-ellipsis">
+      "Broadcast that the build went green"
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#send-me-a-note-from-a-script" class="md-nav__link">
+    <span class="md-ellipsis">
+      "Send me a note from a script"
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#troubleshooting" class="md-nav__link">
+    <span class="md-ellipsis">
+      Troubleshooting
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+  
+    <a href="https://github.com/phin-tech/roux/edit/main/docs/features/mailbox.md" title="Edit this page" class="md-content__button md-icon">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="mailbox">Mailbox<a class="headerlink" href="#mailbox" title="Permanent link">&para;</a></h1>
+<p>Roux gives every agent a stable, addressable inbox so humans and other agents
+can send durable messages to a session without typing into its terminal at the
+wrong moment. The same store also powers a topic-based bus for ambient
+broadcasts (build done, tests went red, deploy started).</p>
+<div class="admonition info">
+<p class="admonition-title">Why not just <code>roux send</code>?</p>
+</div>
+<p><code>roux send</code> types raw bytes into a target session's PTY. Useful, but it
+jams whatever the receiver was doing — there's no queueing, no acking,
+no addressing by role, no audit trail. The mailbox keeps the same
+"across-pane communication" intent but adds: durable queueing,
+per-recipient read/ack state, alias-based addressing that survives
+session restart, and a backend the UI and MCP can plug into.</p>
+<h2 id="the-three-layers">The three layers<a class="headerlink" href="#the-three-layers" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Layer</th>
+<th>What it is</th>
+<th>Used for</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Aliases</strong></td>
+<td>Stable, restart-durable names bound to panes (<code>reviewer</code>, <code>builder</code>, <code>me</code>)</td>
+<td>Addressing</td>
+</tr>
+<tr>
+<td><strong>Mailbox</strong></td>
+<td>Queue of events addressed <code>to=&lt;alias&gt;</code> with per-recipient read/ack state</td>
+<td>Direct mail</td>
+</tr>
+<tr>
+<td><strong>Bus</strong></td>
+<td>Same store, addressed by <code>topic</code> (e.g. <code>repo-a.build.completed</code>)</td>
+<td>Broadcasts</td>
+</tr>
+</tbody>
+</table>
+<p>All three live in one append-only event log. "Mailbox" and "bus" are usage
+patterns over the same store, not separate systems.</p>
+<p>When <code>roux daemon</code> owns the socket, aliases, mailbox events, read/ack state,
+and bus subscriptions are loaded and mutated by the daemon. Roux.app renders
+the Mailbox panel and handles notification/deliver-to-pane UX as a client of
+that daemon state, using daemon <code>alias-events</code>, <code>mailbox-events</code>, and
+<code>subscription-events</code> streams to keep the existing frontend event channels
+live. Without a daemon, the desktop falls back to the same local runtime
+managers.</p>
+<h2 id="aliases">Aliases<a class="headerlink" href="#aliases" title="Permanent link">&para;</a></h2>
+<p>An <strong>alias</strong> is a human-meaningful name (lowercase letters, digits, hyphens;
+1–64 chars) that resolves to whichever pane currently holds it. Aliases
+survive session restart; pane IDs do not.</p>
+<h3 id="how-aliases-get-bound">How aliases get bound<a class="headerlink" href="#how-aliases-get-bound" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>Auto-claim from pane name</strong> <em>(easiest)</em>. Rename a pane to something that
+   matches the alias format and Roux auto-claims that name as the pane's
+   alias. Look for the <code>@&lt;alias&gt;</code> chip in the pane's title bar.</li>
+<li><strong><code>roux alias claim &lt;name&gt;</code></strong> <em>(manual)</em>. Run from inside the pane.
+   Defaults to <code>$ROUX_PANE_ID</code>.</li>
+<li><strong><code>roux alias set &lt;name&gt; --session &lt;id&gt;</code> or <code>--pane &lt;id&gt;</code></strong> <em>(third-party)</em>.
+   Bind from the outside, useful for scripts/MCP.</li>
+</ol>
+<p>If the pane's name doesn't match the alias format (capitals, spaces,
+parens) Roux skips auto-claim — the user can still bind manually. Reserved
+names that can't be claimed: <code>me</code>, <code>human</code> (alias of <code>me</code>), <code>system</code>,
+<code>audit</code>, <code>roux</code>.</p>
+<h3 id="inspecting-aliases">Inspecting aliases<a class="headerlink" href="#inspecting-aliases" title="Permanent link">&para;</a></h3>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>roux<span class="w"> </span><span class="nb">alias</span><span class="w"> </span>whoami<span class="w">                       </span><span class="c1"># what aliases is my pane holding?</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>roux<span class="w"> </span><span class="nb">alias</span><span class="w"> </span>list<span class="w">                         </span><span class="c1"># all aliases (JSON)</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>roux<span class="w"> </span><span class="nb">alias</span><span class="w"> </span>list<span class="w"> </span>--only-unbound<span class="w">          </span><span class="c1"># aliases with no current pane</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>roux<span class="w"> </span><span class="nb">alias</span><span class="w"> </span>get<span class="w"> </span>reviewer<span class="w">                 </span><span class="c1"># resolve one alias</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>roux<span class="w"> </span><span class="nb">alias</span><span class="w"> </span>get<span class="w"> </span>reviewer<span class="w"> </span>--project<span class="w"> </span>foo<span class="w">   </span><span class="c1"># project-scoped lookup</span>
+</span></code></pre></div>
+<h3 id="releasing">Releasing<a class="headerlink" href="#releasing" title="Permanent link">&para;</a></h3>
+<p>Auto-claimed aliases release when:</p>
+<ul>
+<li>the pane is renamed to a non-conformant name</li>
+<li>the pane is closed</li>
+<li>the user runs <code>roux alias unset &lt;name&gt;</code></li>
+</ul>
+<p>Manual claims persist across pane close — queued mail keeps for whoever
+re-claims the alias next.</p>
+<h3 id="the-me-alias">The <code>me</code> alias<a class="headerlink" href="#the-me-alias" title="Permanent link">&para;</a></h3>
+<p><code>me</code> (and its synonym <code>human</code>) is reserved for <strong>you, the human at the
+keyboard</strong>. Agents post to <code>me</code> when they need your attention; mail
+addressed to <code>me</code> shows up in the Mailbox panel's main inbox and fires a
+Roux notification. Agents can't claim <code>me</code>.</p>
+<h3 id="project-scoping">Project scoping<a class="headerlink" href="#project-scoping" title="Permanent link">&para;</a></h3>
+<p>The same alias name can exist independently in different projects:</p>
+<ul>
+<li><code>reviewer@frontend-app</code> and <code>reviewer@mobile-app</code> are different aliases.</li>
+<li>Bare <code>roux alias get reviewer</code> looks up in your current project's scope
+  first (via <code>$ROUX_PROJECT_ID</code>), falling back to the global scope.</li>
+<li>Cross-project addressing uses <code>&lt;alias&gt;@&lt;project&gt;</code> syntax.</li>
+</ul>
+<h3 id="group-aliases">Group aliases<a class="headerlink" href="#group-aliases" title="Permanent link">&para;</a></h3>
+<p>A group alias resolves to multiple panes — useful for fan-out scenarios
+like a shared review queue or a team that takes turns on mail.</p>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>roux<span class="w"> </span><span class="nb">alias</span><span class="w"> </span>add-member<span class="w"> </span>reviewers<span class="w"> </span>--pane<span class="w"> </span><span class="nv">$ROUX_PANE_ID</span><span class="w">    </span><span class="c1"># join the group</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>roux<span class="w"> </span><span class="nb">alias</span><span class="w"> </span>add-member<span class="w"> </span>reviewers<span class="w"> </span>--pane<span class="w"> </span>&lt;other-pane&gt;<span class="w">     </span><span class="c1"># add a teammate</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>roux<span class="w"> </span><span class="nb">alias</span><span class="w"> </span>remove-member<span class="w"> </span>reviewers<span class="w"> </span>--pane<span class="w"> </span>&lt;pane&gt;<span class="w">        </span><span class="c1"># leave the group</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>roux<span class="w"> </span><span class="nb">alias</span><span class="w"> </span>mode<span class="w"> </span>reviewers<span class="w"> </span>competing<span class="w">                     </span><span class="c1"># work-queue (default)</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>roux<span class="w"> </span><span class="nb">alias</span><span class="w"> </span>mode<span class="w"> </span>reviewers<span class="w"> </span>broadcast<span class="w">                     </span><span class="c1"># see note below</span>
+</span></code></pre></div>
+<p><code>roux alias get &lt;name&gt;</code> shows the members and current mode. <code>add-member</code>
+auto-creates the alias if it doesn't exist.</p>
+<p><strong>Consumption modes</strong> govern how mail addressed to the group is
+distributed:</p>
+<ul>
+<li><strong><code>competing</code></strong> <em>(V1 default)</em>: first member to ack the mail claims
+  it; subsequent members no longer see it as unread. Equivalent to a
+  work queue — everyone polls the same inbox, the first responder wins.</li>
+<li><strong><code>broadcast</code></strong>: declared in the schema for forward-compat, but in V1
+  it currently behaves the same as <code>competing</code>. True per-member ReadState
+  (where each member acks independently) is a follow-up.</li>
+</ul>
+<p>When a pane closes, it's automatically removed from any groups it was a
+member of (queued mail addressed to the alias persists for the
+remaining members).</p>
+<h2 id="mailbox_1">Mailbox<a class="headerlink" href="#mailbox_1" title="Permanent link">&para;</a></h2>
+<p>Direct addressed mail with per-recipient read/ack state.</p>
+<h3 id="posting">Posting<a class="headerlink" href="#posting" title="Permanent link">&para;</a></h3>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>roux<span class="w"> </span>mailbox<span class="w"> </span>post<span class="w"> </span>--to<span class="w"> </span>reviewer<span class="w"> </span><span class="s2">&quot;PR ready: https://github.com/...&quot;</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>roux<span class="w"> </span>mailbox<span class="w"> </span>post<span class="w"> </span>--to<span class="w"> </span>me<span class="w"> </span><span class="s2">&quot;I need a decision on X&quot;</span><span class="w"> </span>--kind<span class="w"> </span>question
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>roux<span class="w"> </span>mailbox<span class="w"> </span>post<span class="w"> </span>--to<span class="w"> </span>reviewer<span class="w"> </span>--subject<span class="w"> </span><span class="s2">&quot;Hot fix&quot;</span><span class="w"> </span>--kind<span class="w"> </span>task<span class="w"> </span><span class="s2">&quot;&lt;long body&gt;&quot;</span>
+</span></code></pre></div>
+<p>Kinds: <code>task</code> (default), <code>result</code>, <code>question</code>, <code>fyi</code>, <code>signal</code>. The Mailbox
+panel surfaces <code>me</code>-addressed mail and questions in the main inbox; agent-
+to-agent <code>fyi</code> traffic shows in the Firehose tab only.</p>
+<h3 id="reading">Reading<a class="headerlink" href="#reading" title="Permanent link">&para;</a></h3>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>roux<span class="w"> </span>mailbox<span class="w"> </span>count<span class="w">                    </span><span class="c1"># how many unread? (JSON)</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>roux<span class="w"> </span>mailbox<span class="w"> </span>peek<span class="w"> </span>--unread<span class="w">            </span><span class="c1"># see them without consuming</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>roux<span class="w"> </span>mailbox<span class="w"> </span><span class="nb">read</span><span class="w"> </span>--ack<span class="w">               </span><span class="c1"># drain + mark processed (recommended)</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>roux<span class="w"> </span>mailbox<span class="w"> </span>watch<span class="w"> </span>--ack<span class="w">              </span><span class="c1"># follow new mail in real time (long-lived)</span>
+</span></code></pre></div>
+<p><code>read</code> returns each event as JSON. <code>--ack</code> also flips <code>acked_at</code> on each so
+the sender's <code>mailbox sent</code> view shows the work was processed.</p>
+<p><code>watch</code> opens a long-lived socket connection and prints each new event as
+a JSON line as it arrives — no polling. Initial unread mail is replayed
+first (pass <code>--no-backlog</code> to skip), then the stream stays open until
+you disconnect (Ctrl+C). With <code>--ack</code>, every delivered event is marked
+read+acked with a <code>"watched"</code> result so the sender sees you saw it.
+Subscribed-topic events (see <a href="#subscriptions">Subscriptions</a>) flow
+through the same stream. CLI-only for now — the in-app Mailbox panel
+already gets push delivery through Tauri events.</p>
+<h3 id="acking-with-results">Acking with results<a class="headerlink" href="#acking-with-results" title="Permanent link">&para;</a></h3>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>roux<span class="w"> </span>mailbox<span class="w"> </span>ack<span class="w"> </span>&lt;event_id&gt;<span class="w"> </span>--result<span class="w"> </span><span class="s2">&quot;PR merged&quot;</span>
+</span></code></pre></div>
+<p>The result string is visible to the sender. Use it for short status updates
+the original poster cares about.</p>
+<h3 id="threaded-replies">Threaded replies<a class="headerlink" href="#threaded-replies" title="Permanent link">&para;</a></h3>
+<p>Reply to an event by id; the new event copies the original's <code>correlation_id</code>
+(or seeds one from the original event id if absent), so the conversation
+threads:</p>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>roux<span class="w"> </span>mailbox<span class="w"> </span>reply<span class="w"> </span>&lt;event_id&gt;<span class="w"> </span><span class="s2">&quot;looking now, will get back in 10&quot;</span>
+</span></code></pre></div>
+<p>The Mailbox panel's Inbox view groups events sharing a <code>correlation_id</code>
+into threads — replies render indented under their root with a <code>↳</code>
+prefix, so a long back-and-forth reads as one conversation instead of
+N flat rows. Per-event actions (mark read, ack, dismiss, deliver) work
+on each event independently. When the original isn't visible (e.g.
+you've dismissed it but kept the replies), the earliest visible
+reply becomes the visual root.</p>
+<h3 id="senders-view">Sender's view<a class="headerlink" href="#senders-view" title="Permanent link">&para;</a></h3>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>roux<span class="w"> </span>mailbox<span class="w"> </span>sent<span class="w">                     </span><span class="c1"># everything I&#39;ve sent</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>roux<span class="w"> </span>mailbox<span class="w"> </span>sent<span class="w"> </span>--to<span class="w"> </span>reviewer<span class="w">       </span><span class="c1"># only stuff I sent to reviewer</span>
+</span></code></pre></div>
+<p>Each row pairs the event with the recipient's read/ack state, so you can
+tell whether the reviewer saw your mail and what they did with it.</p>
+<h3 id="unsend-retract">Unsend (retract)<a class="headerlink" href="#unsend-retract" title="Permanent link">&para;</a></h3>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>roux<span class="w"> </span>mailbox<span class="w"> </span>unsend<span class="w"> </span>&lt;event_id&gt;<span class="w">        </span><span class="c1"># default: --alias = my pane&#39;s alias</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>roux<span class="w"> </span>mailbox<span class="w"> </span>unsend<span class="w"> </span>&lt;event_id&gt;<span class="w"> </span>--alias<span class="w"> </span>me
+</span></code></pre></div>
+<p>Marks the event as retracted: it disappears from recipient inbox views
+and the firehose. Allowed only <strong>before any recipient has acked</strong> —
+once anyone confirmed delivery, retraction is rejected so the audit
+trail stays honest. Your <code>mailbox sent</code> view still surfaces retracted
+events with the <code>retractedAt</code> timestamp visible.</p>
+<p>The events log is append-only; retraction is recorded as a marker row
+in <code>events.jsonl</code> and applied to the event at load time.</p>
+<h3 id="dismiss-recipient-side-hide">Dismiss (recipient-side hide)<a class="headerlink" href="#dismiss-recipient-side-hide" title="Permanent link">&para;</a></h3>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>roux<span class="w"> </span>mailbox<span class="w"> </span>dismiss<span class="w"> </span>&lt;event_id&gt;<span class="w">       </span><span class="c1"># default: --alias = my pane&#39;s alias</span>
+</span></code></pre></div>
+<p>Hides a single event from your inbox view (read or unread). The event
+itself is preserved; other recipients keep seeing it. Use this when an
+agent has been chatty or you want to drop one specific item without
+clearing your whole read backlog. The Mailbox panel exposes this as a
+<code>dismiss</code> button on each inbox row.</p>
+<h2 id="bus">Bus<a class="headerlink" href="#bus" title="Permanent link">&para;</a></h2>
+<p>When you want to publish "this happened" without addressing a specific
+recipient:</p>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>roux<span class="w"> </span>bus<span class="w"> </span>publish<span class="w"> </span>repo-a.build.completed<span class="w"> </span><span class="s2">&quot;main is green&quot;</span>
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>roux<span class="w"> </span>bus<span class="w"> </span>tail<span class="w"> </span>--topic<span class="w"> </span>repo-a.build.completed<span class="w">   </span><span class="c1"># filter</span>
+</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>roux<span class="w"> </span>bus<span class="w"> </span>tail<span class="w">                                   </span><span class="c1"># firehose, newest first</span>
+</span></code></pre></div>
+<p>Topics live in the same store as mailbox events. An event can have <em>both</em>
+<code>--to</code> and <code>--topic</code> — it lands in the recipient's inbox AND fires for
+anyone tailing that topic.</p>
+<p>Default <code>kind</code> for <code>bus publish</code> is <code>signal</code>.</p>
+<h3 id="subscriptions">Subscriptions<a class="headerlink" href="#subscriptions" title="Permanent link">&para;</a></h3>
+<p>Tail-and-grep is fine for ad-hoc inspection, but for durable "tell my
+alias whenever X fires" wiring use a <strong>subscription</strong>. A subscription
+ties an alias to a topic glob; matched events land in the subscriber's
+mailbox so <code>roux mailbox read</code> (and the <code>UserPromptSubmit</code> hook) just
+work. Subscriptions persist across app restarts.</p>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="c1"># Auditor wants every completion event from any repo:</span>
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>roux<span class="w"> </span>bus<span class="w"> </span>subscribe<span class="w"> </span><span class="s1">&#39;**.completed&#39;</span><span class="w"> </span>--alias<span class="w"> </span>auditor
+</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>
+</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="c1"># Same alias also wants build failures, but only in repo-a:</span>
+</span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a>roux<span class="w"> </span>bus<span class="w"> </span>subscribe<span class="w"> </span><span class="s1">&#39;repo-a.build.failed&#39;</span><span class="w"> </span>--alias<span class="w"> </span>auditor
+</span><span id="__span-10-6"><a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a>
+</span><span id="__span-10-7"><a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a>roux<span class="w"> </span>bus<span class="w"> </span>subscriptions<span class="w">               </span><span class="c1"># list everything</span>
+</span><span id="__span-10-8"><a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a>roux<span class="w"> </span>bus<span class="w"> </span>subscriptions<span class="w"> </span>--alias<span class="w"> </span>auditor
+</span><span id="__span-10-9"><a id="__codelineno-10-9" name="__codelineno-10-9" href="#__codelineno-10-9"></a>roux<span class="w"> </span>bus<span class="w"> </span>unsubscribe<span class="w"> </span>&lt;subscription-id&gt;
+</span></code></pre></div>
+<p>Glob syntax (MQTT-style segment-aware):</p>
+<table>
+<thead>
+<tr>
+<th>Pattern</th>
+<th>Matches</th>
+<th>Doesn't match</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>repo-a.build</code></td>
+<td>exact <code>repo-a.build</code></td>
+<td>anything else</td>
+</tr>
+<tr>
+<td><code>repo-a.*</code></td>
+<td><code>repo-a.build</code></td>
+<td><code>repo-a.build.completed</code></td>
+</tr>
+<tr>
+<td><code>repo-a.**</code></td>
+<td><code>repo-a</code>, <code>repo-a.build</code>, <code>repo-a.build.completed</code></td>
+<td><code>repo-b.build</code></td>
+</tr>
+<tr>
+<td><code>*.completed</code></td>
+<td><code>build.completed</code></td>
+<td><code>repo-a.build.completed</code></td>
+</tr>
+<tr>
+<td><code>**.completed</code></td>
+<td><code>completed</code>, <code>build.completed</code>, <code>repo-a.build.completed</code></td>
+<td><code>build.failed</code></td>
+</tr>
+<tr>
+<td><code>repo-a.**.completed</code></td>
+<td><code>repo-a.completed</code>, <code>repo-a.x.y.completed</code></td>
+<td><code>repo-a.x.failed</code></td>
+</tr>
+</tbody>
+</table>
+<p>Pattern segments are lowercase letters, digits, and hyphens — same
+alphabet as topics and aliases. <code>*</code> and <code>**</code> must occupy a whole
+segment; partial-segment globbing (<code>foo*</code>) is rejected at validation
+time.</p>
+<p>Project scoping: a subscription with <code>--project p1</code> only matches events
+whose <code>project_id</code> is also <code>p1</code>. A subscription with no project (the
+default) matches events in any scope.</p>
+<p>Subscribed events appear in the subscriber's <code>mailbox read</code> output and
+update their unread count via the same <code>mailbox-event</code> Tauri channel —
+the UI's per-alias badge increments on every match.</p>
+<p>When the daemon owns the socket, <code>roux bus subscribe</code>, <code>roux bus unsubscribe</code>,
+<code>roux bus subscriptions</code>, and the Mailbox panel's Subscriptions tab all mutate
+the daemon's <code>subscriptions.json</code> state.</p>
+<h2 id="the-mailbox-panel-ui">The Mailbox panel (UI)<a class="headerlink" href="#the-mailbox-panel-ui" title="Permanent link">&para;</a></h2>
+<p>Click the inbox icon in the activity rail (or use the keybinding for
+"mailbox"). The panel has two views:</p>
+<ul>
+<li><strong>Inbox</strong> — alias selector strip + the selected alias's events, oldest
+  first. Mark-read / ack / clear-read buttons per event. Compose form at
+  the top sends to any alias (with autocomplete).</li>
+<li><strong>All / Firehose</strong> — every event newest-first, no per-recipient state.
+  Read-only; for awareness across recipients.</li>
+</ul>
+<p>The pane title bar shows an <code>@&lt;alias&gt;</code> chip when an alias is bound. Auto-
+claimed bindings get a lighter outline; manually-claimed bindings are
+filled. An unread badge appears next to the chip when mail is waiting.</p>
+<h3 id="the-deliver-button">The Deliver button<a class="headerlink" href="#the-deliver-button" title="Permanent link">&para;</a></h3>
+<p>In the Inbox view, each event has a <code>deliver →</code> button <strong>iff the
+recipient alias is bound to a live pane</strong>. Clicking it types the message
+body (plus a CR) into the recipient's pane via the existing PTY write
+path, then auto-acks. This is the "send to my friend" UX — combines
+mailbox addressing with PTY delivery for the last mile, useful when the
+recipient agent isn't running a hook to drain mail automatically.</p>
+<h2 id="environment-variables">Environment variables<a class="headerlink" href="#environment-variables" title="Permanent link">&para;</a></h2>
+<p>When a pane is hosting an agent, Roux injects these:</p>
+<table>
+<thead>
+<tr>
+<th>Var</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ROUX_AGENT_ALIAS</code></td>
+<td>Alias bound to this pane at PTY spawn time. Snapshot — does not update mid-session. Use <code>roux alias whoami</code> for live state.</td>
+</tr>
+<tr>
+<td><code>ROUX_PANE_ID</code></td>
+<td>The pane's id; pass to <code>roux alias claim</code>.</td>
+</tr>
+<tr>
+<td><code>ROUX_SESSION_ID</code></td>
+<td>The session's id.</td>
+</tr>
+<tr>
+<td><code>ROUX_PROJECT_ID</code></td>
+<td>Project scope, if any. Used for current-project alias resolution.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="how-agents-discover-the-mailbox">How agents discover the mailbox<a class="headerlink" href="#how-agents-discover-the-mailbox" title="Permanent link">&para;</a></h2>
+<p>Roux ships a Claude Code skill (auto-installed at
+<code>~/.claude/skills/roux/SKILL.md</code>) that teaches agents:</p>
+<ul>
+<li><code>$ROUX_SESSION=1</code> ⇒ they're in Roux</li>
+<li>The <code>mailbox</code>, <code>alias</code>, and <code>bus</code> CLI surfaces and when to use them</li>
+<li>That "mail" / "inbox" / "messages" mean <strong>Roux mailbox</strong>, NOT Gmail (this
+  prevents Claude from reaching for the Gmail MCP when you ask "any new
+  mail?" inside a Roux pane)</li>
+</ul>
+<p>For deterministic auto-drain (without relying on the model remembering),
+add a <code>UserPromptSubmit</code> hook in your project's <code>.claude/settings.json</code>:</p>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="p">{</span>
+</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="w">  </span><span class="nt">&quot;hooks&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="w">    </span><span class="nt">&quot;UserPromptSubmit&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+</span><span id="__span-11-4"><a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="w">      </span><span class="p">{</span>
+</span><span id="__span-11-5"><a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="w">        </span><span class="nt">&quot;command&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;roux mailbox read --ack&quot;</span>
+</span><span id="__span-11-6"><a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a><span class="w">      </span><span class="p">}</span>
+</span><span id="__span-11-7"><a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a><span class="w">    </span><span class="p">]</span>
+</span><span id="__span-11-8"><a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a><span class="w">  </span><span class="p">}</span>
+</span><span id="__span-11-9"><a id="__codelineno-11-9" name="__codelineno-11-9" href="#__codelineno-11-9"></a><span class="p">}</span>
+</span></code></pre></div>
+<p>Output of <code>mailbox read</code> will be prepended to whatever you type, so the
+agent picks up pending mail at the start of every turn.</p>
+<h2 id="mcp">MCP<a class="headerlink" href="#mcp" title="Permanent link">&para;</a></h2>
+<p>The Roux MCP server exposes the mailbox tools natively to MCP-aware
+clients. To wire it up:</p>
+<ol>
+<li>Open Roux → Settings → <strong>Integrations</strong> → <strong>Model Context Protocol</strong>.</li>
+<li>Click <strong>Add to Claude Code</strong>, <strong>Add to Claude Desktop</strong>, or <strong>Add to
+   Codex</strong> depending on which client you use. Roux writes the right config
+   shape (JSON <code>mcpServers</code> for Claude clients, TOML <code>[mcp_servers.roux]</code>
+   for Codex) and prints the diff in the preview pane.</li>
+<li>Restart the client. The next session sees <code>roux_mailbox_*</code>,
+   <code>roux_alias_*</code>, <code>roux_bus_*</code> tools natively — no shell-out cost, no
+   permission prompts per call.</li>
+</ol>
+<p>Behind the scenes the MCP tools just wrap the same socket commands the
+CLI uses; you get parity with the CLI surface, just typed.</p>
+<h2 id="persistence">Persistence<a class="headerlink" href="#persistence" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Format</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>aliases.json</code></td>
+<td>Versioned envelope (<code>{version: 1, data: [...]}</code>)</td>
+<td>Full rewrite on mutation</td>
+</tr>
+<tr>
+<td><code>subscriptions.json</code></td>
+<td>Versioned envelope</td>
+<td>Full rewrite on subscribe / unsubscribe</td>
+</tr>
+<tr>
+<td><code>events.jsonl</code></td>
+<td>Append-only NDJSON, one event per line, with <code>schemaVersion: 1</code></td>
+<td>Audit log; never compacted</td>
+</tr>
+<tr>
+<td><code>read_state.json</code></td>
+<td>Versioned envelope</td>
+<td>Full rewrite on mark-read / ack / clear-read</td>
+</tr>
+</tbody>
+</table>
+<p>All four live under <code>roux_config_dir()</code> (<code>~/.config/roux/</code> on macOS/Linux).
+When a daemon is running, those files are owned by the daemon process; GUI and
+CLI clients reach them through socket commands. Future-version rows are
+preserved on disk but skipped at load time, so a downgrade doesn't lose data.</p>
+<h2 id="retention">Retention<a class="headerlink" href="#retention" title="Permanent link">&para;</a></h2>
+<p>The in-memory event store caps at the most recent 5,000 events. Events
+past the cap are evicted from RAM but stay in <code>events.jsonl</code> for audit.
+Restarts rebuild the in-memory view from the on-disk log, applying the
+cap.</p>
+<h2 id="discipline">Discipline<a class="headerlink" href="#discipline" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Don't drain mail mid-tool-call.</strong> Mail is durable — it's there at the
+  start of your next turn. Draining mid-task fragments your context.</li>
+<li><strong>Don't flood.</strong> A soft per-sender rate cap (~60 events/min) folds
+  identical bodies posted to the same recipient within 5 seconds.</li>
+<li><strong>Treat <code>me</code> mail with priority.</strong> It's the human asking — surface it,
+  don't silently sit on it.</li>
+</ul>
+<h2 id="common-workflows">Common workflows<a class="headerlink" href="#common-workflows" title="Permanent link">&para;</a></h2>
+<h3 id="tell-my-reviewer-im-ready">"Tell my reviewer I'm ready"<a class="headerlink" href="#tell-my-reviewer-im-ready" title="Permanent link">&para;</a></h3>
+<p>From the implementer's pane:</p>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>roux<span class="w"> </span>mailbox<span class="w"> </span>post<span class="w"> </span>--to<span class="w"> </span>reviewer<span class="w"> </span><span class="s2">&quot;PR ready, /Users/me/branch-foo, please look&quot;</span>
+</span></code></pre></div>
+<p>The reviewer's pane shows the unread badge. The reviewer (a person or an
+agent) drains via <code>roux mailbox read --ack</code> or by clicking through the
+Mailbox panel.</p>
+<h3 id="coordinate-two-agents-on-a-worktree">"Coordinate two agents on a worktree"<a class="headerlink" href="#coordinate-two-agents-on-a-worktree" title="Permanent link">&para;</a></h3>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="c1"># Open a worktree session, name two panes &quot;frontend&quot; and &quot;backend&quot;</span>
+</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="c1"># (auto-claim picks them up)</span>
+</span><span id="__span-13-3"><a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a>roux<span class="w"> </span>session<span class="w"> </span>create<span class="w"> </span>--worktree-branch<span class="w"> </span>feature-x
+</span><span id="__span-13-4"><a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a>
+</span><span id="__span-13-5"><a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a><span class="c1"># From the frontend pane:</span>
+</span><span id="__span-13-6"><a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a>roux<span class="w"> </span>mailbox<span class="w"> </span>post<span class="w"> </span>--to<span class="w"> </span>backend<span class="w"> </span><span class="s2">&quot;API contract for /reviews: {fields...}&quot;</span>
+</span><span id="__span-13-7"><a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a>
+</span><span id="__span-13-8"><a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a><span class="c1"># From the backend pane:</span>
+</span><span id="__span-13-9"><a id="__codelineno-13-9" name="__codelineno-13-9" href="#__codelineno-13-9"></a>roux<span class="w"> </span>mailbox<span class="w"> </span><span class="nb">read</span><span class="w"> </span>--ack<span class="w">       </span><span class="c1"># sees the contract</span>
+</span><span id="__span-13-10"><a id="__codelineno-13-10" name="__codelineno-13-10" href="#__codelineno-13-10"></a><span class="c1"># ...does the work...</span>
+</span><span id="__span-13-11"><a id="__codelineno-13-11" name="__codelineno-13-11" href="#__codelineno-13-11"></a>roux<span class="w"> </span>mailbox<span class="w"> </span>post<span class="w"> </span>--to<span class="w"> </span>frontend<span class="w"> </span>--kind<span class="w"> </span>result<span class="w"> </span><span class="s2">&quot;/reviews implemented in commit abc123&quot;</span>
+</span></code></pre></div>
+<h3 id="broadcast-that-the-build-went-green">"Broadcast that the build went green"<a class="headerlink" href="#broadcast-that-the-build-went-green" title="Permanent link">&para;</a></h3>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>roux<span class="w"> </span>bus<span class="w"> </span>publish<span class="w"> </span>repo-a.build.completed<span class="w"> </span><span class="s2">&quot;main is green at sha abc123&quot;</span>
+</span></code></pre></div>
+<p>Anyone tailing the topic sees it. To get push delivery rather than
+poll-via-tail, an alias subscribes once:</p>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>roux<span class="w"> </span>bus<span class="w"> </span>subscribe<span class="w"> </span><span class="s1">&#39;repo-a.**.completed&#39;</span><span class="w"> </span>--alias<span class="w"> </span>auditor
+</span></code></pre></div>
+<p>After that, every matching publish lands in <code>auditor</code>'s mailbox; the
+auditor agent's <code>UserPromptSubmit</code> hook (or <code>roux mailbox read --ack</code>)
+picks them up at the start of the next turn.</p>
+<h3 id="send-me-a-note-from-a-script">"Send me a note from a script"<a class="headerlink" href="#send-me-a-note-from-a-script" title="Permanent link">&para;</a></h3>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>roux<span class="w"> </span>mailbox<span class="w"> </span>post<span class="w"> </span>--to<span class="w"> </span>me<span class="w"> </span><span class="s2">&quot;deploy finished, took 4m12s&quot;</span><span class="w"> </span>--kind<span class="w"> </span>fyi
+</span></code></pre></div>
+<p>Roux fires a notification on your screen.</p>
+<h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">&para;</a></h2>
+<p><strong><code>alias 'reviewer' is already bound to pane 'pane-XYZ'</code></strong>: another pane
+holds the alias. Either rename the conflicting pane (auto-release), use
+<code>roux alias claim reviewer --steal</code> to take it over, or pick a different
+name.</p>
+<p><strong>My pane name auto-claimed but other pane has the same name</strong>: auto-claims
+are scoped per project, so <code>reviewer</code> in project A and <code>reviewer</code> in
+project B coexist. Within the same project (or both panes outside any
+project) only the first auto-claim wins; the second pane keeps its name
+but no alias — manually <code>roux alias claim &lt;some-other-name&gt;</code> for the
+second pane.</p>
+<p><strong>Mail isn't arriving even though I posted</strong>: check <code>roux alias list</code> to
+confirm the recipient alias exists and has a <code>paneId</code> set. Posts to
+unbound aliases queue durably — mail is there, just no live recipient.
+Bind a pane (or use the Deliver button) to see it.</p>
+<p><strong>Agent ignores mail</strong>: install the <code>UserPromptSubmit</code> hook (see above)
+or run <code>roux mailbox read</code> manually. The skill teaches agents about the
+mailbox, but doesn't compel them to drain on every turn — hooks do.</p>
+
+
+
+
+
+
+
+  
+  
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../notifications/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Notifications">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Notifications
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../watches/" class="md-footer__link md-footer__link--next" aria-label="Next: Watches">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Watches
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    <script id="__config" type="application/json">{"base": "../..", "features": ["navigation.tabs", "navigation.sections", "navigation.top", "navigation.tracking", "navigation.indexes", "navigation.footer", "content.code.copy", "content.action.edit", "search.suggest", "search.highlight", "toc.follow"], "search": "../../assets/javascripts/workers/search.6ce7567c.min.js", "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.525ec568.min.js"></script>
+      
+    
+  </body>
+</html>
