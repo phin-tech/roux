@@ -708,7 +708,8 @@ Requires `args.id`. Soft-archives the card by setting `archivedAt`. The daemon
 rejects cards with active runs. If the card is bound to a session, the daemon
 kills the session PTYs and archives the session record. Returns the updated
 item. Archiving also clears the card's `sessionId` so restore does not reconnect
-it to an archived/dead session.
+it to an archived/dead session. Archiving an already archived card is a no-op
+that returns the unchanged item.
 
 `work-item-restore`
 

@@ -27,6 +27,16 @@ type ReviewRequestStoreResult =
 type ReviewRequestChangesStoreResult =
     Option<(WorkItem, WorkItemRun, WorkItemRunEvent, Option<Attachment>)>;
 
+#[derive(Debug, thiserror::Error)]
+pub enum WorkItemStoreError {
+    #[error("{0}")]
+    Validation(String),
+    #[error(transparent)]
+    Sql(#[from] rusqlite::Error),
+}
+
+type StoreResult<T> = Result<T, WorkItemStoreError>;
+
 pub struct WorkItemStore {
     conn: Connection,
 }
@@ -652,7 +662,7 @@ impl WorkItemStore {
         base_branch: Option<&str>,
         sort_order: f64,
         now: u64,
-    ) -> SqlResult<Option<WorkItem>> {
+    ) -> StoreResult<Option<WorkItem>> {
         self.ensure_session_unbound_or_self(id, session_id)?;
         let changed = self.conn.execute(
             "UPDATE work_items SET
@@ -682,7 +692,7 @@ impl WorkItemStore {
         if changed == 0 {
             return Ok(None);
         }
-        self.get(id)
+        Ok(self.get(id)?)
     }
 
     /// Bind a session only if the item still exists and is unbound. Returns
@@ -817,22 +827,23 @@ impl WorkItemStore {
         )
     }
 
-    pub fn archive(&mut self, id: &str, now: u64) -> SqlResult<Option<WorkItem>> {
+    pub fn archive(&mut self, id: &str, now: u64) -> StoreResult<Option<WorkItem>> {
         if self.has_active_run(id)? {
-            return Err(rusqlite::Error::InvalidParameterName("active work item run".to_string()));
+            return Err(validation_error("active work item run"));
         }
         let changed = self.conn.execute(
             "UPDATE work_items
              SET archived_at = ?2,
                  session_id = NULL,
                  updated_at = ?2
-             WHERE id = ?1",
+             WHERE id = ?1
+               AND archived_at IS NULL",
             params![id, now as i64],
         )?;
         if changed == 0 {
-            return Ok(None);
+            return Ok(self.get(id)?);
         }
-        self.get(id)
+        Ok(self.get(id)?)
     }
 
     pub fn restore(&mut self, id: &str, now: u64) -> SqlResult<Option<WorkItem>> {
@@ -900,7 +911,7 @@ impl WorkItemStore {
         worktree_path: Option<&str>,
         branch: Option<&str>,
         now: u64,
-    ) -> SqlResult<WorkItemRun> {
+    ) -> StoreResult<WorkItemRun> {
         self.create_run_with_status(
             id,
             work_item_id,
@@ -926,7 +937,7 @@ impl WorkItemStore {
         branch: Option<&str>,
         status: WorkItemRunStatus,
         now: u64,
-    ) -> SqlResult<WorkItemRun> {
+    ) -> StoreResult<WorkItemRun> {
         self.create_run_with_kind_status(
             id,
             work_item_id,
@@ -954,7 +965,7 @@ impl WorkItemStore {
         branch: Option<&str>,
         status: WorkItemRunStatus,
         now: u64,
-    ) -> SqlResult<WorkItemRun> {
+    ) -> StoreResult<WorkItemRun> {
         let is_terminal = is_terminal_work_item_run_status(&status);
         let started_at = (status == WorkItemRunStatus::Running).then_some(now as i64);
         let tx = self.conn.transaction()?;
@@ -966,11 +977,7 @@ impl WorkItemStore {
             )
             .optional()?;
         if archived_at.flatten().is_some() {
-            tx.rollback()?;
-            return Err(rusqlite::Error::SqliteFailure(
-                rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CONSTRAINT),
-                Some("archived work item cannot create runs".into()),
-            ));
+            return Err(validation_error("archived work item cannot create runs"));
         }
         if !is_terminal {
             let active: bool = tx.query_row(
@@ -996,11 +1003,7 @@ impl WorkItemStore {
                 |row| row.get(0),
             )?;
             if active {
-                tx.rollback()?;
-                return Err(rusqlite::Error::SqliteFailure(
-                    rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CONSTRAINT),
-                    Some("active work item run already exists".into()),
-                ));
+                return Err(validation_error("active work item run already exists"));
             }
         }
         tx.execute(
@@ -1024,7 +1027,8 @@ impl WorkItemStore {
             ],
         )?;
         tx.commit()?;
-        self.get_run(&id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)
+        let run = self.get_run(&id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+        Ok(run)
     }
 
     pub fn get_run(&self, id: &str) -> SqlResult<Option<WorkItemRun>> {
@@ -1927,6 +1931,10 @@ fn add_column_if_missing(
     Ok(())
 }
 
+fn validation_error(message: impl Into<String>) -> WorkItemStoreError {
+    WorkItemStoreError::Validation(message.into())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2040,6 +2048,17 @@ mod tests {
 
         assert_eq!(archived.archived_at, Some(1200));
         assert_eq!(archived.session_id, None);
+    }
+
+    #[test]
+    fn archive_is_idempotent_without_changing_archived_at() {
+        let mut store = WorkItemStore::open_in_memory().unwrap();
+        store.create("i-1".into(), input("Archive once"), 1000).unwrap();
+        store.archive("i-1", 1100).unwrap();
+
+        let archived = store.archive("i-1", 1200).unwrap().unwrap();
+
+        assert_eq!(archived.archived_at, Some(1100));
     }
 
     #[test]

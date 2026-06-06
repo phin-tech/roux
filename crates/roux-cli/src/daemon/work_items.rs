@@ -504,7 +504,10 @@ pub(super) async fn handle_work_item_review_accept(req: Request, host: &RuntimeH
     match host.work_item_handle.accept_review(&item_id, payload) {
         Ok(Some((item, run))) => {
             if let Err(response) = archive_linked_session(host, run.session_id.as_deref()).await {
-                return response;
+                eprintln!(
+                    "[roux-daemon] warning: review accepted but linked session archival failed: {}",
+                    response.error.unwrap_or_else(|| "unknown error".to_string())
+                );
             }
             match serde_json::to_value(roux_core::WorkItemReviewAcceptResult { item, run }) {
                 Ok(value) => Response::success(value),
@@ -5554,6 +5557,58 @@ mod tests {
                 && event.payload["reason"] == "reviewAccepted"
         }));
 
+        shutdown_host(host, joins).await;
+    }
+
+    #[tokio::test]
+    async fn daemon_work_item_review_accept_succeeds_when_session_archive_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        let (host, identity, joins) = make_host_and_identity(&dir).await;
+        let item = host
+            .work_item_handle
+            .create(roux_core::WorkItemInput {
+                title: "Review me".into(),
+                status: Some(roux_core::WorkItemStatus::Review),
+                ..Default::default()
+            })
+            .unwrap();
+        let run = host
+            .work_item_handle
+            .create_run(&item.id, Some("sess-1"), Some("claude"), Some("claude"), None, None)
+            .unwrap();
+        host.work_item_handle
+            .set_run_status(
+                &run.id,
+                roux_core::WorkItemRunStatus::Review,
+                serde_json::json!({ "reason": "test" }),
+            )
+            .unwrap();
+        let (closed_session_handle, session_future) =
+            roux_runtime::session_service::service_with_path(
+                Vec::new(),
+                dir.path().join("closed-sessions.json"),
+            );
+        drop(session_future);
+        let mut host_with_closed_sessions = host.clone();
+        host_with_closed_sessions.session_handle = closed_session_handle;
+
+        let resp = tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            handle_request(
+                req("work-item-review-accept", serde_json::json!({ "id": item.id })),
+                &host_with_closed_sessions,
+                &identity,
+            ),
+        )
+        .await
+        .expect("review accept should not wait on best-effort session archival");
+
+        assert!(resp.ok, "review accept should remain successful: {:?}", resp.error);
+        assert_eq!(resp.data.as_ref().unwrap()["item"]["status"], "done");
+        assert_eq!(resp.data.as_ref().unwrap()["run"]["status"], "done");
+        let run = host.work_item_handle.get_run(&run.id).unwrap().unwrap();
+        assert_eq!(run.status, roux_core::WorkItemRunStatus::Done);
+        drop(host_with_closed_sessions);
         shutdown_host(host, joins).await;
     }
 
