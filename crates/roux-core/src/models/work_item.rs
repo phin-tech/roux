@@ -140,6 +140,10 @@ pub struct WorkItem {
     pub external_url: Option<String>,
     pub sort_order: f64,
     pub pinned_pr_url: Option<String>,
+    /// Soft-delete marker for completed or hidden cards. Archived cards remain
+    /// queryable for history and restore flows but are hidden from the board by
+    /// default.
+    pub archived_at: Option<u64>,
     /// Reserved for future cost-capture; never read in v1.
     pub cost: Option<f64>,
     pub created_at: u64,
@@ -495,6 +499,8 @@ where
 pub enum WorkItemEvent {
     Created { item: WorkItem },
     Updated { item: WorkItem },
+    Archived { item: WorkItem },
+    Restored { item: WorkItem },
     Moved { id: String, status: WorkItemStatus, sort_order: f64 },
     Deleted { id: String },
     Imported { ids: Vec<String> },

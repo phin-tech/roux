@@ -4,6 +4,9 @@
     itemsByColumn,
     WORK_ITEM_COLUMNS,
     COLUMN_LABELS,
+    archivedWorkItems,
+    archiveWorkItem,
+    restoreWorkItem,
     moveWorkItem,
     startWorkItem,
     stopWorkItemRun,
@@ -66,8 +69,11 @@
   let acceptingItemIds = $state<Record<string, boolean>>({});
   let requestingChangesItemIds = $state<Record<string, boolean>>({});
   let openingAgentItemIds = $state<Record<string, boolean>>({});
+  let archivingItemIds = $state<Record<string, boolean>>({});
+  let restoringItemIds = $state<Record<string, boolean>>({});
   let startErrors = $state<Record<string, string>>({});
   let planErrors = $state<Record<string, string>>({});
+  let archiveErrors = $state<Record<string, string>>({});
   let deleteTarget = $state<WorkItem | null>(null);
   let deleting = $state(false);
   let deleteError = $state<string | null>(null);
@@ -327,6 +333,36 @@
     if (!nextWorkItemStatuses(payload.fromStatus).includes(col)) return;
     await handleMove(payload.itemId, col);
   }
+
+  async function handleArchive(id: string): Promise<void> {
+    archivingItemIds = { ...archivingItemIds, [id]: true };
+    archiveErrors = withoutKey(archiveErrors, id);
+    try {
+      await archiveWorkItem(id);
+    } catch (err) {
+      archiveErrors = {
+        ...archiveErrors,
+        [id]: err instanceof Error ? err.message : String(err),
+      };
+    } finally {
+      archivingItemIds = withoutKey(archivingItemIds, id);
+    }
+  }
+
+  async function handleRestore(id: string): Promise<void> {
+    restoringItemIds = { ...restoringItemIds, [id]: true };
+    archiveErrors = withoutKey(archiveErrors, id);
+    try {
+      await restoreWorkItem(id);
+    } catch (err) {
+      archiveErrors = {
+        ...archiveErrors,
+        [id]: err instanceof Error ? err.message : String(err),
+      };
+    } finally {
+      restoringItemIds = withoutKey(restoringItemIds, id);
+    }
+  }
 </script>
 
 <div class="flex h-full min-h-0 flex-col bg-bg-deep">
@@ -406,6 +442,7 @@
                 onOpen={handleOpen}
                 onEdit={openWorkItemEditor}
                 onDelete={handleDelete}
+                onArchive={item.status === "done" ? handleArchive : undefined}
                 onAcceptReview={handleAcceptReview}
                 onRequestChanges={handleRequestChanges}
                 onOpenWorktree={handleOpenWorktree}
@@ -415,8 +452,10 @@
                 acceptPending={!!acceptingItemIds[item.id]}
                 requestChangesPending={!!requestingChangesItemIds[item.id]}
                 openAgentPending={!!openingAgentItemIds[item.id]}
+                archivePending={!!archivingItemIds[item.id]}
                 startError={startErrors[item.id] ??
                   planErrors[item.id] ??
+                  archiveErrors[item.id] ??
                   item.startError ??
                   null}
               />
@@ -434,6 +473,50 @@
       </section>
     {/each}
   </div>
+
+  {#if $archivedWorkItems.length > 0}
+    <section
+      class="shrink-0 border-t border-hairline bg-bg-base/35 px-4 py-3"
+      aria-label="Archived cards"
+    >
+      <div class="mb-2 flex items-center gap-2">
+        <h2
+          class="text-[11px] font-semibold uppercase tracking-wide text-text-muted"
+        >
+          Archived
+        </h2>
+        <span
+          class="rounded-full bg-surface-2 px-1.5 py-0.5 text-[9px] font-medium text-text-muted"
+        >
+          {$archivedWorkItems.length}
+        </span>
+      </div>
+      <div class="flex gap-2 overflow-x-auto pb-1">
+        {#each $archivedWorkItems as item (item.id)}
+          <div
+            class="flex min-w-56 max-w-72 items-center gap-2 rounded-md border border-border-subtle bg-bg-surface/70 px-3 py-2"
+          >
+            <button
+              type="button"
+              class="min-w-0 flex-1 truncate text-left text-[12px] font-medium text-text-secondary hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
+              onclick={() => openWorkItemEditor(item.id)}
+            >
+              {item.title}
+            </button>
+            <button
+              type="button"
+              class="shrink-0 rounded border border-border-subtle px-2 py-1 text-[11px] font-medium text-text-muted transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 disabled:cursor-wait disabled:opacity-60"
+              onclick={() => void handleRestore(item.id)}
+              disabled={!!restoringItemIds[item.id]}
+              aria-label={`Restore ${item.title}`}
+            >
+              {restoringItemIds[item.id] ? "Restoring..." : "Restore"}
+            </button>
+          </div>
+        {/each}
+      </div>
+    </section>
+  {/if}
 </div>
 
 <WorkItemDeleteDialog

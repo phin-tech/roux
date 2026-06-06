@@ -16,6 +16,8 @@ import {
   workItemUpdate as tauriWorkItemUpdate,
   workItemMove as tauriWorkItemMove,
   workItemDelete as tauriWorkItemDelete,
+  workItemArchive as tauriWorkItemArchive,
+  workItemRestore as tauriWorkItemRestore,
   workItemStart as tauriWorkItemStart,
   workItemPlan as tauriWorkItemPlan,
   workItemReviewAccept as tauriWorkItemReviewAccept,
@@ -29,6 +31,7 @@ import {
   documentList as tauriDocumentList,
   documentGet as tauriDocumentGet,
 } from "$lib/tauri";
+import { splitArchivedWorkItems } from "$lib/workItems/archive";
 
 export {
   type WorkItem,
@@ -73,7 +76,15 @@ const TERMINAL_RUN_STATUSES = new Set<WorkItemRun["status"]>([
   "done",
 ]);
 
-export const itemsByColumn = derived(workItems, ($items) => {
+export const activeWorkItems = derived(workItems, ($items) => {
+  return splitArchivedWorkItems($items).active;
+});
+
+export const archivedWorkItems = derived(workItems, ($items) => {
+  return splitArchivedWorkItems($items).archived;
+});
+
+export const itemsByColumn = derived(activeWorkItems, ($items) => {
   const map = new Map<WorkItemStatus, WorkItem[]>();
   for (const col of WORK_ITEM_COLUMNS) map.set(col, []);
   for (const item of $items) {
@@ -173,7 +184,7 @@ function upsertItem(item: WorkItem): void {
 export async function hydrateWorkItems(): Promise<void> {
   try {
     const [items, runs, decisions, attachments] = await Promise.all([
-      tauriWorkItemList(null),
+      tauriWorkItemList(null, true),
       tauriWorkItemRunsList(null),
       tauriWorkItemDecisionsList(null),
       tauriDocumentList("workItem", null),
@@ -210,6 +221,12 @@ export function applyWorkItemEvent(event: WorkItemEvent): void {
       workItems.update((list) =>
         list.map((i) => (i.id === event.item.id ? event.item : i)),
       );
+      break;
+    case "archived":
+      upsertItem(event.item);
+      break;
+    case "restored":
+      upsertItem(event.item);
       break;
     case "moved":
       workItems.update((list) =>
@@ -346,6 +363,18 @@ export async function moveWorkItem(
 
 export async function deleteWorkItem(id: string): Promise<void> {
   await tauriWorkItemDelete(id);
+}
+
+export async function archiveWorkItem(id: string): Promise<WorkItem> {
+  const item = await tauriWorkItemArchive(id);
+  upsertItem(item);
+  return item;
+}
+
+export async function restoreWorkItem(id: string): Promise<WorkItem> {
+  const item = await tauriWorkItemRestore(id);
+  upsertItem(item);
+  return item;
 }
 
 /**

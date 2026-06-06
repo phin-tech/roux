@@ -94,6 +94,18 @@ impl WorkItemHandle {
         self.inner.lock().unwrap().list(project_id).map_err(|e| format!("work-item list: {e}"))
     }
 
+    pub fn list_with_archived(
+        &self,
+        project_id: Option<&str>,
+        include_archived: bool,
+    ) -> Result<Vec<WorkItem>, String> {
+        self.inner
+            .lock()
+            .unwrap()
+            .list_with_archived(project_id, include_archived)
+            .map_err(|e| format!("work-item list: {e}"))
+    }
+
     pub fn get(&self, id: &str) -> Result<Option<WorkItem>, String> {
         self.inner.lock().unwrap().get(id).map_err(|e| format!("work-item get: {e}"))
     }
@@ -151,6 +163,34 @@ impl WorkItemHandle {
             self.broadcast(WorkItemEvent::Deleted { id: id.to_string() });
         }
         Ok(deleted)
+    }
+
+    pub fn archive(&self, id: &str) -> Result<Option<WorkItem>, String> {
+        let now = now_secs();
+        let item = self
+            .inner
+            .lock()
+            .unwrap()
+            .archive(id, now)
+            .map_err(|e| format!("work-item archive: {e}"))?;
+        if let Some(ref item) = item {
+            self.broadcast(WorkItemEvent::Archived { item: item.clone() });
+        }
+        Ok(item)
+    }
+
+    pub fn restore(&self, id: &str) -> Result<Option<WorkItem>, String> {
+        let now = now_secs();
+        let item = self
+            .inner
+            .lock()
+            .unwrap()
+            .restore(id, now)
+            .map_err(|e| format!("work-item restore: {e}"))?;
+        if let Some(ref item) = item {
+            self.broadcast(WorkItemEvent::Restored { item: item.clone() });
+        }
+        Ok(item)
     }
 
     pub fn create_attachment(&self, input: AttachmentInput) -> Result<Attachment, String> {

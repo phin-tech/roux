@@ -12,6 +12,12 @@ repos:
         files: \.(ts|js|mjs|cjs|svelte|css|json|jsonc|yaml|yml|md|html)$
         exclude: ^(package-lock\.json|Cargo\.lock|src/lib/bindings\.ts)$
 
+      - id: prettier-check
+        name: prettier check
+        entry: npm run format:check --
+        language: system
+        pass_filenames: false
+
       - id: cargo-fmt
         name: cargo fmt
         entry: cargo fmt --all --manifest-path src-tauri/Cargo.toml --

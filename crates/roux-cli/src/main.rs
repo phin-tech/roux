@@ -421,6 +421,9 @@ enum WorkItemAction {
         /// Filter to one project id
         #[arg(short, long)]
         project: Option<String>,
+        /// Include archived cards
+        #[arg(long)]
+        include_archived: bool,
     },
     /// Create a work item card
     Create(WorkItemCreateArgs),
@@ -438,6 +441,16 @@ enum WorkItemAction {
     },
     /// Delete a work item card
     Delete {
+        /// Work item id
+        id: String,
+    },
+    /// Archive a work item card
+    Archive {
+        /// Work item id
+        id: String,
+    },
+    /// Restore an archived work item card
+    Restore {
         /// Work item id
         id: String,
     },
@@ -1971,9 +1984,12 @@ fn handle_document(action: DocumentAction) {
 
 fn handle_work_item(action: WorkItemAction) {
     match action {
-        WorkItemAction::List { project } => {
+        WorkItemAction::List { project, include_archived } => {
             let mut args = serde_json::Map::new();
             insert_optional_string(&mut args, "projectId", project);
+            if include_archived {
+                args.insert("includeArchived".into(), Value::Bool(true));
+            }
             run_socket_command(serde_json::json!({
                 "command": "work-item-list",
                 "args": Value::Object(args),
@@ -1998,6 +2014,18 @@ fn handle_work_item(action: WorkItemAction) {
         WorkItemAction::Delete { id } => {
             run_socket_command(serde_json::json!({
                 "command": "work-item-delete",
+                "args": { "id": id },
+            }));
+        }
+        WorkItemAction::Archive { id } => {
+            run_socket_command(serde_json::json!({
+                "command": "work-item-archive",
+                "args": { "id": id },
+            }));
+        }
+        WorkItemAction::Restore { id } => {
+            run_socket_command(serde_json::json!({
+                "command": "work-item-restore",
                 "args": { "id": id },
             }));
         }

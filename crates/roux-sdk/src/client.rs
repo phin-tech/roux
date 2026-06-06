@@ -793,12 +793,17 @@ impl Roux {
     pub async fn work_item_list(
         &self,
         project_id: Option<impl Into<String>>,
+        include_archived: bool,
     ) -> RouxResult<Vec<roux_core::WorkItem>> {
-        let args = match project_id {
-            Some(pid) => serde_json::json!({ "projectId": pid.into() }),
-            None => serde_json::json!({}),
-        };
-        self.command(CommandRequest::new("work-item-list").args(args)).await
+        let mut args = serde_json::Map::new();
+        if let Some(pid) = project_id {
+            args.insert("projectId".to_string(), serde_json::Value::String(pid.into()));
+        }
+        if include_archived {
+            args.insert("includeArchived".to_string(), serde_json::Value::Bool(true));
+        }
+        self.command(CommandRequest::new("work-item-list").args(serde_json::Value::Object(args)))
+            .await
     }
 
     pub async fn work_item_create(
@@ -844,6 +849,20 @@ impl Roux {
             .and_then(|v| v.as_str())
             .map(str::to_string)
             .ok_or_else(|| RouxError::Command("missing id in delete response".to_string()))
+    }
+
+    pub async fn work_item_archive(
+        &self,
+        id: impl Into<String>,
+    ) -> RouxResult<roux_core::WorkItem> {
+        self.command(CommandRequest::new("work-item-archive").args(id_arg(id.into()))).await
+    }
+
+    pub async fn work_item_restore(
+        &self,
+        id: impl Into<String>,
+    ) -> RouxResult<roux_core::WorkItem> {
+        self.command(CommandRequest::new("work-item-restore").args(id_arg(id.into()))).await
     }
 
     pub async fn work_item_attach_session(

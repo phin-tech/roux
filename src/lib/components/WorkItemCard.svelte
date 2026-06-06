@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Archive from "@lucide/svelte/icons/archive";
   import Bot from "@lucide/svelte/icons/bot";
   import Check from "@lucide/svelte/icons/check";
   import ClipboardList from "@lucide/svelte/icons/clipboard-list";
@@ -30,6 +31,8 @@
     onEdit?: (id: string) => void;
     /** Delete the card (by work item id). */
     onDelete?: (id: string, item: WorkItem) => void;
+    /** Archive the card (by work item id). */
+    onArchive?: (id: string, item: WorkItem) => void;
     /** Accept a review-requested implementation run. */
     onAcceptReview?: (id: string, item: WorkItem) => void;
     /** Attach review feedback and move the card back to active work. */
@@ -50,6 +53,7 @@
     acceptPending?: boolean;
     requestChangesPending?: boolean;
     openAgentPending?: boolean;
+    archivePending?: boolean;
     startError?: string | null;
     /** Derived run/column phase: drives the action affordance + blocked state. */
     phase: WorkItemPhase;
@@ -67,6 +71,7 @@
     onOpen,
     onEdit,
     onDelete,
+    onArchive,
     onAcceptReview,
     onRequestChanges,
     onOpenWorktree,
@@ -76,6 +81,7 @@
     acceptPending = false,
     requestChangesPending = false,
     openAgentPending = false,
+    archivePending = false,
     startError = null,
     phase,
     reviewPackage = null,
@@ -141,7 +147,7 @@
   const branchLabel = $derived(item.branch ?? null);
   const canForceStartPlanning = $derived(phase.canForceStart && !!onStart);
   const hasMenuActions = $derived(
-    !!onEdit || !!onPlan || !!onDelete || canForceStartPlanning,
+    !!onEdit || !!onPlan || !!onDelete || !!onArchive || canForceStartPlanning,
   );
   const reviewSessionId = $derived(reviewPackage?.sessionId ?? null);
   const canOpenReviewWorktree = $derived(
@@ -261,6 +267,11 @@
   function handleDelete(): void {
     menuOpen = false;
     onDelete?.(item.id, item);
+  }
+
+  function handleArchive(): void {
+    menuOpen = false;
+    onArchive?.(item.id, item);
   }
 
   function handleAcceptReview(): void {
@@ -772,6 +783,18 @@
       >
         <Play size={13} fill="currentColor" strokeWidth={2.1} />
         <span>{startPending ? "Starting..." : "Approve & start anyway"}</span>
+      </button>
+    {/if}
+    {#if onArchive}
+      <button
+        type="button"
+        role="menuitem"
+        class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50 disabled:cursor-wait disabled:opacity-60"
+        onclick={handleArchive}
+        disabled={archivePending}
+      >
+        <Archive size={13} strokeWidth={2.1} />
+        <span>{archivePending ? "Archiving..." : "Archive card"}</span>
       </button>
     {/if}
     {#if onDelete}

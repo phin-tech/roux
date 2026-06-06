@@ -20,12 +20,22 @@ use roux_core::{
     WorkItemRunStatus, WorkItemStatus,
 };
 
-pub const WORK_ITEM_SCHEMA_VERSION: i64 = 7;
+pub const WORK_ITEM_SCHEMA_VERSION: i64 = 8;
 
 type ReviewRequestStoreResult =
     Option<(WorkItem, WorkItemRun, WorkItemRunEvent, Option<WorkItemRunEvent>)>;
 type ReviewRequestChangesStoreResult =
     Option<(WorkItem, WorkItemRun, WorkItemRunEvent, Option<Attachment>)>;
+
+#[derive(Debug, thiserror::Error)]
+pub enum WorkItemStoreError {
+    #[error("{0}")]
+    Validation(String),
+    #[error(transparent)]
+    Sql(#[from] rusqlite::Error),
+}
+
+type StoreResult<T> = Result<T, WorkItemStoreError>;
 
 pub struct WorkItemStore {
     conn: Connection,
@@ -90,6 +100,7 @@ impl WorkItemStore {
                     external_url TEXT,
                     sort_order  REAL NOT NULL DEFAULT 0,
                     pinned_pr_url TEXT,
+                    archived_at INTEGER,
                     cost        REAL,
                     created_at  INTEGER NOT NULL,
                     updated_at  INTEGER NOT NULL
@@ -220,6 +231,11 @@ impl WorkItemStore {
             conn.execute_batch("PRAGMA user_version = 7;")?;
             version = 7;
         }
+        if version < 8 {
+            add_column_if_missing(&conn, "work_items", "archived_at", "INTEGER")?;
+            conn.execute_batch("PRAGMA user_version = 8;")?;
+            version = 8;
+        }
         debug_assert!(version >= WORK_ITEM_SCHEMA_VERSION);
         Ok(WorkItemStore { conn })
     }
@@ -229,22 +245,48 @@ impl WorkItemStore {
     }
 
     pub fn list(&self, project_id: Option<&str>) -> SqlResult<Vec<WorkItem>> {
-        let sql = if project_id.is_some() {
+        self.list_with_archived(project_id, false)
+    }
+
+    pub fn list_with_archived(
+        &self,
+        project_id: Option<&str>,
+        include_archived: bool,
+    ) -> SqlResult<Vec<WorkItem>> {
+        let sql = if project_id.is_some() && include_archived {
             "SELECT id, project_id, parent_id, title, body, status, repo_path,
                     agent_profile, base_branch, worktree_path, branch, fetch_first,
                     start_error, session_id,
                     provider, external_id, external_url, sort_order, pinned_pr_url,
-                    cost, created_at, updated_at
+                    archived_at, cost, created_at, updated_at
              FROM work_items
              WHERE project_id = ?1
+             ORDER BY sort_order, created_at"
+        } else if project_id.is_some() {
+            "SELECT id, project_id, parent_id, title, body, status, repo_path,
+                    agent_profile, base_branch, worktree_path, branch, fetch_first,
+                    start_error, session_id,
+                    provider, external_id, external_url, sort_order, pinned_pr_url,
+                    archived_at, cost, created_at, updated_at
+             FROM work_items
+             WHERE project_id = ?1 AND archived_at IS NULL
+             ORDER BY sort_order, created_at"
+        } else if include_archived {
+            "SELECT id, project_id, parent_id, title, body, status, repo_path,
+                    agent_profile, base_branch, worktree_path, branch, fetch_first,
+                    start_error, session_id,
+                    provider, external_id, external_url, sort_order, pinned_pr_url,
+                    archived_at, cost, created_at, updated_at
+             FROM work_items
              ORDER BY sort_order, created_at"
         } else {
             "SELECT id, project_id, parent_id, title, body, status, repo_path,
                     agent_profile, base_branch, worktree_path, branch, fetch_first,
                     start_error, session_id,
                     provider, external_id, external_url, sort_order, pinned_pr_url,
-                    cost, created_at, updated_at
+                    archived_at, cost, created_at, updated_at
              FROM work_items
+             WHERE archived_at IS NULL
              ORDER BY sort_order, created_at"
         };
 
@@ -265,7 +307,7 @@ impl WorkItemStore {
                         agent_profile, base_branch, worktree_path, branch, fetch_first,
                         start_error, session_id,
                         provider, external_id, external_url, sort_order, pinned_pr_url,
-                        cost, created_at, updated_at
+                        archived_at, cost, created_at, updated_at
                  FROM work_items WHERE id = ?1",
                 params![id],
                 row_to_work_item,
@@ -620,9 +662,9 @@ impl WorkItemStore {
         base_branch: Option<&str>,
         sort_order: f64,
         now: u64,
-    ) -> SqlResult<Option<WorkItem>> {
+    ) -> StoreResult<Option<WorkItem>> {
         self.ensure_session_unbound_or_self(id, session_id)?;
-        self.conn.execute(
+        let changed = self.conn.execute(
             "UPDATE work_items SET
                 session_id = ?2,
                 status = ?3,
@@ -633,7 +675,8 @@ impl WorkItemStore {
                 base_branch = COALESCE(?8, base_branch),
                 start_error = NULL,
                 updated_at = ?9
-             WHERE id = ?1",
+             WHERE id = ?1
+               AND archived_at IS NULL",
             params![
                 id,
                 session_id,
@@ -646,7 +689,10 @@ impl WorkItemStore {
                 now as i64,
             ],
         )?;
-        self.get(id)
+        if changed == 0 {
+            return Ok(None);
+        }
+        Ok(self.get(id)?)
     }
 
     /// Bind a session only if the item still exists and is unbound. Returns
@@ -781,6 +827,38 @@ impl WorkItemStore {
         )
     }
 
+    pub fn archive(&mut self, id: &str, now: u64) -> StoreResult<Option<WorkItem>> {
+        if self.has_active_run(id)? {
+            return Err(validation_error("active work item run"));
+        }
+        let changed = self.conn.execute(
+            "UPDATE work_items
+             SET archived_at = ?2,
+                 session_id = NULL,
+                 updated_at = ?2
+             WHERE id = ?1
+               AND archived_at IS NULL",
+            params![id, now as i64],
+        )?;
+        if changed == 0 {
+            return Ok(self.get(id)?);
+        }
+        Ok(self.get(id)?)
+    }
+
+    pub fn restore(&mut self, id: &str, now: u64) -> SqlResult<Option<WorkItem>> {
+        let changed = self.conn.execute(
+            "UPDATE work_items
+             SET archived_at = NULL, updated_at = ?2
+             WHERE id = ?1",
+            params![id, now as i64],
+        )?;
+        if changed == 0 {
+            return Ok(None);
+        }
+        self.get(id)
+    }
+
     /// Upsert by `(provider, external_id)`: insert if no match, otherwise
     /// update `title`, `body`, `status`, and `updated_at`.
     pub fn upsert_by_external(
@@ -833,7 +911,7 @@ impl WorkItemStore {
         worktree_path: Option<&str>,
         branch: Option<&str>,
         now: u64,
-    ) -> SqlResult<WorkItemRun> {
+    ) -> StoreResult<WorkItemRun> {
         self.create_run_with_status(
             id,
             work_item_id,
@@ -859,7 +937,7 @@ impl WorkItemStore {
         branch: Option<&str>,
         status: WorkItemRunStatus,
         now: u64,
-    ) -> SqlResult<WorkItemRun> {
+    ) -> StoreResult<WorkItemRun> {
         self.create_run_with_kind_status(
             id,
             work_item_id,
@@ -887,10 +965,20 @@ impl WorkItemStore {
         branch: Option<&str>,
         status: WorkItemRunStatus,
         now: u64,
-    ) -> SqlResult<WorkItemRun> {
+    ) -> StoreResult<WorkItemRun> {
         let is_terminal = is_terminal_work_item_run_status(&status);
         let started_at = (status == WorkItemRunStatus::Running).then_some(now as i64);
         let tx = self.conn.transaction()?;
+        let archived_at = tx
+            .query_row(
+                "SELECT archived_at FROM work_items WHERE id = ?1",
+                params![work_item_id],
+                |row| row.get::<_, Option<i64>>(0),
+            )
+            .optional()?;
+        if archived_at.flatten().is_some() {
+            return Err(validation_error("archived work item cannot create runs"));
+        }
         if !is_terminal {
             let active: bool = tx.query_row(
                 "SELECT EXISTS(
@@ -915,11 +1003,7 @@ impl WorkItemStore {
                 |row| row.get(0),
             )?;
             if active {
-                tx.rollback()?;
-                return Err(rusqlite::Error::SqliteFailure(
-                    rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CONSTRAINT),
-                    Some("active work item run already exists".into()),
-                ));
+                return Err(validation_error("active work item run already exists"));
             }
         }
         tx.execute(
@@ -943,7 +1027,8 @@ impl WorkItemStore {
             ],
         )?;
         tx.commit()?;
-        self.get_run(&id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)
+        let run = self.get_run(&id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+        Ok(run)
     }
 
     pub fn get_run(&self, id: &str) -> SqlResult<Option<WorkItemRun>> {
@@ -1691,9 +1776,10 @@ fn row_to_work_item(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkItem> {
         external_url: row.get(16)?,
         sort_order: row.get(17)?,
         pinned_pr_url: row.get(18)?,
-        cost: row.get(19)?,
-        created_at: row.get::<_, i64>(20)? as u64,
-        updated_at: row.get::<_, i64>(21)? as u64,
+        archived_at: row.get::<_, Option<i64>>(19)?.map(|value| value as u64),
+        cost: row.get(20)?,
+        created_at: row.get::<_, i64>(21)? as u64,
+        updated_at: row.get::<_, i64>(22)? as u64,
     })
 }
 
@@ -1845,6 +1931,10 @@ fn add_column_if_missing(
     Ok(())
 }
 
+fn validation_error(message: impl Into<String>) -> WorkItemStoreError {
+    WorkItemStoreError::Validation(message.into())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1868,9 +1958,9 @@ mod tests {
 
     #[test]
     fn pending_migrations_are_versions_after_current() {
-        assert_eq!(roux_core::pending_work_item_migrations(4, 7), vec![5, 6, 7]);
-        assert!(roux_core::pending_work_item_migrations(7, 7).is_empty());
-        assert!(roux_core::pending_work_item_migrations(8, 7).is_empty());
+        assert_eq!(roux_core::pending_work_item_migrations(4, 8), vec![5, 6, 7, 8]);
+        assert!(roux_core::pending_work_item_migrations(8, 8).is_empty());
+        assert!(roux_core::pending_work_item_migrations(9, 8).is_empty());
     }
 
     #[test]
@@ -1878,7 +1968,7 @@ mod tests {
         let store = WorkItemStore::open_in_memory().unwrap();
         let version: i64 =
             store.conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
-        assert_eq!(version, 7);
+        assert_eq!(version, 8);
     }
 
     #[test]
@@ -1889,10 +1979,11 @@ mod tests {
             let store = WorkItemStore::open(&path).unwrap();
             let version: i64 =
                 store.conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
-            assert_eq!(version, 7);
+            assert_eq!(version, 8);
             assert!(table_has_column(&store.conn, "work_items", "repo_path").unwrap());
             assert!(table_has_column(&store.conn, "work_items", "branch").unwrap());
             assert!(table_has_column(&store.conn, "work_items", "fetch_first").unwrap());
+            assert!(table_has_column(&store.conn, "work_items", "archived_at").unwrap());
             assert!(table_has_column(&store.conn, "work_item_runs", "kind").unwrap());
             assert!(table_has_column(&store.conn, "work_item_runs", "pty_id").unwrap());
         }
@@ -1900,12 +1991,103 @@ mod tests {
         let store = WorkItemStore::open(&path).unwrap();
         let version: i64 =
             store.conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
-        assert_eq!(version, 7);
+        assert_eq!(version, 8);
         assert!(table_has_column(&store.conn, "work_items", "repo_path").unwrap());
         assert!(table_has_column(&store.conn, "work_items", "branch").unwrap());
         assert!(table_has_column(&store.conn, "work_items", "fetch_first").unwrap());
+        assert!(table_has_column(&store.conn, "work_items", "archived_at").unwrap());
         assert!(table_has_column(&store.conn, "work_item_runs", "kind").unwrap());
         assert!(table_has_column(&store.conn, "work_item_runs", "pty_id").unwrap());
+    }
+
+    #[test]
+    fn archive_hides_item_from_default_list_and_restore_reveals_it() {
+        let mut store = WorkItemStore::open_in_memory().unwrap();
+        store.create("i-1".into(), input("Archive me"), 1000).unwrap();
+        store.create("i-2".into(), input("Keep me"), 1001).unwrap();
+
+        let archived = store.archive("i-1", 1100).unwrap().unwrap();
+        assert_eq!(archived.archived_at, Some(1100));
+
+        let active_ids: Vec<_> = store.list(None).unwrap().into_iter().map(|i| i.id).collect();
+        assert_eq!(active_ids, vec!["i-2"]);
+
+        let all_ids: Vec<_> =
+            store.list_with_archived(None, true).unwrap().into_iter().map(|i| i.id).collect();
+        assert_eq!(all_ids, vec!["i-1", "i-2"]);
+
+        let restored = store.restore("i-1", 1200).unwrap().unwrap();
+        assert_eq!(restored.archived_at, None);
+
+        let active_ids: Vec<_> = store.list(None).unwrap().into_iter().map(|i| i.id).collect();
+        assert_eq!(active_ids, vec!["i-1", "i-2"]);
+    }
+
+    #[test]
+    fn archive_rejects_items_with_active_runs() {
+        let mut store = WorkItemStore::open_in_memory().unwrap();
+        store.create("i-1".into(), input("Running"), 1000).unwrap();
+        store
+            .create_run("run-1".into(), "i-1", Some("sess-1"), None, None, None, None, 1100)
+            .unwrap();
+
+        let err = store.archive("i-1", 1200).unwrap_err();
+        assert!(err.to_string().contains("active work item run"));
+
+        let item = store.get("i-1").unwrap().unwrap();
+        assert_eq!(item.archived_at, None);
+    }
+
+    #[test]
+    fn archive_clears_linked_session() {
+        let mut store = WorkItemStore::open_in_memory().unwrap();
+        store.create("i-1".into(), input("Bound"), 1000).unwrap();
+        store.set_session("i-1", "sess-1", 1100).unwrap();
+
+        let archived = store.archive("i-1", 1200).unwrap().unwrap();
+
+        assert_eq!(archived.archived_at, Some(1200));
+        assert_eq!(archived.session_id, None);
+    }
+
+    #[test]
+    fn archive_is_idempotent_without_changing_archived_at() {
+        let mut store = WorkItemStore::open_in_memory().unwrap();
+        store.create("i-1".into(), input("Archive once"), 1000).unwrap();
+        store.archive("i-1", 1100).unwrap();
+
+        let archived = store.archive("i-1", 1200).unwrap().unwrap();
+
+        assert_eq!(archived.archived_at, Some(1100));
+    }
+
+    #[test]
+    fn create_run_rejects_archived_items() {
+        let mut store = WorkItemStore::open_in_memory().unwrap();
+        store.create("i-1".into(), input("Archived"), 1000).unwrap();
+        store.archive("i-1", 1100).unwrap();
+
+        let err = store
+            .create_run("run-1".into(), "i-1", Some("sess-1"), None, None, None, None, 1200)
+            .unwrap_err();
+
+        assert!(err.to_string().contains("archived work item"));
+        assert!(store.list_runs(Some("i-1")).unwrap().is_empty());
+    }
+
+    #[test]
+    fn complete_start_ignores_archived_items() {
+        let mut store = WorkItemStore::open_in_memory().unwrap();
+        store.create("i-1".into(), input("Archived"), 1000).unwrap();
+        store.archive("i-1", 1100).unwrap();
+
+        let item =
+            store.complete_start("i-1", "sess-1", None, None, None, None, 0.0, 1200).unwrap();
+
+        assert!(item.is_none());
+        let archived = store.get("i-1").unwrap().unwrap();
+        assert_eq!(archived.session_id, None);
+        assert_eq!(archived.status, WorkItemStatus::Todo);
     }
 
     #[test]
@@ -1980,7 +2162,7 @@ mod tests {
         let store = WorkItemStore::open(&path).unwrap();
         let version: i64 =
             store.conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
-        assert_eq!(version, 7);
+        assert_eq!(version, 8);
         for column in [
             "repo_path",
             "agent_profile",
@@ -1994,6 +2176,7 @@ mod tests {
         }
         assert!(table_has_column(&store.conn, "work_item_runs", "kind").unwrap());
         assert!(table_has_column(&store.conn, "work_item_runs", "pty_id").unwrap());
+        assert!(table_has_column(&store.conn, "work_items", "archived_at").unwrap());
         let item = store.get("missing").unwrap();
         assert!(item.is_none());
     }

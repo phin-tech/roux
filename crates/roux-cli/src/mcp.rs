@@ -167,6 +167,8 @@ pub struct NotesAppendParams {
 #[serde(rename_all = "camelCase")]
 pub struct WorkItemListParams {
     pub project_id: Option<String>,
+    #[serde(default)]
+    pub include_archived: bool,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -707,7 +709,9 @@ impl RouxMcpServer {
         call_socket(json!({ "command": "notes-vault-root", "args": {} })).await
     }
 
-    #[tool(description = "List Kanban board work items. Pass projectId to filter to one project.")]
+    #[tool(
+        description = "List Kanban board work items. Pass projectId to filter to one project. Pass includeArchived to include archived cards."
+    )]
     async fn roux_list_work_items(
         &self,
         Parameters(params): Parameters<WorkItemListParams>,
@@ -754,6 +758,32 @@ impl RouxMcpServer {
     ) -> Result<CallToolResult, ErrorData> {
         call_socket(json!({
             "command": "work-item-delete",
+            "args": { "id": params.id },
+        }))
+        .await
+    }
+
+    #[tool(
+        description = "Archive a Kanban board work item by id. The daemon rejects cards with active runs."
+    )]
+    async fn roux_archive_work_item(
+        &self,
+        Parameters(params): Parameters<WorkItemIdParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        call_socket(json!({
+            "command": "work-item-archive",
+            "args": { "id": params.id },
+        }))
+        .await
+    }
+
+    #[tool(description = "Restore an archived Kanban board work item by id.")]
+    async fn roux_restore_work_item(
+        &self,
+        Parameters(params): Parameters<WorkItemIdParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        call_socket(json!({
+            "command": "work-item-restore",
             "args": { "id": params.id },
         }))
         .await
@@ -1908,6 +1938,9 @@ fn insert_optional_f64(args: &mut serde_json::Map<String, Value>, key: &str, val
 fn build_work_item_list_request(params: WorkItemListParams) -> Value {
     let mut args = serde_json::Map::new();
     insert_optional_string(&mut args, "projectId", params.project_id);
+    if params.include_archived {
+        args.insert("includeArchived".into(), Value::Bool(true));
+    }
     json!({
         "command": "work-item-list",
         "args": Value::Object(args),

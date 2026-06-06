@@ -42,7 +42,9 @@ fn default_work_item_sort_order() -> f64 {
 
 pub(super) async fn handle_work_item_list(req: Request, host: &RuntimeHost) -> Response {
     let project_id = optional_string_arg(&req.args, &["projectId", "project_id"]);
-    match host.work_item_handle.list(project_id.as_deref()) {
+    let include_archived =
+        bool_arg(&req.args, &["includeArchived", "include_archived"]).unwrap_or(false);
+    match host.work_item_handle.list_with_archived(project_id.as_deref(), include_archived) {
         Ok(items) => match serde_json::to_value(&items) {
             Ok(value) => Response::success(value),
             Err(err) => Response::err(format!("failed to serialize work items: {err}")),
@@ -150,6 +152,13 @@ fn has_arg(args: &serde_json::Value, names: &[&str]) -> bool {
     names.iter().any(|name| args.get(*name).is_some())
 }
 
+fn reject_archived_work_item(item: &roux_core::WorkItem) -> Result<(), Response> {
+    if item.archived_at.is_some() {
+        return Err(Response::err("archived work item must be restored before starting work"));
+    }
+    Ok(())
+}
+
 pub(super) async fn handle_work_item_move(req: Request, host: &RuntimeHost) -> Response {
     let Some(id) = optional_string_arg(&req.args, &["id"]) else {
         return Response::err("id required");
@@ -185,6 +194,65 @@ pub(super) async fn handle_work_item_delete(req: Request, host: &RuntimeHost) ->
         Ok(false) => Response::err("work item not found"),
         Err(err) => Response::err(err),
     }
+}
+
+pub(super) async fn handle_work_item_archive(req: Request, host: &RuntimeHost) -> Response {
+    let Some(id) = optional_string_arg(&req.args, &["id"]) else {
+        return Response::err("id required");
+    };
+    let item = match host.work_item_handle.get(&id) {
+        Ok(Some(item)) => item,
+        Ok(None) => return Response::err("work item not found"),
+        Err(err) => return Response::err(err),
+    };
+    match host.work_item_handle.has_active_run(&id) {
+        Ok(true) => return Response::err("active work item run"),
+        Ok(false) => {}
+        Err(err) => return Response::err(err),
+    }
+    if let Err(response) = archive_linked_work_item_session(host, &item).await {
+        return response;
+    }
+    match host.work_item_handle.archive(&id) {
+        Ok(Some(item)) => match serde_json::to_value(&item) {
+            Ok(value) => Response::success(value),
+            Err(err) => Response::err(format!("failed to serialize work item: {err}")),
+        },
+        Ok(None) => Response::err("work item not found"),
+        Err(err) => Response::err(err),
+    }
+}
+
+pub(super) async fn handle_work_item_restore(req: Request, host: &RuntimeHost) -> Response {
+    let Some(id) = optional_string_arg(&req.args, &["id"]) else {
+        return Response::err("id required");
+    };
+    match host.work_item_handle.restore(&id) {
+        Ok(Some(item)) => match serde_json::to_value(&item) {
+            Ok(value) => Response::success(value),
+            Err(err) => Response::err(format!("failed to serialize work item: {err}")),
+        },
+        Ok(None) => Response::err("work item not found"),
+        Err(err) => Response::err(err),
+    }
+}
+
+async fn archive_linked_work_item_session(
+    host: &RuntimeHost,
+    item: &roux_core::WorkItem,
+) -> Result<(), Response> {
+    archive_linked_session(host, item.session_id.as_deref()).await
+}
+
+async fn archive_linked_session(
+    host: &RuntimeHost,
+    session_id: Option<&str>,
+) -> Result<(), Response> {
+    let Some(session_id) = session_id else {
+        return Ok(());
+    };
+    kill_session_ptys(host, session_id).await;
+    host.session_handle.archive(session_id).await.map_err(|err| Response::err(err.to_string()))
 }
 
 pub(super) async fn handle_work_item_attach_session(req: Request, host: &RuntimeHost) -> Response {
@@ -435,6 +503,12 @@ pub(super) async fn handle_work_item_review_accept(req: Request, host: &RuntimeH
     });
     match host.work_item_handle.accept_review(&item_id, payload) {
         Ok(Some((item, run))) => {
+            if let Err(response) = archive_linked_session(host, run.session_id.as_deref()).await {
+                eprintln!(
+                    "[roux-daemon] warning: review accepted but linked session archival failed: {}",
+                    response.error.unwrap_or_else(|| "unknown error".to_string())
+                );
+            }
             match serde_json::to_value(roux_core::WorkItemReviewAcceptResult { item, run }) {
                 Ok(value) => Response::success(value),
                 Err(err) => {
@@ -715,6 +789,7 @@ async fn plan_work_item_run_with_hooks(
         Ok(None) => return Err(Response::err("work item not found")),
         Err(err) => return Err(Response::err(err)),
     };
+    reject_archived_work_item(&item)?;
     let replace_active = bool_arg(&req.args, &["replaceActive", "replace_active"]).unwrap_or(false);
 
     if let Some(run) = active_work_item_run(host, &item_id)? {
@@ -1042,6 +1117,7 @@ async fn start_work_item_run_with_hooks(
         Ok(None) => return Err(Response::err("work item not found")),
         Err(err) => return Err(Response::err(err)),
     };
+    reject_archived_work_item(&item)?;
     let force_start = bool_arg(&req.args, &["forceStart", "force_start"]).unwrap_or(false);
 
     if item.session_id.is_none() {
@@ -2040,15 +2116,23 @@ fn record_work_item_run_pty_exit(
                 "generation": generation,
                 "reviewRequested": review_requested,
             });
-            if host.work_item_handle.set_run_status(run_id, status, payload).is_ok()
-                && review_requested
+            if let Ok(Some(updated_run)) =
+                host.work_item_handle.set_run_status(run_id, status.clone(), payload)
             {
-                if let Ok(Some(item)) = host.work_item_handle.get(&run.work_item_id) {
-                    let _ = host.work_item_handle.move_item(
-                        &run.work_item_id,
-                        roux_core::WorkItemStatus::Review,
-                        item.sort_order,
-                    );
+                if review_requested {
+                    if let Ok(Some(item)) = host.work_item_handle.get(&run.work_item_id) {
+                        let _ = host.work_item_handle.move_item(
+                            &run.work_item_id,
+                            roux_core::WorkItemStatus::Review,
+                            item.sort_order,
+                        );
+                    }
+                } else if status == roux_core::WorkItemRunStatus::Done {
+                    let cleanup_host = host.clone();
+                    tokio::spawn(async move {
+                        let _ = cleanup_stopped_work_item_run_session(&cleanup_host, &updated_run)
+                            .await;
+                    });
                 }
             }
         }
@@ -3489,6 +3573,18 @@ mod tests {
         panic!("run {run_id} status was {:?}, expected {expected:?}", run.status);
     }
 
+    async fn wait_for_session_archived(host: &RuntimeHost, session_id: &str) -> roux_core::Session {
+        for _ in 0..60 {
+            let session = host.session_handle.get(session_id).await.unwrap().unwrap();
+            if session.archived {
+                return session;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        let _session = host.session_handle.get(session_id).await.unwrap().unwrap();
+        panic!("session {session_id} archived was false, expected true");
+    }
+
     #[test]
     fn work_item_task_prompt_includes_card_context_and_sanitizes_control_chars() {
         let item = roux_core::WorkItem {
@@ -3511,6 +3607,7 @@ mod tests {
             external_url: Some("https://example.test/task\u{001b}".into()),
             sort_order: 0.0,
             pinned_pr_url: None,
+            archived_at: None,
             cost: None,
             created_at: 0,
             updated_at: 0,
@@ -3594,6 +3691,7 @@ mod tests {
             external_url: None,
             sort_order: 0.0,
             pinned_pr_url: None,
+            archived_at: None,
             cost: None,
             created_at: 0,
             updated_at: 0,
@@ -3644,6 +3742,7 @@ mod tests {
             external_url: None,
             sort_order: 0.0,
             pinned_pr_url: None,
+            archived_at: None,
             cost: None,
             created_at: 0,
             updated_at: 0,
@@ -3683,6 +3782,7 @@ mod tests {
             external_url: None,
             sort_order: 0.0,
             pinned_pr_url: None,
+            archived_at: None,
             cost: None,
             created_at: 0,
             updated_at: 0,
@@ -3782,6 +3882,7 @@ mod tests {
             external_url: None,
             sort_order: 0.0,
             pinned_pr_url: None,
+            archived_at: None,
             cost: None,
             created_at: 0,
             updated_at: 0,
@@ -4002,6 +4103,170 @@ mod tests {
         .await;
         assert!(!resp.ok);
 
+        let resp = handle_request(
+            req("work-item-archive", serde_json::json!({ "id": "no-such-id" })),
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(!resp.ok);
+
+        let resp = handle_request(
+            req("work-item-restore", serde_json::json!({ "id": "no-such-id" })),
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(!resp.ok);
+
+        shutdown_host(host, joins).await;
+    }
+
+    #[tokio::test]
+    async fn daemon_work_item_archive_hides_from_default_list_and_restore_reveals() {
+        let dir = tempfile::tempdir().unwrap();
+        let (host, identity, joins) = make_host_and_identity(&dir).await;
+
+        let item = host
+            .work_item_handle
+            .create(roux_core::WorkItemInput { title: "Archive me".into(), ..Default::default() })
+            .unwrap();
+        let keep = host
+            .work_item_handle
+            .create(roux_core::WorkItemInput { title: "Keep me".into(), ..Default::default() })
+            .unwrap();
+
+        let archive = handle_request(
+            req("work-item-archive", serde_json::json!({ "id": item.id })),
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(archive.ok, "archive failed: {:?}", archive.error);
+        assert!(archive.data.as_ref().unwrap()["archivedAt"].as_u64().is_some());
+
+        let list =
+            handle_request(req("work-item-list", serde_json::json!({})), &host, &identity).await;
+        assert!(list.ok);
+        let ids: Vec<_> = list
+            .data
+            .as_ref()
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|item| item["id"].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(ids, vec![keep.id.clone()]);
+
+        let list = handle_request(
+            req("work-item-list", serde_json::json!({ "includeArchived": true })),
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(list.ok);
+        let ids: Vec<_> = list
+            .data
+            .as_ref()
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|item| item["id"].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(ids, vec![item.id.clone(), keep.id]);
+
+        let restore = handle_request(
+            req("work-item-restore", serde_json::json!({ "id": item.id })),
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(restore.ok, "restore failed: {:?}", restore.error);
+        assert!(restore.data.as_ref().unwrap()["archivedAt"].is_null());
+
+        shutdown_host(host, joins).await;
+    }
+
+    #[tokio::test]
+    async fn daemon_work_item_archive_rejects_active_runs() {
+        let dir = tempfile::tempdir().unwrap();
+        let (host, identity, joins) = make_host_and_identity(&dir).await;
+
+        let item = host
+            .work_item_handle
+            .create(roux_core::WorkItemInput { title: "Running".into(), ..Default::default() })
+            .unwrap();
+        host.work_item_handle
+            .create_run(&item.id, Some("sess-1"), Some("claude"), Some("claude"), None, None)
+            .unwrap();
+
+        let archive = handle_request(
+            req("work-item-archive", serde_json::json!({ "id": item.id })),
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(!archive.ok);
+        assert!(archive.error.as_deref().unwrap_or("").contains("active work item run"));
+
+        shutdown_host(host, joins).await;
+    }
+
+    #[tokio::test]
+    async fn daemon_work_item_start_rejects_archived_cards() {
+        let dir = tempfile::tempdir().unwrap();
+        let (host, identity, joins) = make_host_and_identity(&dir).await;
+        let item = host
+            .work_item_handle
+            .create(roux_core::WorkItemInput {
+                title: "Archived start".into(),
+                repo_path: Some("/repo".into()),
+                agent_profile: Some("claude".into()),
+                ..Default::default()
+            })
+            .unwrap();
+        host.work_item_handle.archive(&item.id).unwrap();
+
+        let resp = handle_request(
+            req("work-item-start", serde_json::json!({ "id": item.id })),
+            &host,
+            &identity,
+        )
+        .await;
+
+        assert!(!resp.ok);
+        assert!(resp.error.as_deref().unwrap_or("").contains("archived work item"));
+        assert!(host.work_item_handle.list_runs(Some(&item.id)).unwrap().is_empty());
+        shutdown_host(host, joins).await;
+    }
+
+    #[tokio::test]
+    async fn daemon_work_item_plan_rejects_archived_cards() {
+        let dir = tempfile::tempdir().unwrap();
+        let (host, identity, joins) = make_host_and_identity(&dir).await;
+        let item = host
+            .work_item_handle
+            .create(roux_core::WorkItemInput {
+                title: "Archived plan".into(),
+                repo_path: Some("/repo".into()),
+                agent_profile: Some("claude".into()),
+                ..Default::default()
+            })
+            .unwrap();
+        host.work_item_handle.archive(&item.id).unwrap();
+
+        let resp = handle_request(
+            req("work-item-plan", serde_json::json!({ "id": item.id })),
+            &host,
+            &identity,
+        )
+        .await;
+
+        assert!(!resp.ok);
+        assert!(resp.error.as_deref().unwrap_or("").contains("archived work item"));
+        assert!(host.work_item_handle.list_runs(Some(&item.id)).unwrap().is_empty());
         shutdown_host(host, joins).await;
     }
 
@@ -4020,6 +4285,8 @@ mod tests {
             "work-item-update",
             "work-item-move",
             "work-item-delete",
+            "work-item-archive",
+            "work-item-restore",
             "work-item-attach-session",
             "work-item-detach-session",
             "work-item-start",
@@ -5039,6 +5306,7 @@ mod tests {
                 ..Default::default()
             })
             .unwrap();
+        host.session_handle.add(session("sess-1")).await.unwrap();
         let run = host
             .work_item_handle
             .create_run(&item.id, Some("sess-1"), Some("claude"), Some("claude"), None, None)
@@ -5141,6 +5409,7 @@ mod tests {
                 serde_json::json!({ "reason": "test" }),
             )
             .unwrap();
+        host.session_handle.add(session("sess-1")).await.unwrap();
 
         let resp = handle_request(
             req(
@@ -5213,6 +5482,7 @@ mod tests {
                 serde_json::json!({ "reason": "test" }),
             )
             .unwrap();
+        host.session_handle.add(session("sess-1")).await.unwrap();
 
         let resp = handle_request(
             req(
@@ -5262,6 +5532,7 @@ mod tests {
                 serde_json::json!({ "reason": "test" }),
             )
             .unwrap();
+        host.session_handle.add(session("sess-1")).await.unwrap();
 
         let resp = handle_request(
             req("work-item-review-accept", serde_json::json!({ "id": item.id })),
@@ -5277,6 +5548,8 @@ mod tests {
         assert_eq!(item.status, roux_core::WorkItemStatus::Done);
         let run = host.work_item_handle.get_run(&run.id).unwrap().unwrap();
         assert_eq!(run.status, roux_core::WorkItemRunStatus::Done);
+        let session = host.session_handle.get("sess-1").await.unwrap().unwrap();
+        assert!(session.archived, "accepted review should archive linked implementation session");
         let events = host.work_item_handle.list_run_events(&run.id).unwrap();
         assert!(events.iter().any(|event| {
             event.kind == roux_core::WorkItemRunEventKind::StatusChanged
@@ -5284,6 +5557,58 @@ mod tests {
                 && event.payload["reason"] == "reviewAccepted"
         }));
 
+        shutdown_host(host, joins).await;
+    }
+
+    #[tokio::test]
+    async fn daemon_work_item_review_accept_succeeds_when_session_archive_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        let (host, identity, joins) = make_host_and_identity(&dir).await;
+        let item = host
+            .work_item_handle
+            .create(roux_core::WorkItemInput {
+                title: "Review me".into(),
+                status: Some(roux_core::WorkItemStatus::Review),
+                ..Default::default()
+            })
+            .unwrap();
+        let run = host
+            .work_item_handle
+            .create_run(&item.id, Some("sess-1"), Some("claude"), Some("claude"), None, None)
+            .unwrap();
+        host.work_item_handle
+            .set_run_status(
+                &run.id,
+                roux_core::WorkItemRunStatus::Review,
+                serde_json::json!({ "reason": "test" }),
+            )
+            .unwrap();
+        let (closed_session_handle, session_future) =
+            roux_runtime::session_service::service_with_path(
+                Vec::new(),
+                dir.path().join("closed-sessions.json"),
+            );
+        drop(session_future);
+        let mut host_with_closed_sessions = host.clone();
+        host_with_closed_sessions.session_handle = closed_session_handle;
+
+        let resp = tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            handle_request(
+                req("work-item-review-accept", serde_json::json!({ "id": item.id })),
+                &host_with_closed_sessions,
+                &identity,
+            ),
+        )
+        .await
+        .expect("review accept should not wait on best-effort session archival");
+
+        assert!(resp.ok, "review accept should remain successful: {:?}", resp.error);
+        assert_eq!(resp.data.as_ref().unwrap()["item"]["status"], "done");
+        assert_eq!(resp.data.as_ref().unwrap()["run"]["status"], "done");
+        let run = host.work_item_handle.get_run(&run.id).unwrap().unwrap();
+        assert_eq!(run.status, roux_core::WorkItemRunStatus::Done);
+        drop(host_with_closed_sessions);
         shutdown_host(host, joins).await;
     }
 
@@ -5333,6 +5658,29 @@ mod tests {
 
         let run = host.work_item_handle.get_run(&run.id).unwrap().unwrap();
         assert_eq!(run.status, roux_core::WorkItemRunStatus::Stopped);
+        shutdown_host(host, joins).await;
+    }
+
+    #[tokio::test]
+    async fn record_work_item_run_pty_exit_archives_done_planning_session() {
+        let dir = tempfile::tempdir().unwrap();
+        let (host, _identity, joins) = make_host_and_identity(&dir).await;
+        let item = host
+            .work_item_handle
+            .create(roux_core::WorkItemInput { title: "Plan".into(), ..Default::default() })
+            .unwrap();
+        host.session_handle.add(session("sess-1")).await.unwrap();
+        let run = host
+            .work_item_handle
+            .create_planning_run(&item.id, Some("sess-1"), None, None, None, None)
+            .unwrap();
+
+        record_work_item_run_pty_exit(&host, &run.id, Some(0), 1);
+
+        let run = host.work_item_handle.get_run(&run.id).unwrap().unwrap();
+        assert_eq!(run.status, roux_core::WorkItemRunStatus::Done);
+        let session = wait_for_session_archived(&host, "sess-1").await;
+        assert!(session.archived);
         shutdown_host(host, joins).await;
     }
 

@@ -155,6 +155,7 @@
     hidePaneHints,
     applyStartupTargetPreference,
     toggleSidebar,
+    closeWorkItemEditor,
     closeWorkItemSessionStart,
     workItemSessionStart,
   } from "$lib/stores/ui";
@@ -250,6 +251,10 @@
 
   async function handleCloseRequested() {
     const route = get(mainViewRoute);
+    if (route?.kind === "workItemDetail") {
+      closeWorkItemEditor();
+      return;
+    }
     if (route?.kind === "externalTool") {
       await closeExternalToolRun(route.runId);
       return;
@@ -289,7 +294,9 @@
     if (!cmd) return;
     const route = get(mainViewRoute);
     if (route && cmd.id === "pane.close") {
-      if (route.kind === "externalTool") {
+      if (route.kind === "workItemDetail") {
+        closeWorkItemEditor();
+      } else if (route.kind === "externalTool") {
         void closeExternalToolRun(route.runId);
       } else {
         closeMainView();
@@ -503,7 +510,11 @@
           !eventTargetIsEditable(target)
         ) {
           e.preventDefault();
-          closeMainView();
+          if (mainRoute.kind === "workItemDetail") {
+            closeWorkItemEditor();
+          } else {
+            closeMainView();
+          }
           keymapExitTree();
           return;
         }
@@ -1249,7 +1260,7 @@
 
 <LibraryVariablePrompt />
 
-<WorkItemEditor />
+<WorkItemEditor includeExisting={false} />
 
 {#if $hudVisible || ($commandSurface.open && $commandSurface.mode === "leader" && $commandSurface.leaderPromptCommandId)}
   <KeymapHud

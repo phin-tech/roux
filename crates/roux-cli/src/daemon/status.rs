@@ -83,6 +83,8 @@ pub(super) async fn handle_daemon_status(
         "work-item-update",
         "work-item-move",
         "work-item-delete",
+        "work-item-archive",
+        "work-item-restore",
         "work-item-attach-session",
         "work-item-detach-session",
         "work-item-plan",

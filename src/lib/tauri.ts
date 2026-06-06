@@ -893,9 +893,10 @@ export type {
 
 export async function workItemList(
   projectId: string | null,
+  includeArchived = false,
 ): Promise<import("$lib/bindings").WorkItem[]> {
   const { commands } = await import("$lib/bindings");
-  const r = await commands.workItemList(projectId);
+  const r = await commands.workItemList(projectId, includeArchived);
   if (r.status === "error") throw new Error(r.error);
   return r.data;
 }
@@ -933,6 +934,24 @@ export async function workItemMove(
 export async function workItemDelete(id: string): Promise<string> {
   const { commands } = await import("$lib/bindings");
   const r = await commands.workItemDelete(id);
+  if (r.status === "error") throw new Error(r.error);
+  return r.data;
+}
+
+export async function workItemArchive(
+  id: string,
+): Promise<import("$lib/bindings").WorkItem> {
+  const { commands } = await import("$lib/bindings");
+  const r = await commands.workItemArchive(id);
+  if (r.status === "error") throw new Error(r.error);
+  return r.data;
+}
+
+export async function workItemRestore(
+  id: string,
+): Promise<import("$lib/bindings").WorkItem> {
+  const { commands } = await import("$lib/bindings");
+  const r = await commands.workItemRestore(id);
   if (r.status === "error") throw new Error(r.error);
   return r.data;
 }
