@@ -4,15 +4,14 @@ on:
   push:
     branches:
       - main
+    # Tags are NOT path-filtered: a release tag must always publish docs,
+    # even when the tagged commit touches no docs files. (A `paths:` filter
+    # would silently skip tag pushes.)
     tags:
       - "v*"
-    paths:
-      - docs/**
-      - mkdocs.yml
-      - .github/workflows/docs.yml
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -22,6 +21,8 @@ concurrency:
 
 jobs:
   build:
+    # Skip prerelease tags (handled by docs-prerelease.yml). Runs on main
+    # pushes and stable tags.
     if: github.ref_type != 'tag' || !contains(github.ref_name, '-')
     runs-on: ubuntu-latest
     steps:
@@ -41,45 +42,55 @@ jobs:
           uv sync --project docs --frozen
           echo "$GITHUB_WORKSPACE/docs/.venv/bin" >> $GITHUB_PATH
 
-      - name: Restore versioned docs
-        run: |
-          rm -rf site
-          mkdir -p site
-          if git ls-remote --exit-code --heads origin gh-pages >/dev/null 2>&1; then
-            git fetch origin gh-pages --depth=1
-            git archive FETCH_HEAD | tar -x -C site
-          fi
-
       - name: Install Cairo for social cards
         run: sudo apt-get update && sudo apt-get install -y libcairo2-dev libfreetype6-dev libffi-dev libjpeg-dev libpng-dev libz-dev
 
-      - name: Build docs
-        run: mkdocs build --site-dir site/docs --strict
-
-      - name: Overlay landing site
+      - name: Configure Git author
         run: |
-          # Place the retro landing page at the gh-pages root. Docs are
-          # already built into site/docs/ by the previous step.
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+
+      - name: Fetch existing published docs
+        run: |
+          if git ls-remote --exit-code --heads origin gh-pages >/dev/null 2>&1; then
+            git fetch origin gh-pages:gh-pages --depth=1
+          fi
+
+      - name: Validate docs (strict)
+        # No SOCIAL_CARDS here: social cards are skipped so this is a fast
+        # link-check. mike build (below) does not support --strict.
+        run: mkdocs build --strict --site-dir /tmp/docs-strict
+
+      - name: Publish docs (mike)
+        env:
+          SOCIAL_CARDS: "true"
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+            mike deploy --branch gh-pages --update-aliases "$VERSION" latest
+            mike set-default --branch gh-pages latest
+            echo "Published release docs ${VERSION} (alias: latest, default)."
+          else
+            mike deploy --branch gh-pages dev
+            echo "Published development docs (dev)."
+          fi
+
+      - name: Archive published site
+        run: |
+          rm -rf site
+          mkdir -p site
+          git archive gh-pages | tar -x -C site
+
+      - name: Overlay /docs back-compat redirect
+        run: |
+          # /roux/docs/ moved to the site root; ship a redirect so old links
+          # keep working. docs/landing/ contains only docs/index.html, so this
+          # creates site/docs/index.html and leaves mike's root index.html intact.
           cp -R docs/landing/. site/
 
-          # Stamp the latest release version into the masthead (as the "issue
-          # number") and the download link. On a tag push, use that tag;
-          # otherwise fall back to the most recent reachable stable tag.
-          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
-            VERSION_TAG="${GITHUB_REF_NAME}"
-          else
-            VERSION_TAG="$(git tag --list 'v*' --sort=-v:refname | grep -Ev '-' | head -n1 || true)"
-          fi
-          if [[ -n "$VERSION_TAG" ]]; then
-            VERSION="${VERSION_TAG#v}"
-            sed -i \
-              -e "s|<span data-version-issue>LATEST</span>|<span data-version-issue>${VERSION}</span>|g" \
-              -e "s|<span data-version-tag>v0.LATEST</span>|<span data-version-tag>${VERSION_TAG}</span>|g" \
-              site/index.html
-            echo "Stamped landing with version: ${VERSION_TAG}"
-          else
-            echo "No tags found; landing keeps fallback 'LATEST' placeholders."
-          fi
+      - name: Push gh-pages history
+        run: git push origin gh-pages
 
       - name: Configure Pages
         uses: actions/configure-pages@v5

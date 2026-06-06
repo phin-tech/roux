@@ -155,3 +155,20 @@ jobs:
           git config --global user.name  "Test"
       - name: Run real-wt integration tests
         run: cargo test -p roux-worktrunk --features real-wt-integration --test real_wt
+
+  # Strict docs build: catches broken links / nav errors on every change.
+  # Runs unconditionally (docs build is fast); social cards are skipped
+  # (SOCIAL_CARDS unset) so no Cairo/imaging libs are needed here.
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: docs/uv.lock
+      - name: Install docs dependencies
+        run: uv sync --project docs --frozen
+      - name: Build docs (strict)
+        run: uv run --project docs mkdocs build --strict --site-dir /tmp/docs-strict

@@ -52,7 +52,12 @@ jobs:
             git fetch origin gh-pages:gh-pages --depth=1
           fi
 
+      - name: Install Cairo for social cards
+        run: sudo apt-get update && sudo apt-get install -y libcairo2-dev libfreetype6-dev libffi-dev libjpeg-dev libpng-dev libz-dev
+
       - name: Publish preview docs
+        env:
+          SOCIAL_CARDS: "true"
         run: |
           mike deploy --branch gh-pages --deploy-prefix "$PREVIEW_PREFIX" preview
           mike set-default --branch gh-pages --deploy-prefix "$PREVIEW_PREFIX" preview
@@ -62,29 +67,6 @@ jobs:
           rm -rf site
           mkdir -p site
           git archive gh-pages | tar -x -C site
-
-      - name: Checkout primary site source
-        run: |
-          git fetch origin main --depth=1
-          git checkout --detach FETCH_HEAD
-
-      - name: Install Cairo for social cards
-        run: sudo apt-get update && sudo apt-get install -y libcairo2-dev libfreetype6-dev libffi-dev libjpeg-dev libpng-dev libz-dev
-
-      - name: Build primary docs site
-        run: mkdocs build --site-dir site/docs --strict
-
-      - name: Overlay landing site
-        run: |
-          cp -R docs/landing/. site/
-          VERSION_TAG="$(git tag --list 'v*' --sort=-v:refname | grep -Ev '-' | head -n1 || true)"
-          if [[ -n "$VERSION_TAG" ]]; then
-            VERSION="${VERSION_TAG#v}"
-            sed -i \
-              -e "s|<span data-version-issue>LATEST</span>|<span data-version-issue>${VERSION}</span>|g" \
-              -e "s|<span data-version-tag>v0.LATEST</span>|<span data-version-tag>${VERSION_TAG}</span>|g" \
-              site/index.html
-          fi
 
       - name: Push gh-pages history
         run: git push origin gh-pages
