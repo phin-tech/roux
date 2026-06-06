@@ -160,6 +160,7 @@ function workItem(overrides: Partial<WorkItem> = {}): WorkItem {
     externalUrl: null,
     sortOrder: 0,
     pinnedPrUrl: null,
+    reviewStageId: null,
     archivedAt: null,
     cost: null,
     createdAt: 0,
@@ -305,6 +306,41 @@ describe("WorkItemEditor", () => {
       "wi-1",
       expect.objectContaining({ projectId: null }),
     );
+  });
+
+  it("shows the current review stage as workflow metadata", async () => {
+    (workItems as ReturnType<typeof import("svelte/store").writable>).set([
+      workItem({
+        id: "wi-1",
+        status: "review",
+        reviewStageId: "pr_review",
+      }),
+    ]);
+    render(WorkItemEditor);
+    editingWorkItemId.set("wi-1");
+
+    await screen.findByText("Edit card");
+
+    expect(screen.getByText("Review stage")).toBeTruthy();
+    expect(screen.getByText("PR Review")).toBeTruthy();
+  });
+
+  it("labels preserved review stage as the next gate during fixes", async () => {
+    (workItems as ReturnType<typeof import("svelte/store").writable>).set([
+      workItem({
+        id: "wi-1",
+        status: "doing",
+        reviewStageId: "pr_review",
+      }),
+    ]);
+    render(WorkItemEditor);
+    editingWorkItemId.set("wi-1");
+
+    await screen.findByText("Edit card");
+
+    expect(screen.getByText("Next review stage")).toBeTruthy();
+    expect(screen.queryByText("Review stage")).toBeNull();
+    expect(screen.getByText("PR Review")).toBeTruthy();
   });
 
   it("creates a new card with default repo and Claude profile", async () => {

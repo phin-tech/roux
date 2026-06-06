@@ -810,7 +810,7 @@ impl RouxMcpServer {
     }
 
     #[tool(
-        description = "Request review for a Kanban implementation run by run id. Moves the run and card to Review."
+        description = "Request review for a Kanban implementation run by run id. Moves the run and card to Review and enters the current review stage."
     )]
     async fn roux_request_work_item_review(
         &self,
@@ -839,7 +839,7 @@ impl RouxMcpServer {
     }
 
     #[tool(
-        description = "Request changes for a Kanban work item review. Attaches human feedback and moves the card back to In Progress by default, or Ready when status is ready."
+        description = "Request changes for a Kanban work item review. Attaches human feedback, preserves the current review stage, and moves the card back to In Progress by default, or Ready when status is ready."
     )]
     async fn roux_request_work_item_review_changes(
         &self,
@@ -857,7 +857,7 @@ impl RouxMcpServer {
     }
 
     #[tool(
-        description = "Accept a Kanban work item after review. Moves the reviewed implementation run to done and moves the card to Done."
+        description = "Accept the current review stage. Local Review advances to PR Review; PR Review moves the reviewed implementation run and card to Done."
     )]
     async fn roux_accept_work_item_review(
         &self,

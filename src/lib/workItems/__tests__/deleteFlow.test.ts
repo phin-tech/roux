@@ -41,6 +41,7 @@ function makeWorkItem(overrides: Partial<WorkItem> = {}): WorkItem {
     externalUrl: null,
     sortOrder: 0,
     pinnedPrUrl: null,
+    reviewStageId: null,
     archivedAt: null,
     cost: null,
     createdAt: 0,

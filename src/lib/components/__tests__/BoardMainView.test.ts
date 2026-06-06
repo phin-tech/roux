@@ -179,6 +179,7 @@ function workItem(overrides: Partial<WorkItem> = {}): WorkItem {
     externalUrl: null,
     sortOrder: 0,
     pinnedPrUrl: null,
+    reviewStageId: null,
     archivedAt: null,
     cost: null,
     createdAt: 0,
@@ -688,11 +689,13 @@ describe("BoardMainView", () => {
         id: "wi-review",
         title: "Review me",
         status: "review",
+        reviewStageId: "local_review",
         sessionId: "sess-1",
       }),
     ]);
     render(BoardMainView);
 
+    expect(screen.getByText("Accept Local Review")).toBeTruthy();
     await fireEvent.click(screen.getByLabelText("Accept work item review"));
 
     expect(acceptWorkItemReview).toHaveBeenCalledWith("wi-review");
@@ -709,6 +712,7 @@ describe("BoardMainView", () => {
         id: "wi-review",
         title: "Review me",
         status: "review",
+        reviewStageId: "pr_review",
         projectId: "proj-1",
         repoPath: null,
         sessionId: null,
@@ -783,11 +787,12 @@ describe("BoardMainView", () => {
     ).toBeTruthy();
     expect(within(reviewPackage).getByText("npm run test")).toBeTruthy();
     expect(within(reviewPackage).getByText("feature/review-card")).toBeTruthy();
+    expect(within(reviewPackage).getByText("PR Review")).toBeTruthy();
     expect(screen.queryByText("Open worktree")).toBeNull();
     expect(screen.queryByText("Open terminal")).toBeNull();
     expect(screen.getByText("Open agent")).toBeTruthy();
     expect(screen.getByText("Request changes")).toBeTruthy();
-    expect(screen.getByText("Accept done")).toBeTruthy();
+    expect(screen.getByText("Accept PR Review")).toBeTruthy();
 
     await fireEvent.click(
       within(reviewPackage).getByRole("button", { name: "Open worktree" }),

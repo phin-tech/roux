@@ -1588,6 +1588,12 @@ export type WorkItem = {
 	body: string | null,
 	status: WorkItemStatus,
 	/**
+	 *  Stable id of the review gate the card is currently satisfying.
+	 *  Labels are resolved from workflow metadata so display text can change
+	 *  without rewriting stored cards.
+	 */
+	reviewStageId: string | null,
+	/**
 	 *  Repo to use when starting the card. If unset, the daemon derives it from
 	 *  the attached project.
 	 */

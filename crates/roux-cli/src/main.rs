@@ -464,7 +464,7 @@ enum WorkItemAction {
         #[command(subcommand)]
         action: WorkItemReviewAction,
     },
-    /// Accept a reviewed work item and move it to done
+    /// Accept the current review stage
     Accept {
         /// Work item id
         id: String,
@@ -505,7 +505,7 @@ enum WorkItemAction {
 
 #[derive(Subcommand)]
 enum WorkItemReviewAction {
-    /// Request review for an implementation run and move the card to Review
+    /// Request review for an implementation run and enter the current review stage
     Request {
         /// Work item run id
         run_id: String,
@@ -519,7 +519,7 @@ enum WorkItemReviewAction {
         #[arg(long = "changed-file")]
         changed_files: Vec<String>,
     },
-    /// Request changes for a reviewed run and move the card back to work
+    /// Request changes for a reviewed run and preserve the current review stage
     RequestChanges {
         /// Work item run id or work item id
         target: String,
@@ -530,7 +530,7 @@ enum WorkItemReviewAction {
         #[arg(long)]
         status: Option<String>,
     },
-    /// Accept a reviewed work item and move it to Done
+    /// Accept the current review stage; final review moves the card to Done
     Accept {
         /// Work item id
         id: String,

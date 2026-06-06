@@ -103,7 +103,7 @@ describe("workItemPhase", () => {
     });
   });
 
-  it("review lane offers Accept done", () => {
+  it("review lane offers accept review", () => {
     const phase = workItemPhase(input({ status: "review" }));
     expect(phase.name).toBe("review");
     expect(phase.action.kind).toBe("accept-review");

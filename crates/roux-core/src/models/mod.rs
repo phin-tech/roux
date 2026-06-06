@@ -59,12 +59,13 @@ pub use user_terminal_themes::{
 };
 pub use watch::*;
 pub use work_item::{
-    decide_work_item_session_attach, pending_work_item_migrations, ExternalRef, WorkItem,
-    WorkItemDecision, WorkItemDecisionOption, WorkItemDecisionStatus, WorkItemEvent, WorkItemInput,
-    WorkItemInputPresence, WorkItemMigrationStatus, WorkItemMigrationStorage, WorkItemPlanResult,
+    decide_work_item_session_attach, next_review_stage_id, pending_work_item_migrations,
+    review_stage_label, ExternalRef, WorkItem, WorkItemDecision, WorkItemDecisionOption,
+    WorkItemDecisionStatus, WorkItemEvent, WorkItemInput, WorkItemInputPresence,
+    WorkItemMigrationStatus, WorkItemMigrationStorage, WorkItemPlanResult,
     WorkItemReviewAcceptResult, WorkItemReviewRequestChangesResult, WorkItemReviewRequestResult,
     WorkItemRun, WorkItemRunEvent, WorkItemRunEventKind, WorkItemRunKind, WorkItemRunStatus,
     WorkItemSessionAttachDecision, WorkItemSessionAttachError, WorkItemSessionAttachInput,
-    WorkItemStartResult, WorkItemStatus,
+    WorkItemStartResult, WorkItemStatus, FINAL_REVIEW_STAGE_ID, FIRST_REVIEW_STAGE_ID,
 };
 pub use worktree::{Worktree, WorktrunkMetadata};

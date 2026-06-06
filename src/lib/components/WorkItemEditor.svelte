@@ -32,6 +32,7 @@
     type WorkItemDeleteMode,
   } from "$lib/workItems/deleteFlow";
   import { buildWorkItemHistoryRows } from "$lib/workItems/history";
+  import { reviewStageLabel } from "$lib/workItems/reviewStages";
   import { logError } from "$lib/logging";
   import type { WorkItemInput, Worktree } from "$lib/bindings";
   import type { Attachment, AttachmentDocument } from "$lib/types/workItems";
@@ -67,6 +68,12 @@
   const itemRuns = $derived(item ? ($runsByItem.get(item.id) ?? []) : []);
   const itemAttachments = $derived(
     item ? ($attachmentsByWorkItem.get(item.id) ?? []) : [],
+  );
+  const reviewStageName = $derived(
+    item ? reviewStageLabel(item.reviewStageId) : null,
+  );
+  const reviewStageLabelText = $derived(
+    item?.status === "review" ? "Review stage" : "Next review stage",
   );
   const historyRows = $derived(
     item
@@ -488,6 +495,16 @@
                   {/each}
                 </select>
               </label>
+              {#if reviewStageName}
+                <div class="flex flex-col gap-1.5">
+                  <span class={sectionLabel}>{reviewStageLabelText}</span>
+                  <p
+                    class="rounded-md border border-border-subtle bg-bg-deep px-3 py-2 text-[13px] text-text-secondary"
+                  >
+                    {reviewStageName}
+                  </p>
+                </div>
+              {/if}
               <label class="flex flex-col gap-1.5">
                 <span class={sectionLabel}>Project</span>
                 <select

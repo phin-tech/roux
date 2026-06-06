@@ -503,11 +503,14 @@ pub(super) async fn handle_work_item_review_accept(req: Request, host: &RuntimeH
     });
     match host.work_item_handle.accept_review(&item_id, payload) {
         Ok(Some((item, run))) => {
-            if let Err(response) = archive_linked_session(host, run.session_id.as_deref()).await {
-                eprintln!(
-                    "[roux-daemon] warning: review accepted but linked session archival failed: {}",
-                    response.error.unwrap_or_else(|| "unknown error".to_string())
-                );
+            if run.status == roux_core::WorkItemRunStatus::Done {
+                if let Err(response) = archive_linked_session(host, run.session_id.as_deref()).await
+                {
+                    eprintln!(
+                        "[roux-daemon] warning: review accepted but linked session archival failed: {}",
+                        response.error.unwrap_or_else(|| "unknown error".to_string())
+                    );
+                }
             }
             match serde_json::to_value(roux_core::WorkItemReviewAcceptResult { item, run }) {
                 Ok(value) => Response::success(value),
@@ -3594,6 +3597,7 @@ mod tests {
             title: "Fix tests\u{0007}".into(),
             body: Some("Handle failures\r\nthen report back\u{0003}".into()),
             status: roux_core::WorkItemStatus::Todo,
+            review_stage_id: None,
             repo_path: Some("/repo/main".into()),
             agent_profile: Some("claude".into()),
             base_branch: Some("main".into()),
@@ -3678,6 +3682,7 @@ mod tests {
             title: "Fix tests".into(),
             body: Some("Original card notes".into()),
             status: roux_core::WorkItemStatus::Ready,
+            review_stage_id: None,
             repo_path: Some("/repo/main".into()),
             agent_profile: Some("claude".into()),
             base_branch: Some("main".into()),
@@ -3728,6 +3733,7 @@ mod tests {
             title: "Fix tests".into(),
             body: None,
             status: roux_core::WorkItemStatus::Ready,
+            review_stage_id: None,
             parent_id: None,
             agent_profile: Some("claude".into()),
             repo_path: Some("/repo/main".into()),
@@ -3768,6 +3774,7 @@ mod tests {
             title: "Fix tests".into(),
             body: None,
             status: roux_core::WorkItemStatus::Doing,
+            review_stage_id: Some("pr_review".into()),
             parent_id: None,
             agent_profile: Some("claude".into()),
             repo_path: Some("/repo/main".into()),
@@ -3868,6 +3875,7 @@ mod tests {
             title: "Fix tests".into(),
             body: None,
             status: roux_core::WorkItemStatus::Todo,
+            review_stage_id: None,
             parent_id: None,
             agent_profile: Some("claude".into()),
             repo_path: Some("/repo/main".into()),
@@ -5282,6 +5290,7 @@ mod tests {
         assert!(run.ended_at.is_some());
         let item = host.work_item_handle.get(&run.work_item_id).unwrap().unwrap();
         assert_eq!(item.status, roux_core::WorkItemStatus::Review);
+        assert_eq!(item.review_stage_id.as_deref(), Some("local_review"));
         let events = host.work_item_handle.list_run_events(&run_id).unwrap();
         assert!(events.iter().any(|event| {
             event.kind == roux_core::WorkItemRunEventKind::StatusChanged
@@ -5328,10 +5337,12 @@ mod tests {
         .await;
         assert!(resp.ok, "review request failed: {:?}", resp.error);
         assert_eq!(resp.data.as_ref().unwrap()["item"]["status"], "review");
+        assert_eq!(resp.data.as_ref().unwrap()["item"]["reviewStageId"], "local_review");
         assert_eq!(resp.data.as_ref().unwrap()["run"]["status"], "review");
 
         let item = host.work_item_handle.get(&item.id).unwrap().unwrap();
         assert_eq!(item.status, roux_core::WorkItemStatus::Review);
+        assert_eq!(item.review_stage_id.as_deref(), Some("local_review"));
         let run = host.work_item_handle.get_run(&run.id).unwrap().unwrap();
         assert_eq!(run.status, roux_core::WorkItemRunStatus::Review);
         let events = host.work_item_handle.list_run_events(&run.id).unwrap();
@@ -5340,6 +5351,8 @@ mod tests {
                 && event.payload["status"] == "review"
                 && event.payload["reason"] == "reviewRequested"
                 && event.payload["requestedBy"] == "agent"
+                && event.payload["reviewStageId"] == "local_review"
+                && event.payload["reviewStageLabel"] == "Local Review"
         }));
         assert!(events.iter().any(|event| {
             event.kind == roux_core::WorkItemRunEventKind::Result
@@ -5427,6 +5440,7 @@ mod tests {
         assert!(resp.ok, "request changes failed: {:?}", resp.error);
         let data = resp.data.as_ref().unwrap();
         assert_eq!(data["item"]["status"], "ready");
+        assert_eq!(data["item"]["reviewStageId"], "local_review");
         assert!(data["item"]["sessionId"].is_null());
         assert_eq!(data["run"]["status"], "changesRequested");
         assert_eq!(data["attachment"]["targetKind"], "workItem");
@@ -5441,6 +5455,7 @@ mod tests {
 
         let item = host.work_item_handle.get(&item.id).unwrap().unwrap();
         assert_eq!(item.status, roux_core::WorkItemStatus::Ready);
+        assert_eq!(item.review_stage_id.as_deref(), Some("local_review"));
         assert!(item.session_id.is_none());
         assert!(!host.work_item_handle.has_active_run(&item.id).unwrap());
         let run = host.work_item_handle.get_run(&run.id).unwrap().unwrap();
@@ -5453,6 +5468,8 @@ mod tests {
                 && event.payload["reason"] == "changesRequested"
                 && event.payload["targetStatus"] == "ready"
                 && event.payload["feedbackDocumentId"] == document_id
+                && event.payload["reviewStageId"] == "local_review"
+                && event.payload["reviewStageLabel"] == "Local Review"
         }));
 
         shutdown_host(host, joins).await;
@@ -5509,7 +5526,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn daemon_work_item_review_accept_moves_run_and_card_to_done() {
+    async fn daemon_work_item_review_accept_advances_stage_then_moves_run_and_card_to_done() {
         let dir = tempfile::tempdir().unwrap();
         let (host, identity, joins) = make_host_and_identity(&dir).await;
 
@@ -5541,11 +5558,32 @@ mod tests {
         )
         .await;
         assert!(resp.ok, "review accept failed: {:?}", resp.error);
+        assert_eq!(resp.data.as_ref().unwrap()["item"]["status"], "review");
+        assert_eq!(resp.data.as_ref().unwrap()["item"]["reviewStageId"], "pr_review");
+        assert_eq!(resp.data.as_ref().unwrap()["run"]["status"], "review");
+
+        let item = host.work_item_handle.get(&item.id).unwrap().unwrap();
+        assert_eq!(item.status, roux_core::WorkItemStatus::Review);
+        assert_eq!(item.review_stage_id.as_deref(), Some("pr_review"));
+        let run = host.work_item_handle.get_run(&run.id).unwrap().unwrap();
+        assert_eq!(run.status, roux_core::WorkItemRunStatus::Review);
+        let session = host.session_handle.get("sess-1").await.unwrap().unwrap();
+        assert!(!session.archived, "local review accept should not archive linked session");
+
+        let resp = handle_request(
+            req("work-item-review-accept", serde_json::json!({ "id": item.id })),
+            &host,
+            &identity,
+        )
+        .await;
+        assert!(resp.ok, "final review accept failed: {:?}", resp.error);
         assert_eq!(resp.data.as_ref().unwrap()["item"]["status"], "done");
+        assert!(resp.data.as_ref().unwrap()["item"]["reviewStageId"].is_null());
         assert_eq!(resp.data.as_ref().unwrap()["run"]["status"], "done");
 
         let item = host.work_item_handle.get(&item.id).unwrap().unwrap();
         assert_eq!(item.status, roux_core::WorkItemStatus::Done);
+        assert_eq!(item.review_stage_id, None);
         let run = host.work_item_handle.get_run(&run.id).unwrap().unwrap();
         assert_eq!(run.status, roux_core::WorkItemRunStatus::Done);
         let session = host.session_handle.get("sess-1").await.unwrap().unwrap();
@@ -5555,6 +5593,7 @@ mod tests {
             event.kind == roux_core::WorkItemRunEventKind::StatusChanged
                 && event.payload["status"] == "done"
                 && event.payload["reason"] == "reviewAccepted"
+                && event.payload["reviewStageId"] == "pr_review"
         }));
 
         shutdown_host(host, joins).await;
@@ -5591,6 +5630,13 @@ mod tests {
         drop(session_future);
         let mut host_with_closed_sessions = host.clone();
         host_with_closed_sessions.session_handle = closed_session_handle;
+        host.work_item_handle
+            .accept_review(
+                &item.id,
+                serde_json::json!({ "status": "done", "reason": "reviewAccepted" }),
+            )
+            .unwrap()
+            .expect("local review should advance before final accept");
 
         let resp = tokio::time::timeout(
             std::time::Duration::from_secs(1),

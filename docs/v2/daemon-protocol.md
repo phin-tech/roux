@@ -674,6 +674,10 @@ to one project. By default archived cards are hidden; pass
 `args.includeArchived` / `args.include_archived` to include cards with
 `archivedAt` set.
 
+Returned `WorkItem` objects include `reviewStageId` when a card is in or
+returning to a review gate. Current built-in review stages are `local_review`
+(`Local Review`) and `pr_review` (`PR Review`).
+
 `work-item-create`
 
 Requires `args.title`. Optional: `args.body`, `args.status` (default `"todo"`),
@@ -697,6 +701,9 @@ current `Date.now()` milliseconds when called from the frontend). Moves the
 card to the target column. Returns the updated item.
 
 Valid `status` values: `"todo"`, `"ready"`, `"doing"`, `"review"`, `"done"`.
+Moving a card to `review` assigns `reviewStageId: "local_review"` if the card
+does not already have a review stage. Moving a card to `done` clears
+`reviewStageId`.
 
 `work-item-delete`
 
@@ -800,7 +807,8 @@ Daemon-owned review request. Requires `args.runId` (also accepts `id` /
 args persist the agent's review handoff as a `result` run event. The daemon
 validates that the run is an implementation run, moves the run to `review`,
 appends a status-change event with `reason: "reviewRequested"`, moves the
-associated card to `review`, and returns:
+associated card to `review`, assigns or preserves the card's review stage, and
+returns:
 
 ```json
 {
@@ -811,6 +819,7 @@ associated card to `review`, and returns:
 
 This is the preferred explicit handoff for implementation agents. The daemon
 also keeps the successful PTY-exit fallback for implementation runs.
+Review status-change events include `reviewStageId` and `reviewStageLabel`.
 
 `work-item-review-request-changes`
 
@@ -825,7 +834,8 @@ attaches the note to the card as a text/markdown work-item document titled
 `Review feedback`, moves the run to `changesRequested`, clears the card's
 active `sessionId`, moves the card to the requested target status, appends a
 status-change event with `reason: "changesRequested"` and
-`feedbackDocumentId`, and returns:
+`feedbackDocumentId`, preserves the current `reviewStageId` for the next fix
+loop, and returns:
 
 ```json
 {
@@ -842,9 +852,14 @@ the task prompt so the agent addresses requested changes before unrelated work.
 
 Daemon-owned review acceptance. Requires `args.id` (also accepts
 `workItemId` / `work_item_id`). The daemon finds the card's review-requested
-implementation run, moves that run to `done`, appends a status-change event
-with `reason: "reviewAccepted"`, moves the card to `done`, archives the linked
-implementation session, and returns:
+implementation run and appends a status-change event with
+`reason: "reviewAccepted"`.
+
+If the card is in `local_review`, accept advances the card to `pr_review`,
+keeps the run in `review`, and leaves the linked implementation session
+available for the next review gate. If the card is in `pr_review`, accept moves
+the run to `done`, moves the card to `done`, clears `reviewStageId`, archives
+the linked implementation session, and returns:
 
 ```json
 {
@@ -854,6 +869,9 @@ implementation session, and returns:
 ```
 
 If the card has no implementation run in review, the daemon returns an error.
+Review acceptance events include `reviewStageId`, `reviewStageLabel`, and, when
+acceptance advances to another review gate, `nextReviewStageId` and
+`nextReviewStageLabel`.
 
 `work-item-runs-list`
 
@@ -946,7 +964,7 @@ Bulk import. Requires either `args.items` (inline JSON array) or `args.path`
 {
   "title": "required",
   "body": "optional",
-  "status": "todo|doing|review|done",
+  "status": "todo|ready|doing|review|done",
   "projectId": "optional",
   "externalRef": { "provider": "gh", "externalId": "123", "url": "optional" },
   "parentExternalId": "100"
