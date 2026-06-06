@@ -50,7 +50,9 @@
   import { createSessionShell, openPathInFinder } from "$lib/tauri";
   import { addSession, setActiveSession } from "$lib/stores/sessions";
   import { projects } from "$lib/stores/projects";
+  import { settings } from "$lib/stores/settings";
   import { defaultAgentProfileId } from "$lib/panes/defaultAgent";
+  import { reviewAgentProfileId } from "$lib/workItems/workflow";
   import { hasWorkItemDragData, readWorkItemDragData } from "$lib/board/drag";
   import WorkItemCard from "./WorkItemCard.svelte";
   import AddCardInput from "./AddCardInput.svelte";
@@ -91,7 +93,7 @@
   }
 
   function needsStartConfig(item: WorkItem): boolean {
-    return !item.agentProfile || (!item.repoPath && !item.projectId);
+    return !item.repoPath && !item.projectId;
   }
 
   function attachedSessionIdsForItem(
@@ -239,7 +241,10 @@
       if (!repoPath) {
         throw new Error("review worktree repo root is not configured");
       }
-      const profileId = item.agentProfile ?? defaultAgentProfileId();
+      const profileId =
+        reviewAgentProfileId(get(settings).kanban, item.reviewStageId) ??
+        item.agentProfile ??
+        defaultAgentProfileId();
       const profileRef = { kind: "registered" as const, id: profileId };
       const [
         { resolveProfileRef },

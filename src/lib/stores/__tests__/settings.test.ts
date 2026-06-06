@@ -31,20 +31,20 @@ describe("settings actions", () => {
     vi.useRealTimers();
   });
 
-  it("updates default agent and legacy Kanban agent in one draft", async () => {
+  it("updates the global default agent without mutating Kanban workflow settings", async () => {
     setDefaultAgentProfile("codex");
 
     expect(get(settings).defaultAgentProfile).toBe("codex");
-    expect(get(settings).kanban?.defaultAgentProfile).toBe("codex");
+    expect(get(settings).kanban?.workflow?.id).toBe("default");
 
     await vi.runAllTimersAsync();
     expect(tauriMock.updateSettings).toHaveBeenCalledTimes(1);
     expect(tauriMock.updateSettings.mock.calls[0][0].defaultAgentProfile).toBe(
       "codex",
     );
-    expect(
-      tauriMock.updateSettings.mock.calls[0][0].kanban?.defaultAgentProfile,
-    ).toBe("codex");
+    expect(tauriMock.updateSettings.mock.calls[0][0].kanban?.workflow?.id).toBe(
+      "default",
+    );
   });
 
   it("updates startup target and legacy Kanban launch state in one draft", async () => {

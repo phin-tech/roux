@@ -18,6 +18,7 @@
   import { clearDraggedWorkItem, writeWorkItemDragData } from "$lib/board/drag";
   import { unreadBySession } from "$lib/stores/notifications";
   import { projects } from "$lib/stores/projects";
+  import { settings } from "$lib/stores/settings";
   import { reviewStageLabel } from "$lib/workItems/reviewStages";
 
   interface Props {
@@ -151,7 +152,9 @@
     !!onEdit || !!onPlan || !!onDelete || !!onArchive || canForceStartPlanning,
   );
   const reviewSessionId = $derived(reviewPackage?.sessionId ?? null);
-  const reviewStageName = $derived(reviewStageLabel(item.reviewStageId));
+  const reviewStageName = $derived(
+    reviewStageLabel(item.reviewStageId, $settings.kanban),
+  );
   const acceptReviewText = $derived(
     reviewStageName ? `Accept ${reviewStageName}` : "Accept done",
   );

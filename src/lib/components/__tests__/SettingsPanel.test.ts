@@ -157,24 +157,19 @@ describe("SettingsPanel Kanban tab", () => {
     vi.mocked(updateSettings).mockClear();
   });
 
-  it("persists Kanban prompt settings", async () => {
+  it("persists Kanban workflow phase instructions", async () => {
     render(SettingsPanel, { visible: true, onclose: vi.fn() });
 
     await fireEvent.click(screen.getByRole("button", { name: "Kanban" }));
-    await fireEvent.input(
-      screen
-        .getByText("Planning instructions")
-        .parentElement!.querySelector("textarea")!,
-      {
-        target: { value: "Ask for acceptance criteria." },
-      },
-    );
+    await fireEvent.input(screen.getByLabelText("Planning instructions"), {
+      target: { value: "Ask for acceptance criteria." },
+    });
 
     await waitFor(() => {
       expect(updateSettings).toHaveBeenCalled();
     });
     const lastCall = vi.mocked(updateSettings).mock.calls.at(-1)!;
-    expect(lastCall[0].kanban?.planningPromptAppend).toBe(
+    expect(lastCall[0].kanban?.workflow?.phases?.planning?.instructions).toBe(
       "Ask for acceptance criteria.",
     );
   });
@@ -265,7 +260,7 @@ describe("SettingsPanel Agents tab", () => {
     });
     const lastCall = vi.mocked(updateSettings).mock.calls.at(-1)!;
     expect(lastCall[0].defaultAgentProfile).toBe("codex-auto");
-    expect(lastCall[0].kanban?.defaultAgentProfile).toBe("codex-auto");
+    expect(lastCall[0].kanban?.workflow?.id).toBe("default");
   });
 });
 

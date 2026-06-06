@@ -27,15 +27,17 @@ import { closeMainView } from "$lib/stores/mainView";
 import { openSessionById } from "$lib/panes/openSession";
 import { WORK_ITEM_DRAG_MIME } from "$lib/board/drag";
 import type { WorkItem } from "$lib/bindings";
-import type { Notification, Project } from "$lib/types";
+import { DEFAULT_SETTINGS, type Notification, type Project } from "$lib/types";
 import type { Attachment, WorkItemRun } from "$lib/types/workItems";
 import { notifications } from "$lib/stores/notifications";
 import { projects } from "$lib/stores/projects";
 import { createSessionShell, openPathInFinder } from "$lib/tauri";
 import { addSession, setActiveSession } from "$lib/stores/sessions";
+import { settings } from "$lib/stores/settings";
 import { initSessionWithProfile } from "$lib/panes/actions";
 import { connectPaneTerminal } from "$lib/panes/terminals";
 import { runProfileInPane } from "$lib/panes/profileRunner";
+import { kanbanWithPrReviewProfile } from "./kanbanFixtures";
 
 // jsdom lacks the Web Animations API that Svelte's transition:fade/scale use.
 if (typeof Element !== "undefined" && !Element.prototype.animate) {
@@ -309,6 +311,7 @@ describe("BoardMainView", () => {
     ).set([]);
     projects.set([project()]);
     notifications.set([]);
+    settings.set({ ...DEFAULT_SETTINGS });
   });
 
   it("renders one section per column with labels", () => {
@@ -404,16 +407,14 @@ describe("BoardMainView", () => {
   });
 
   it("Approve and start delegates to daemon start without issuing a second move", async () => {
-    seedColumns(
-      [
-        workItem({
-          id: "wi-1",
-          status: "ready",
-          projectId: "proj-1",
-          sessionId: null,
-        }),
-      ].map((item) => ({ ...item, agentProfile: "claude" }) as WorkItem),
-    );
+    seedColumns([
+      workItem({
+        id: "wi-1",
+        status: "ready",
+        projectId: "proj-1",
+        sessionId: null,
+      }),
+    ]);
     seedWorkItemAttachments([["wi-1", [attachment({ targetId: "wi-1" })]]]);
     render(BoardMainView);
 
@@ -707,6 +708,10 @@ describe("BoardMainView", () => {
   });
 
   it("shows review package details and requests changes with a note", async () => {
+    settings.set({
+      ...DEFAULT_SETTINGS,
+      kanban: kanbanWithPrReviewProfile(),
+    });
     seedColumns([
       workItem({
         id: "wi-review",
@@ -813,7 +818,7 @@ describe("BoardMainView", () => {
         "Review me review",
         "/repo/.worktrees/review-card",
         null,
-        { profile: "claude" },
+        { profile: "codex-review" },
       ),
     );
     expect(addSession).toHaveBeenCalledWith(
@@ -821,7 +826,7 @@ describe("BoardMainView", () => {
     );
     expect(initSessionWithProfile).toHaveBeenCalledWith(
       "review-agent-session",
-      { kind: "registered", id: "claude" },
+      { kind: "registered", id: "codex-review" },
     );
     expect(connectPaneTerminal).toHaveBeenCalledWith("review-agent-session");
     expect(runProfileInPane).toHaveBeenCalled();

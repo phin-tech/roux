@@ -18,15 +18,17 @@ import { deleteWorkItemWithMode } from "$lib/workItems/deleteFlow";
 import { openWorkItemEditor, openWorkItemSessionStart } from "$lib/stores/ui";
 import { openMainView } from "$lib/stores/mainView";
 import type { WorkItem } from "$lib/bindings";
-import type { Project } from "$lib/types";
+import { DEFAULT_SETTINGS, type Project } from "$lib/types";
 import type { Attachment, WorkItemRun } from "$lib/types/workItems";
 import { projects } from "$lib/stores/projects";
 import { createSessionShell, openPathInFinder } from "$lib/tauri";
 import { addSession, setActiveSession } from "$lib/stores/sessions";
+import { settings } from "$lib/stores/settings";
 import { openSessionById } from "$lib/panes/openSession";
 import { initSessionWithProfile } from "$lib/panes/actions";
 import { connectPaneTerminal } from "$lib/panes/terminals";
 import { runProfileInPane } from "$lib/panes/profileRunner";
+import { kanbanWithPrReviewProfile } from "./kanbanFixtures";
 
 // jsdom lacks the Web Animations API that Svelte's transition:fade/scale use.
 if (typeof Element !== "undefined" && !Element.prototype.animate) {
@@ -258,19 +260,18 @@ describe("BoardPanel", () => {
       workItemRunEvents as ReturnType<typeof import("svelte/store").writable>
     ).set([]);
     projects.set([project()]);
+    settings.set({ ...DEFAULT_SETTINGS });
   });
 
   it("Approve and start delegates to daemon start without issuing a second move", async () => {
-    seedColumns(
-      [
-        workItem({
-          id: "wi-1",
-          status: "ready",
-          projectId: "proj-1",
-          sessionId: null,
-        }),
-      ].map((item) => ({ ...item, agentProfile: "claude" }) as WorkItem),
-    );
+    seedColumns([
+      workItem({
+        id: "wi-1",
+        status: "ready",
+        projectId: "proj-1",
+        sessionId: null,
+      }),
+    ]);
     seedWorkItemAttachments([["wi-1", [attachment({ targetId: "wi-1" })]]]);
     render(BoardPanel, { visible: true, onclose: vi.fn() });
 
@@ -471,6 +472,10 @@ describe("BoardPanel", () => {
   });
 
   it("requests changes from a review card with a human note", async () => {
+    settings.set({
+      ...DEFAULT_SETTINGS,
+      kanban: kanbanWithPrReviewProfile(),
+    });
     const item = workItem({
       id: "wi-review",
       title: "Review me",
@@ -543,7 +548,7 @@ describe("BoardPanel", () => {
         "Review me review",
         "/repo/.worktrees/review-card",
         null,
-        { profile: "claude" },
+        { profile: "codex-review" },
       ),
     );
     expect(addSession).toHaveBeenCalledWith(
@@ -551,7 +556,7 @@ describe("BoardPanel", () => {
     );
     expect(initSessionWithProfile).toHaveBeenCalledWith(
       "review-agent-session",
-      { kind: "registered", id: "claude" },
+      { kind: "registered", id: "codex-review" },
     );
     expect(connectPaneTerminal).toHaveBeenCalledWith("review-agent-session");
     expect(runProfileInPane).toHaveBeenCalled();

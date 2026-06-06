@@ -1,5 +1,6 @@
 // Import generated types from specta bindings
 import type { ExperimentsConfig, RouxSettings } from "./bindings";
+import { normalizeKanbanSettings } from "$lib/workItems/workflow";
 
 // Typed defaults for every experiment flag. Adding a new optional field to
 // `ExperimentsConfig` will fail to compile here until a default is supplied,
@@ -182,11 +183,7 @@ export const DEFAULT_SETTINGS: RouxSettings = {
     },
   ],
   kanban: {
-    defaultAgentProfile: "claude",
-    planningPromptAppend: "",
-    implementationPromptAppend: "",
-    reviewPromptAppend: "",
-    startupSidebar: "restore",
+    ...normalizeKanbanSettings(null),
   },
   experiments: EXPERIMENT_DEFAULTS,
 };

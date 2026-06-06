@@ -15,9 +15,9 @@ use serde_json::Value;
 
 use roux_core::{
     Attachment, AttachmentContentKind, AttachmentDocument, AttachmentInput, AttachmentTargetKind,
-    ExternalRef, WorkItem, WorkItemDecision, WorkItemDecisionOption, WorkItemDecisionStatus,
-    WorkItemInput, WorkItemRun, WorkItemRunEvent, WorkItemRunEventKind, WorkItemRunKind,
-    WorkItemRunStatus, WorkItemStatus,
+    ExternalRef, KanbanSettings, WorkItem, WorkItemDecision, WorkItemDecisionOption,
+    WorkItemDecisionStatus, WorkItemInput, WorkItemRun, WorkItemRunEvent, WorkItemRunEventKind,
+    WorkItemRunKind, WorkItemRunStatus, WorkItemStatus,
 };
 
 pub const WORK_ITEM_SCHEMA_VERSION: i64 = 9;
@@ -1242,8 +1242,30 @@ impl WorkItemStore {
         &mut self,
         work_item_id: &str,
         event_id: String,
+        payload: Value,
+        now: u64,
+    ) -> SqlResult<Option<(WorkItem, WorkItemRun, WorkItemRunEvent)>> {
+        self.accept_review_with_stage_labels(work_item_id, event_id, payload, now, None)
+    }
+
+    pub fn accept_review_with_kanban_settings(
+        &mut self,
+        work_item_id: &str,
+        event_id: String,
+        payload: Value,
+        now: u64,
+        kanban: &KanbanSettings,
+    ) -> SqlResult<Option<(WorkItem, WorkItemRun, WorkItemRunEvent)>> {
+        self.accept_review_with_stage_labels(work_item_id, event_id, payload, now, Some(kanban))
+    }
+
+    fn accept_review_with_stage_labels(
+        &mut self,
+        work_item_id: &str,
+        event_id: String,
         mut payload: Value,
         now: u64,
+        kanban: Option<&KanbanSettings>,
     ) -> SqlResult<Option<(WorkItem, WorkItemRun, WorkItemRunEvent)>> {
         if self.get(work_item_id)?.is_none() {
             return Ok(None);
@@ -1276,7 +1298,7 @@ impl WorkItemStore {
         let review_stage_id =
             review_stage_id.unwrap_or_else(|| roux_core::FIRST_REVIEW_STAGE_ID.to_string());
         let next_stage_id = roux_core::next_review_stage_id(&review_stage_id);
-        add_review_stage_payload_fields(&mut payload, &review_stage_id, next_stage_id);
+        add_review_stage_payload_fields(&mut payload, kanban, &review_stage_id, next_stage_id);
         if next_stage_id.is_some() {
             set_payload_string_field(&mut payload, "status", WorkItemRunStatus::Review.as_str());
             let changed = tx.execute(
@@ -1349,9 +1371,40 @@ impl WorkItemStore {
         &mut self,
         run_id: &str,
         event_id: String,
+        payload: Value,
+        result_event: Option<(String, Value)>,
+        now: u64,
+    ) -> SqlResult<ReviewRequestStoreResult> {
+        self.request_review_with_stage_labels(run_id, event_id, payload, result_event, now, None)
+    }
+
+    pub fn request_review_with_kanban_settings(
+        &mut self,
+        run_id: &str,
+        event_id: String,
+        payload: Value,
+        result_event: Option<(String, Value)>,
+        now: u64,
+        kanban: &KanbanSettings,
+    ) -> SqlResult<ReviewRequestStoreResult> {
+        self.request_review_with_stage_labels(
+            run_id,
+            event_id,
+            payload,
+            result_event,
+            now,
+            Some(kanban),
+        )
+    }
+
+    fn request_review_with_stage_labels(
+        &mut self,
+        run_id: &str,
+        event_id: String,
         mut payload: Value,
         result_event: Option<(String, Value)>,
         now: u64,
+        kanban: Option<&KanbanSettings>,
     ) -> SqlResult<ReviewRequestStoreResult> {
         let result_event = result_event
             .map(|(id, payload)| {
@@ -1390,7 +1443,7 @@ impl WorkItemStore {
         }
         let review_stage_id =
             review_stage_id.unwrap_or_else(|| roux_core::FIRST_REVIEW_STAGE_ID.to_string());
-        add_review_stage_payload_fields(&mut payload, &review_stage_id, None);
+        add_review_stage_payload_fields(&mut payload, kanban, &review_stage_id, None);
         set_payload_string_field(&mut payload, "status", WorkItemRunStatus::Review.as_str());
         let payload = serde_json::to_string(&payload)
             .map_err(|err| rusqlite::Error::ToSqlConversionFailure(Box::new(err)))?;
@@ -1474,9 +1527,51 @@ impl WorkItemStore {
         run_id: &str,
         target_status: WorkItemStatus,
         event_id: String,
+        payload: Value,
+        feedback: Option<(String, AttachmentInput, u64, String)>,
+        now: u64,
+    ) -> SqlResult<ReviewRequestChangesStoreResult> {
+        self.request_changes_with_stage_labels(
+            run_id,
+            target_status,
+            event_id,
+            payload,
+            feedback,
+            now,
+            None,
+        )
+    }
+
+    pub fn request_changes_with_kanban_settings(
+        &mut self,
+        run_id: &str,
+        target_status: WorkItemStatus,
+        event_id: String,
+        payload: Value,
+        feedback: Option<(String, AttachmentInput, u64, String)>,
+        now: u64,
+        kanban: &KanbanSettings,
+    ) -> SqlResult<ReviewRequestChangesStoreResult> {
+        self.request_changes_with_stage_labels(
+            run_id,
+            target_status,
+            event_id,
+            payload,
+            feedback,
+            now,
+            Some(kanban),
+        )
+    }
+
+    fn request_changes_with_stage_labels(
+        &mut self,
+        run_id: &str,
+        target_status: WorkItemStatus,
+        event_id: String,
         mut payload: Value,
         feedback: Option<(String, AttachmentInput, u64, String)>,
         now: u64,
+        kanban: Option<&KanbanSettings>,
     ) -> SqlResult<ReviewRequestChangesStoreResult> {
         let feedback_document_id =
             feedback.as_ref().map(|(id, input, _, _)| attachment_document_id(&input.target_id, id));
@@ -1532,7 +1627,7 @@ impl WorkItemStore {
         }
         let review_stage_id =
             review_stage_id.unwrap_or_else(|| roux_core::FIRST_REVIEW_STAGE_ID.to_string());
-        add_review_stage_payload_fields(&mut payload, &review_stage_id, None);
+        add_review_stage_payload_fields(&mut payload, kanban, &review_stage_id, None);
         let payload = serde_json::to_string(&payload)
             .map_err(|err| rusqlite::Error::ToSqlConversionFailure(Box::new(err)))?;
         let changed = tx.execute(
@@ -1856,6 +1951,7 @@ fn option_field_changed<T: PartialEq>(present: bool, next: Option<T>, current: O
 
 fn add_review_stage_payload_fields(
     payload: &mut Value,
+    kanban: Option<&KanbanSettings>,
     review_stage_id: &str,
     next_review_stage_id: Option<&str>,
 ) {
@@ -1863,15 +1959,21 @@ fn add_review_stage_payload_fields(
     object.insert("reviewStageId".into(), Value::String(review_stage_id.to_string()));
     object.insert(
         "reviewStageLabel".into(),
-        Value::String(roux_core::review_stage_label(review_stage_id)),
+        Value::String(review_stage_label(kanban, review_stage_id)),
     );
     if let Some(next_review_stage_id) = next_review_stage_id {
         object.insert("nextReviewStageId".into(), Value::String(next_review_stage_id.to_string()));
         object.insert(
             "nextReviewStageLabel".into(),
-            Value::String(roux_core::review_stage_label(next_review_stage_id)),
+            Value::String(review_stage_label(kanban, next_review_stage_id)),
         );
     }
+}
+
+fn review_stage_label(kanban: Option<&KanbanSettings>, id: &str) -> String {
+    kanban
+        .and_then(|kanban| kanban.review_stage_label(id).map(ToOwned::to_owned))
+        .unwrap_or_else(|| roux_core::review_stage_label(id))
 }
 
 fn set_payload_string_field(payload: &mut Value, key: &str, value: &str) {
@@ -2312,6 +2414,48 @@ mod tests {
         assert_eq!(event.payload["reviewStageLabel"], "Local Review");
         assert_eq!(event.payload["nextReviewStageId"], "pr_review");
         assert_eq!(event.payload["nextReviewStageLabel"], "PR Review");
+    }
+
+    #[test]
+    fn review_event_payloads_use_custom_stage_labels() {
+        let mut kanban = roux_core::KanbanSettings::default();
+        let review_phase = kanban.workflow.phases.get_mut("review").unwrap();
+        review_phase.stages.get_mut("local_review").unwrap().label = "QA Gate".into();
+        review_phase.stages.get_mut("pr_review").unwrap().label = "Team Gate".into();
+
+        let mut store = WorkItemStore::open_in_memory().unwrap();
+        store.create("i-1".into(), input("Task"), 1000).unwrap();
+        store
+            .create_run("run-1".into(), "i-1", Some("sess-1"), None, None, None, None, 1100)
+            .unwrap();
+
+        let (_, _, event, _) = store
+            .request_review_with_kanban_settings(
+                "run-1",
+                "event-1".into(),
+                serde_json::json!({ "status": "review" }),
+                None,
+                1200,
+                &kanban,
+            )
+            .unwrap()
+            .expect("run should request review");
+
+        assert_eq!(event.payload["reviewStageLabel"], "QA Gate");
+
+        let (_, _, event) = store
+            .accept_review_with_kanban_settings(
+                "i-1",
+                "event-2".into(),
+                serde_json::json!({ "status": "done", "reason": "reviewAccepted" }),
+                1300,
+                &kanban,
+            )
+            .unwrap()
+            .expect("local review should advance");
+
+        assert_eq!(event.payload["reviewStageLabel"], "QA Gate");
+        assert_eq!(event.payload["nextReviewStageLabel"], "Team Gate");
     }
 
     #[test]

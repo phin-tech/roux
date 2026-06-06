@@ -282,7 +282,7 @@ describe("WorkItemEditor", () => {
       status: "todo",
       projectId: "proj-1",
       repoPath: null,
-      agentProfile: "claude",
+      agentProfile: null,
       worktreePath: null,
       branch: null,
       baseBranch: null,
@@ -343,7 +343,7 @@ describe("WorkItemEditor", () => {
     expect(screen.getByText("PR Review")).toBeTruthy();
   });
 
-  it("creates a new card with default repo and Claude profile", async () => {
+  it("creates a new card with default repo and workflow default profile", async () => {
     render(WorkItemEditor);
     newWorkItemEditor.set({ status: "review" });
 
@@ -359,13 +359,30 @@ describe("WorkItemEditor", () => {
       status: "review",
       projectId: null,
       repoPath: "/default/repo",
-      agentProfile: "claude",
+      agentProfile: null,
       worktreePath: null,
       branch: null,
       baseBranch: null,
       fetchFirst: null,
       sortOrder: expect.any(Number),
     });
+  });
+
+  it("persists an explicit card profile override when selected", async () => {
+    render(WorkItemEditor);
+    newWorkItemEditor.set({ status: "todo" });
+
+    await fireEvent.input(await screen.findByLabelText("Title"), {
+      target: { value: "Use Codex" },
+    });
+    await fireEvent.change(screen.getByLabelText("Spawn profile"), {
+      target: { value: "codex" },
+    });
+    await fireEvent.click(screen.getByText("Create"));
+
+    expect(createWorkItem).toHaveBeenCalledWith(
+      expect.objectContaining({ agentProfile: "codex" }),
+    );
   });
 
   it("loads repository picker options from discovered repos under configured roots", async () => {

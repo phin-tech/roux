@@ -627,14 +627,33 @@ export type IntegrationDetection = {
 };
 
 export type KanbanSettings = {
-	defaultAgentProfile?: string,
-	planningPromptAppend?: string,
-	implementationPromptAppend?: string,
-	reviewPromptAppend?: string,
 	startupSidebar?: KanbanStartupSidebar,
+	workflow?: KanbanWorkflowSettings,
+};
+
+export type KanbanReviewStageSettings = {
+	label?: string,
+	agentProfile?: string | null,
+	instructions?: string,
 };
 
 export type KanbanStartupSidebar = "restore" | "sessions" | "kanban" | "none";
+
+export type KanbanWorkflowPhaseCategory = "planning" | "implementation" | "review";
+
+export type KanbanWorkflowPhaseSettings = {
+	category?: KanbanWorkflowPhaseCategory,
+	label?: string,
+	agentProfile?: string | null,
+	instructions?: string,
+	stages?: { [key in string]?: KanbanReviewStageSettings },
+};
+
+export type KanbanWorkflowSettings = {
+	id?: string,
+	label?: string,
+	phases?: { [key in string]?: KanbanWorkflowPhaseSettings },
+};
 
 export type KeepOpen = "always" | "on-error" | "never";
 

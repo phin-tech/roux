@@ -1,15 +1,9 @@
-export interface ReviewStage {
-  id: string;
-  label: string;
-  order: number;
-}
+import type { KanbanSettings } from "$lib/bindings";
+import { reviewStageLabel as workflowStageLabel } from "./workflow";
 
-export const DEFAULT_REVIEW_STAGES: ReviewStage[] = [
-  { id: "local_review", label: "Local Review", order: 0 },
-  { id: "pr_review", label: "PR Review", order: 1 },
-];
-
-export function reviewStageLabel(id: string | null | undefined): string | null {
-  if (!id) return null;
-  return DEFAULT_REVIEW_STAGES.find((stage) => stage.id === id)?.label ?? id;
+export function reviewStageLabel(
+  id: string | null | undefined,
+  kanban?: KanbanSettings | null,
+): string | null {
+  return workflowStageLabel(id, kanban);
 }
