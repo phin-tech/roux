@@ -3,7 +3,7 @@ use roux_core::{
     Attachment, AttachmentDocument, AttachmentInput, AttachmentTargetKind, WorkItem,
     WorkItemDecision, WorkItemDecisionOption, WorkItemInput, WorkItemPlanResult,
     WorkItemReviewAcceptResult, WorkItemReviewRequestChangesResult, WorkItemReviewRequestResult,
-    WorkItemRun, WorkItemRunEvent, WorkItemStartResult, WorkItemStatus,
+    WorkItemRun, WorkItemRunEvent, WorkItemStageRunResult, WorkItemStartResult, WorkItemStatus,
 };
 
 #[derive(Debug, Default, Clone, serde::Deserialize, specta::Type)]
@@ -234,6 +234,21 @@ pub(crate) async fn work_item_plan(
             .map_err(String::from);
     }
     Err("Planning a work item requires a running daemon.".to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn work_item_run_stage(
+    id: String,
+    stage_id: Option<String>,
+    outcome: Option<String>,
+    state: tauri::State<'_, AppState>,
+) -> Result<WorkItemStageRunResult, String> {
+    if let Some(client) = state.daemon_client.clone().filter(|c| c.supports("work-item-run-stage"))
+    {
+        return client.work_item_run_stage(id, stage_id, outcome).await.map_err(String::from);
+    }
+    Err("Running a workflow stage requires a running daemon.".to_string())
 }
 
 #[tauri::command]

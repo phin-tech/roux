@@ -931,6 +931,20 @@ impl Roux {
         self.command(CommandRequest::new("work-item-plan").args(args)).await
     }
 
+    pub async fn work_item_run_stage(
+        &self,
+        id: impl Into<String>,
+        stage_id: Option<String>,
+        outcome: Option<String>,
+    ) -> RouxResult<roux_core::WorkItemStageRunResult> {
+        self.command(CommandRequest::new("work-item-run-stage").args(work_item_run_stage_args(
+            id.into(),
+            stage_id,
+            outcome,
+        )))
+        .await
+    }
+
     pub async fn work_item_review_accept(
         &self,
         id: impl Into<String>,
@@ -1310,6 +1324,21 @@ fn work_item_plan_args(
     args
 }
 
+fn work_item_run_stage_args(
+    id: String,
+    stage_id: Option<String>,
+    outcome: Option<String>,
+) -> Value {
+    let mut args = serde_json::json!({ "id": id });
+    if let Some(stage_id) = stage_id {
+        args["stageId"] = Value::String(stage_id);
+    }
+    if let Some(outcome) = outcome {
+        args["outcome"] = Value::String(outcome);
+    }
+    args
+}
+
 fn work_item_review_request_args(payload: Value) -> Value {
     match payload {
         Value::String(run_id) => serde_json::json!({ "runId": run_id }),
@@ -1550,6 +1579,19 @@ mod tests {
         assert_eq!(args["id"], "wi-1");
         assert_eq!(args["profile"], "claude");
         assert_eq!(args["replaceActive"], true);
+    }
+
+    #[test]
+    fn work_item_run_stage_args_include_optional_stage_and_outcome() {
+        let args = work_item_run_stage_args(
+            "wi-1".to_string(),
+            Some("pr_review".to_string()),
+            Some("passed".to_string()),
+        );
+
+        assert_eq!(args["id"], "wi-1");
+        assert_eq!(args["stageId"], "pr_review");
+        assert_eq!(args["outcome"], "passed");
     }
 
     #[test]
