@@ -37,7 +37,7 @@ export type RequiredWorkflowSettings = Required<
 };
 
 export type RequiredKanbanSettings = Required<
-  Pick<KanbanSettings, "startupSidebar">
+  Pick<KanbanSettings, "startupSidebar" | "workflowPath" | "workflowLoadError">
 > & {
   workflow: RequiredWorkflowSettings;
 };
@@ -53,6 +53,8 @@ const DEFAULT_PHASES: Record<WorkflowPhaseId, RequiredPhaseSettings> =
 
 export const DEFAULT_KANBAN_SETTINGS: RequiredKanbanSettings = {
   startupSidebar: "restore",
+  workflowPath: null,
+  workflowLoadError: null,
   workflow: cloneWorkflow(DEFAULT_WORKFLOW_SETTINGS),
 };
 
@@ -62,6 +64,8 @@ export function normalizeKanbanSettings(
   return {
     startupSidebar:
       kanban?.startupSidebar ?? DEFAULT_KANBAN_SETTINGS.startupSidebar,
+    workflowPath: nonEmpty(kanban?.workflowPath) ?? null,
+    workflowLoadError: nonEmpty(kanban?.workflowLoadError) ?? null,
     workflow: normalizeWorkflow(kanban?.workflow),
   };
 }

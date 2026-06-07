@@ -1,0 +1,38 @@
+{
+  "id": "personal",
+  "label": "Personal Workflow",
+  "phases": {
+    "planning": {
+      "category": "planning",
+      "label": "Planning",
+      "agentProfile": "claude",
+      "instructions": "Clarify scope, identify risks, and produce a concrete implementation plan.",
+      "stages": {}
+    },
+    "implementation": {
+      "category": "implementation",
+      "label": "Implementation",
+      "agentProfile": "codex",
+      "instructions": "Work in small commits, keep tests focused, and avoid unrelated refactors.",
+      "stages": {}
+    },
+    "review": {
+      "category": "review",
+      "label": "Review",
+      "agentProfile": null,
+      "instructions": "",
+      "stages": {
+        "local_review": {
+          "label": "Local Review",
+          "agentProfile": "claude",
+          "instructions": "Check the local diff, verify tests, and call out missing coverage."
+        },
+        "pr_review": {
+          "label": "PR Review",
+          "agentProfile": "claude",
+          "instructions": "Check CI, review comments, and whether the branch is ready to merge."
+        }
+      }
+    }
+  }
+}

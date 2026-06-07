@@ -628,6 +628,8 @@ export type IntegrationDetection = {
 
 export type KanbanSettings = {
 	startupSidebar?: KanbanStartupSidebar,
+	workflowPath?: string | null,
+	workflowLoadError?: string | null,
 	workflow?: KanbanWorkflowSettings,
 };
 

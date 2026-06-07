@@ -50,6 +50,15 @@
     });
   }
 
+  function updateWorkflowPath(path: string): void {
+    const workflowPath = path.trim();
+    updateKanban({
+      ...kanban,
+      workflowPath: workflowPath.length > 0 ? workflowPath : null,
+      workflowLoadError: null,
+    });
+  }
+
   function updatePhase(
     phaseId: WorkflowPhaseId,
     patch: Partial<KanbanWorkflowPhaseSettings>,
@@ -97,6 +106,22 @@
     value={kanban.workflow.label}
     oninput={(e) => updateWorkflowLabel(e.currentTarget.value)}
   />
+  <label
+    for="kanban-workflow-path"
+    class="mt-3 block text-[11px] uppercase tracking-wider text-text-muted"
+    >JSON file</label
+  >
+  <input
+    id="kanban-workflow-path"
+    aria-label="Workflow JSON file"
+    class="mt-1 w-full rounded border border-border bg-bg-deep px-2 py-1.5 text-xs text-text-primary outline-none focus:border-accent-dim"
+    value={kanban.workflowPath ?? ""}
+    placeholder="workflow.json"
+    oninput={(e) => updateWorkflowPath(e.currentTarget.value)}
+  />
+  {#if kanban.workflowLoadError}
+    <div class="mt-2 text-xs text-red">{kanban.workflowLoadError}</div>
+  {/if}
 </div>
 
 {#each workflowPhases as phaseInfo (phaseInfo.id)}

@@ -453,6 +453,13 @@ fn validate_default_kanban_workflow(workflow: &KanbanWorkflowSettings) -> Result
             workflow.id
         ));
     }
+    validate_kanban_workflow_runtime_shape(workflow)
+}
+
+fn validate_kanban_workflow_runtime_shape(workflow: &KanbanWorkflowSettings) -> Result<(), String> {
+    if workflow.id.trim().is_empty() {
+        return Err("workflow id must not be empty".to_string());
+    }
     if workflow.label.trim().is_empty() {
         return Err("workflow label must not be empty".to_string());
     }
@@ -517,6 +524,10 @@ fn validate_default_kanban_workflow(workflow: &KanbanWorkflowSettings) -> Result
 pub struct KanbanSettings {
     #[serde(default)]
     pub startup_sidebar: KanbanStartupSidebar,
+    #[serde(default)]
+    pub workflow_path: Option<String>,
+    #[serde(default)]
+    pub workflow_load_error: Option<String>,
     #[serde(default = "default_kanban_workflow")]
     pub workflow: KanbanWorkflowSettings,
 }
@@ -525,6 +536,8 @@ impl Default for KanbanSettings {
     fn default() -> Self {
         Self {
             startup_sidebar: KanbanStartupSidebar::Restore,
+            workflow_path: None,
+            workflow_load_error: None,
             workflow: KanbanWorkflowSettings::default(),
         }
     }
@@ -910,6 +923,8 @@ impl RouxSettings {
         if s.default_agent_profile.is_empty() {
             s.default_agent_profile = default_agent_profile();
         }
+        s.kanban.workflow_path = normalize_optional_string(&s.kanban.workflow_path);
+        s.kanban.workflow_load_error = None;
         s.kanban.workflow = normalize_kanban_workflow(&s.kanban.workflow);
         s.repo_roots = normalize_repo_roots(&s.repo_roots);
         s.library_pinned_repos = normalize_repo_roots(&s.library_pinned_repos);
@@ -972,6 +987,61 @@ impl RouxSettings {
         };
         s
     }
+}
+
+pub fn parse_kanban_workflow_json(json: &str) -> Result<KanbanWorkflowSettings, String> {
+    let workflow: KanbanWorkflowSettings =
+        serde_json::from_str::<BundledKanbanWorkflowSettings>(json)
+            .map_err(|err| format!("invalid workflow JSON: {err}"))?
+            .into();
+    validate_kanban_workflow_runtime_shape(&workflow)?;
+    Ok(normalize_kanban_workflow(&workflow))
+}
+
+pub fn load_settings_json_with_kanban_workflow<F>(
+    settings_json: &str,
+    mut load_workflow: F,
+) -> RouxSettings
+where
+    F: FnMut(&str) -> Result<String, String>,
+{
+    let settings =
+        serde_json::from_str::<RouxSettings>(settings_json).unwrap_or_default().normalized();
+    load_kanban_workflow_for_settings(settings, |path| {
+        load_workflow(path).and_then(|json| parse_kanban_workflow_json(&json))
+    })
+}
+
+pub fn load_kanban_workflow_for_settings<F>(
+    settings: RouxSettings,
+    mut load_workflow: F,
+) -> RouxSettings
+where
+    F: FnMut(&str) -> Result<KanbanWorkflowSettings, String>,
+{
+    let settings = settings.normalized();
+    let Some(path) = settings.kanban.workflow_path.as_deref() else {
+        return settings;
+    };
+    let result = load_workflow(path);
+    apply_kanban_workflow_load_result(settings, result)
+}
+
+pub fn apply_kanban_workflow_load_result(
+    settings: RouxSettings,
+    result: Result<KanbanWorkflowSettings, String>,
+) -> RouxSettings {
+    let mut settings = settings.normalized();
+    match result {
+        Ok(workflow) => {
+            settings.kanban.workflow = normalize_kanban_workflow(&workflow);
+            settings.kanban.workflow_load_error = None;
+        }
+        Err(err) => {
+            settings.kanban.workflow_load_error = Some(err);
+        }
+    }
+    settings
 }
 
 fn normalize_kanban_workflow(workflow: &KanbanWorkflowSettings) -> KanbanWorkflowSettings {
@@ -1528,6 +1598,129 @@ mod tests {
         assert!(value.get("implementationPromptAppend").is_none());
         assert!(value.get("reviewPromptAppend").is_none());
         assert!(value.get("defaultAgentProfile").is_none());
+    }
+
+    #[test]
+    fn kanban_settings_round_trips_workflow_path_without_load_error() {
+        let settings = KanbanSettings {
+            workflow_path: Some(" /tmp/roux-workflow.json ".into()),
+            workflow_load_error: Some("stale error".into()),
+            ..KanbanSettings::default()
+        };
+
+        let normalized = RouxSettings { kanban: settings, ..RouxSettings::default() }.normalized();
+        assert_eq!(normalized.kanban.workflow_path.as_deref(), Some("/tmp/roux-workflow.json"));
+        assert!(normalized.kanban.workflow_load_error.is_none());
+
+        let value = serde_json::to_value(&normalized.kanban).unwrap();
+        assert_eq!(value["workflowPath"], "/tmp/roux-workflow.json");
+        assert!(value["workflowLoadError"].is_null());
+    }
+
+    #[test]
+    fn parse_kanban_workflow_json_accepts_custom_phase_labels_agents_and_instructions() {
+        let json = r#"{
+            "id": "personal",
+            "label": "Personal",
+            "phases": {
+                "planning": {
+                    "category": "planning",
+                    "label": "Shape",
+                    "agentProfile": "claude-plan",
+                    "instructions": "Clarify scope.",
+                    "stages": {}
+                },
+                "implementation": {
+                    "category": "implementation",
+                    "label": "Build",
+                    "agentProfile": "codex",
+                    "instructions": "Keep commits small.",
+                    "stages": {}
+                },
+                "review": {
+                    "category": "review",
+                    "label": "Review",
+                    "agentProfile": "claude-review",
+                    "instructions": "",
+                    "stages": {
+                        "local_review": {
+                            "label": "Local QA",
+                            "agentProfile": null,
+                            "instructions": "Run local checks."
+                        },
+                        "pr_review": {
+                            "label": "Team Review",
+                            "agentProfile": "claude-pr",
+                            "instructions": "Check CI and review comments."
+                        }
+                    }
+                }
+            }
+        }"#;
+
+        let workflow = super::parse_kanban_workflow_json(json).unwrap();
+
+        assert_eq!(workflow.id, "personal");
+        assert_eq!(workflow.label, "Personal");
+        assert_eq!(workflow.phases["planning"].label, "Shape");
+        assert_eq!(workflow.phases["planning"].agent_profile.as_deref(), Some("claude-plan"));
+        assert_eq!(workflow.phases["implementation"].instructions, "Keep commits small.");
+        assert_eq!(workflow.phases["review"].stages["local_review"].label, "Local QA");
+        assert_eq!(
+            workflow.phases["review"].stages["pr_review"].agent_profile.as_deref(),
+            Some("claude-pr")
+        );
+    }
+
+    #[test]
+    fn example_kanban_workflow_json_matches_loader_shape() {
+        let workflow = super::parse_kanban_workflow_json(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../docs/examples/kanban-workflow.json"
+        )))
+        .unwrap();
+
+        assert_eq!(workflow.id, "personal");
+        assert_eq!(workflow.phases["planning"].agent_profile.as_deref(), Some("claude"));
+        assert_eq!(workflow.phases["implementation"].agent_profile.as_deref(), Some("codex"));
+        assert_eq!(workflow.phases["review"].stages["pr_review"].label, "PR Review");
+    }
+
+    #[test]
+    fn apply_kanban_workflow_load_result_replaces_workflow_or_records_error() {
+        let settings = RouxSettings {
+            kanban: KanbanSettings {
+                workflow_path: Some("/tmp/flow.json".into()),
+                workflow: KanbanWorkflowSettings {
+                    id: "inline".into(),
+                    label: "Inline".into(),
+                    ..KanbanWorkflowSettings::default()
+                },
+                ..KanbanSettings::default()
+            },
+            ..RouxSettings::default()
+        };
+
+        let loaded = KanbanWorkflowSettings {
+            id: "loaded".into(),
+            label: "Loaded".into(),
+            ..KanbanWorkflowSettings::default()
+        };
+        let applied =
+            super::apply_kanban_workflow_load_result(settings.clone(), Ok(loaded.clone()));
+        assert_eq!(applied.kanban.workflow.id, "loaded");
+        assert_eq!(applied.kanban.workflow.label, "Loaded");
+        assert!(applied.kanban.workflow_load_error.is_none());
+
+        let failed = super::apply_kanban_workflow_load_result(
+            settings,
+            Err("failed to load /tmp/flow.json: nope".into()),
+        );
+        assert_eq!(failed.kanban.workflow.id, "inline");
+        assert_eq!(
+            failed.kanban.workflow_load_error.as_deref(),
+            Some("failed to load /tmp/flow.json: nope")
+        );
     }
 
     #[test]
