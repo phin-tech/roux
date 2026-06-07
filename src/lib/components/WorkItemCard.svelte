@@ -23,11 +23,7 @@
   import { reviewStageLabel } from "$lib/workItems/reviewStages";
   import { worktreeMetadataFor } from "$lib/stores/worktreeMetadata";
   import { ciChipFor } from "$lib/ciIcon";
-
-  interface WorkItemStartActionOptions {
-    forceStart?: boolean;
-    fixCi?: boolean;
-  }
+  import type { WorkItemStartActionOptions } from "$lib/stores/workItems";
 
   interface Props {
     item: WorkItem;

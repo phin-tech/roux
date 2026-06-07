@@ -395,6 +395,11 @@ export interface WorkItemStartOptions {
   fixCi?: boolean | null;
 }
 
+export interface WorkItemStartActionOptions {
+  forceStart?: boolean;
+  fixCi?: boolean;
+}
+
 export async function startWorkItem(
   id: string,
   options: WorkItemStartOptions = {},

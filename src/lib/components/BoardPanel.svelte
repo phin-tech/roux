@@ -16,6 +16,7 @@
     workItemRunEvents,
     type WorkItemStatus,
     type WorkItemRun,
+    type WorkItemStartActionOptions,
   } from "$lib/stores/workItems";
   import { sessionList } from "$lib/stores/sessions";
   import type { SessionStatus } from "$lib/types";
@@ -74,11 +75,6 @@
   let deleteTarget = $state<WorkItem | null>(null);
   let deleting = $state(false);
   let deleteError = $state<string | null>(null);
-
-  interface WorkItemStartActionOptions {
-    forceStart?: boolean;
-    fixCi?: boolean;
-  }
 
   const sessionStatusMap = derived(sessionList, ($sessions) => {
     const m = new Map<string, SessionStatus>();
@@ -152,12 +148,10 @@
       if (item.status === "ready" && planningRun) {
         await stopWorkItemRun(planningRun.id);
       }
-      if (forceStart || fixCi) {
-        await startWorkItem(id, {
-          ...(forceStart ? { forceStart: true } : {}),
-          ...(fixCi ? { fixCi: true } : {}),
-        });
-      } else await startWorkItem(id);
+      await startWorkItem(id, {
+        ...(forceStart ? { forceStart: true } : {}),
+        ...(fixCi ? { fixCi: true } : {}),
+      });
     } catch (err) {
       startErrors = { ...startErrors, [id]: formatWorkItemStartError(err) };
       console.error("Failed to start work item", err);

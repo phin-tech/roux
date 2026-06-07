@@ -463,7 +463,7 @@ describe("BoardMainView", () => {
 
     await fireEvent.click(screen.getByLabelText("Approve and start work item"));
 
-    expect(startWorkItem).toHaveBeenCalledWith("wi-1");
+    expect(startWorkItem).toHaveBeenCalledWith("wi-1", {});
     expect(moveWorkItem).not.toHaveBeenCalled();
   });
 
@@ -486,7 +486,7 @@ describe("BoardMainView", () => {
 
     await fireEvent.click(screen.getByLabelText("Approve and start work item"));
 
-    expect(startWorkItem).toHaveBeenCalledWith("wi-1");
+    expect(startWorkItem).toHaveBeenCalledWith("wi-1", {});
     await vi.waitFor(() =>
       expect(screen.getByRole("alert").textContent).toContain(
         "The assigned project no longer exists.",
@@ -566,7 +566,7 @@ describe("BoardMainView", () => {
     await fireEvent.click(screen.getByLabelText("Approve and start work item"));
 
     expect(stopWorkItemRun).toHaveBeenCalledWith("run-plan");
-    expect(startWorkItem).toHaveBeenCalledWith("wi-plan");
+    expect(startWorkItem).toHaveBeenCalledWith("wi-plan", {});
   });
 
   it("offers a force start action for planning cards without attached plans", async () => {

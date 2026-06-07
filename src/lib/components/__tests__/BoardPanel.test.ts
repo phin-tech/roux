@@ -277,7 +277,7 @@ describe("BoardPanel", () => {
 
     await fireEvent.click(screen.getByLabelText("Approve and start work item"));
 
-    expect(startWorkItem).toHaveBeenCalledWith("wi-1");
+    expect(startWorkItem).toHaveBeenCalledWith("wi-1", {});
     expect(moveWorkItem).not.toHaveBeenCalled();
   });
 
@@ -308,7 +308,7 @@ describe("BoardPanel", () => {
 
     await fireEvent.click(screen.getByLabelText("Approve and start work item"));
 
-    expect(startWorkItem).toHaveBeenCalledWith("wi-1");
+    expect(startWorkItem).toHaveBeenCalledWith("wi-1", {});
     await vi.waitFor(() =>
       expect(screen.getByRole("alert").textContent).toContain(
         "The assigned project no longer exists.",
