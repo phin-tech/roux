@@ -11,6 +11,7 @@
   } from "$lib/bindings";
   import { profileList, type SpawnProfile } from "$lib/panes/profiles";
   import {
+    persistSettingsImmediately,
     settings,
     settlePendingSettingsPersist,
     updateSetting,
@@ -101,8 +102,14 @@
   ): Promise<RequiredKanbanSettings> {
     await settlePendingSettingsPersist();
     const updated = await validateKanbanWorkflow(settingsWithKanban(next));
-    settings.update((current) => ({ ...current, kanban: updated.kanban }));
-    return normalizeKanbanSettings(updated.kanban);
+    const validatedKanban = normalizeKanbanSettings(updated.kanban);
+    let merged = settingsWithKanban(validatedKanban);
+    settings.update((current) => {
+      merged = { ...current, kanban: validatedKanban };
+      return merged;
+    });
+    await persistSettingsImmediately(merged);
+    return validatedKanban;
   }
 
   async function browseWorkflowJson(): Promise<void> {

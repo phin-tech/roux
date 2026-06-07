@@ -72,6 +72,18 @@ export async function settlePendingSettingsPersist(): Promise<void> {
   await settingsPersistChain;
 }
 
+export async function persistSettingsImmediately(
+  updated: RouxSettings,
+): Promise<void> {
+  cancelPendingSettingsPersist();
+  await settingsPersistChain;
+  const persist = persistSettingsDraft(updated);
+  settingsPersistChain = persist.catch((error) => {
+    console.error("settings persist failed", error);
+  });
+  await persist;
+}
+
 export function setDefaultAgentProfile(profileId: string): void {
   updateSettingsDraft((s) => ({
     ...s,

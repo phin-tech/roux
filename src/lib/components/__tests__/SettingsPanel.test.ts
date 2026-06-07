@@ -154,7 +154,11 @@ import { commands } from "$lib/bindings";
 import { open } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import SettingsPanel from "../SettingsPanel.svelte";
-import { settings, settlePendingSettingsPersist } from "$lib/stores/settings";
+import {
+  settings,
+  settlePendingSettingsPersist,
+  updateSetting,
+} from "$lib/stores/settings";
 import { settingsFocus } from "$lib/stores/settingsFocus";
 import {
   createKanbanWorkflowExample,
@@ -333,10 +337,7 @@ describe("SettingsPanel Kanban tab", () => {
     await waitFor(() => {
       expect(validateKanbanWorkflow).toHaveBeenCalled();
     });
-    settings.update((current) => ({
-      ...current,
-      defaultAgentProfile: "codex",
-    }));
+    updateSetting("defaultAgentProfile", "codex");
 
     resolveValidation();
     await click;
@@ -345,6 +346,20 @@ describe("SettingsPanel Kanban tab", () => {
       expect(get(settings).kanban?.workflowPath).toBe("kanban-workflow.json");
     });
     expect(get(settings).defaultAgentProfile).toBe("codex");
+
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    const lastSave = vi.mocked(updateSettings).mock.calls.at(-1)?.[0];
+    expect(lastSave?.defaultAgentProfile).toBe("codex");
+    expect(lastSave?.kanban?.workflowPath).toBe("kanban-workflow.json");
+    expect(
+      vi
+        .mocked(updateSettings)
+        .mock.calls.some(
+          ([saved]) =>
+            saved.defaultAgentProfile === "codex" &&
+            saved.kanban?.workflowPath !== "kanban-workflow.json",
+        ),
+    ).toBe(false);
   });
 
   it("cancels stale debounced path saves before validated workflow actions", async () => {
@@ -361,7 +376,11 @@ describe("SettingsPanel Kanban tab", () => {
     });
     await new Promise((resolve) => setTimeout(resolve, 600));
 
-    expect(updateSettings).not.toHaveBeenCalled();
+    const savedWorkflowPaths = vi
+      .mocked(updateSettings)
+      .mock.calls.map(([saved]) => saved.kanban?.workflowPath ?? null);
+    expect(savedWorkflowPaths).not.toContain("draft-workflow.json");
+    expect(savedWorkflowPaths.at(-1)).toBe("kanban-workflow.json");
   });
 
   it("waits for in-flight debounced saves before validated workflow actions", async () => {
@@ -396,6 +415,11 @@ describe("SettingsPanel Kanban tab", () => {
 
     await waitFor(() => {
       expect(validateKanbanWorkflow).toHaveBeenCalled();
+    });
+    await waitFor(() => {
+      expect(
+        vi.mocked(updateSettings).mock.calls.at(-1)?.[0].kanban?.workflowPath,
+      ).toBe("kanban-workflow.json");
     });
   });
 
