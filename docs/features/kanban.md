@@ -22,22 +22,30 @@ workspace and launches the agent with the planning prompt without moving the
 card or binding its implementation session. If the planning run is stale,
 **Retry planning** stops the active planning run and starts a fresh one.
 
-Settings -> Kanban controls the default autonomous agent profile, optional
-extra instructions appended to planning/implementation/review prompts, and the
-sidebar opened at launch.
+Settings -> Kanban controls the default autonomous agent profile, workflow
+stage labels, stage action button labels, optional phase/stage instructions,
+and the sidebar opened at launch.
 
 Settings -> Kanban can also point at a workflow JSON file. Use the settings
 panel to browse to a JSON file, validate the current path, reveal Roux's config
-directory, or copy a starter `kanban-workflow.json` there. Relative paths
-resolve from Roux's config directory, next to `settings.json`. In v1, custom
-JSON can rename the fixed high-level phases, assign phase/stage agent profiles,
-and provide phase/stage instructions. The runtime still expects the fixed phase
-ids `planning`, `implementation`, and `review`; review gates remain grouped
-under `review.stages.local_review` and `review.stages.pr_review`. While a JSON
-file is selected, the inline workflow fields in Settings are read-only; clear
-the JSON path to edit inline settings again.
+directory, copy a starter `kanban-workflow.json` there, or save the currently
+authored workflow back to the selected JSON path. Relative paths resolve from
+Roux's config directory, next to `settings.json`.
+
+The board always uses the fixed high-level columns `todo`, `planning`,
+`doing`, `review`, and `done`. Workflows group concrete stages inside those
+columns. The bundled workflow includes `todo`, `planning`, `implementation`,
+`fix_ci`, `local_review`, `pr_review`, and `done`. Stages can define labels,
+short button labels, phase/stage instructions, agent runners, command runners,
+manual gates, command gates, environment, and explicit transitions.
 
 See [example Kanban workflow JSON](../examples/kanban-workflow.json).
+
+Cards show their current workflow stage and a stage action button. Agent stages
+start the configured agent run. Manual stages and gates complete immediately
+from the UI. Command stages and command gates run in the daemon, record stdout
+and stderr previews in run history, and block loudly on failure so the workflow
+JSON can be fixed.
 
 After a card has an active or previous run, the card shows **Open terminal**
 instead of **Start**. Opening the terminal attaches to the latest linked session;
@@ -45,7 +53,7 @@ it does not create another run by itself. Starting again creates a separate run
 history entry rather than overwriting the prior attempt.
 
 If start fails before prompt dispatch completes, the card stays in **Todo** or
-**Ready**, records a visible `startError`, and preserves any created
+**Planning**, records a visible `startError`, and preserves any created
 session/worktree for inspection or retry.
 
 Run history is persisted under the card and survives closing and reopening Roux.
@@ -96,7 +104,7 @@ The human CLI wraps the daemon work-item commands:
 roux work-item list
 roux work-item create "Fix login" --project <project-id> --agent-profile claude --repo-path /path/to/repo
 roux work-item plan <card-id>
-roux work-item move <card-id> ready
+roux work-item move <card-id> planning
 roux work-item start <card-id>
 roux work-item review request <run-id> --summary "Implemented retry coverage" --test "npm run test" --changed-file src/lib/retry.ts
 roux work-item review request-changes <run-id-or-card-id> --note "Add the missing retry coverage"

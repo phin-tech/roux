@@ -674,17 +674,19 @@ to one project. By default archived cards are hidden; pass
 `args.includeArchived` / `args.include_archived` to include cards with
 `archivedAt` set.
 
-Returned `WorkItem` objects include `reviewStageId` when a card is in or
-returning to a review gate. Current built-in review stages are `local_review`
-(`Local Review`) and `pr_review` (`PR Review`).
+Returned `WorkItem` objects include `workflowId`, `workflowStageId`, and
+`workflowStageLabel` snapshots for the card's current workflow position. The
+legacy `reviewStageId` is still present for review-package compatibility while
+review handoff code is migrated.
 
 `work-item-create`
 
 Requires `args.title`. Optional: `args.body`, `args.status` (default `"todo"`),
 `args.projectId`, `args.parentId`, `args.sortOrder`, `args.repoPath`,
 `args.agentProfile`, `args.baseBranch`, `args.worktreePath`, `args.branch`
-(also accepted as `worktreeBranch` / `worktree_branch`), and `args.fetchFirst`
-(also accepted as `fetch_first`). Returns the created item.
+(also accepted as `worktreeBranch` / `worktree_branch`), `args.fetchFirst`
+(also accepted as `fetch_first`), `args.workflowId`, `args.workflowStageId`,
+and `args.workflowStageLabel`. Returns the created item.
 
 `work-item-update`
 
@@ -700,10 +702,9 @@ Requires `args.id` and `args.status`. Optional `args.sortOrder` (defaults to
 current `Date.now()` milliseconds when called from the frontend). Moves the
 card to the target column. Returns the updated item.
 
-Valid `status` values: `"todo"`, `"ready"`, `"doing"`, `"review"`, `"done"`.
-Moving a card to `review` assigns `reviewStageId: "local_review"` if the card
-does not already have a review stage. Moving a card to `done` clears
-`reviewStageId`.
+Valid `status` values: `"todo"`, `"planning"`, `"doing"`, `"review"`, and
+`"done"`. Moving a card also assigns the default workflow stage for that
+column: `todo`, `planning`, `implementation`, `local_review`, or `done`.
 
 `work-item-delete`
 
@@ -754,6 +755,34 @@ Planning profile resolution is request `profile`, then
 `settings.defaultAgentProfile`. The generated planning prompt includes
 `settings.kanban.workflow.phases.planning.instructions` when configured.
 
+`work-item-run-stage`
+
+Daemon-owned workflow stage action. Requires `args.id`. Optional:
+`args.stageId` / `stage_id` overrides the card's current `workflowStageId`, and
+`args.outcome` can drive manual stages/gates. Supported manual outcomes are
+`complete`, `passed`, `failed`, and `changesRequested`.
+
+If the target stage has an agent runner, the daemon delegates to
+`work-item-plan` for planning stages or `work-item-start` for other work
+stages. The `fix_ci` stage automatically starts in `fixCi` mode. The response
+is:
+
+```json
+{
+  "item": {},
+  "run": {},
+  "outcome": "started|complete|passed|failed|changesRequested"
+}
+```
+
+Manual stages and manual gates create a run, record workflow lifecycle events,
+apply the configured transition for the selected outcome, and return the run
+result. Command runners/gates execute in the daemon with merged environment
+from workflow, phase, and stage settings. Command cwd can be `worktree`,
+`project`, `repo`, or `none`; stdout and stderr previews are recorded in run
+events. A failing command marks the run failed and applies the stage's failure
+transition if configured.
+
 `work-item-start`
 
 Daemon-owned autonomous Start action. Requires `args.id`. Optional args:
@@ -769,9 +798,9 @@ silently downgrading to a normal start.
 The daemon rejects archived cards, cards that already have an active run, and
 cards without a repo path or project repo to derive from. Restore archived cards
 before starting them. Start profile resolution is request `profile`, then card
-`agentProfile`, then `settings.kanban.workflow.phases.implementation.agentProfile`,
-then the global `settings.defaultAgentProfile`. Plain-shell and type-only
-profiles are not valid Start profiles.
+`agentProfile`, then the implementation stage/doing phase agent profile, then
+the global `settings.defaultAgentProfile`. Plain-shell and type-only profiles
+are not valid Start profiles.
 
 On success for an unbound card, the daemon creates or reuses the card's
 dedicated worktree, creates a daemon session/PTY, creates a `starting`
@@ -792,7 +821,7 @@ to `doing`, clears `startError`, and returns:
 The generated implementation prompt includes the newest plan-like attached
 document when one exists, preferring work-item attachments whose title or source
 filename contains `plan`. It also includes
-`settings.kanban.workflow.phases.implementation.instructions` when configured.
+doing phase and implementation stage instructions when configured.
 The review handoff prompt includes the active review stage's instructions from
 `settings.kanban.workflow.phases.review.stages`; cards with no stored review
 stage use `local_review`. The handoff tells the agent to request review with
@@ -832,7 +861,8 @@ returns:
 
 This is the preferred explicit handoff for implementation agents. The daemon
 also keeps the successful PTY-exit fallback for implementation runs.
-Review status-change events include `reviewStageId` and `reviewStageLabel`.
+Review status-change events include `reviewStageId`, `reviewStageLabel`,
+`workflowStageId`, and `workflowStageLabel`.
 
 `work-item-review-request-changes`
 
@@ -840,15 +870,15 @@ Daemon-owned review feedback request. Requires a review target and a non-empty
 `args.note`. The target can be `args.runId` / `run_id`, or `args.id` /
 `workItemId` / `work_item_id`; item ids resolve to the latest implementation
 run currently in review. Optional `args.status` / `targetStatus` can be
-`doing` or `ready` and defaults to `doing`.
+`doing` or `planning` and defaults to `doing`.
 
 The daemon validates that the target run is an implementation run in `review`,
 attaches the note to the card as a text/markdown work-item document titled
 `Review feedback`, moves the run to `changesRequested`, clears the card's
 active `sessionId`, moves the card to the requested target status, appends a
 status-change event with `reason: "changesRequested"` and
-`feedbackDocumentId`, preserves the current `reviewStageId` for the next fix
-loop, and returns:
+`feedbackDocumentId`, preserves the current review/workflow stage for the next
+fix loop, and returns:
 
 ```json
 {
@@ -871,8 +901,8 @@ implementation run and appends a status-change event with
 If the card is in `local_review`, accept advances the card to `pr_review`,
 keeps the run in `review`, and leaves the linked implementation session
 available for the next review gate. If the card is in `pr_review`, accept moves
-the run to `done`, moves the card to `done`, clears `reviewStageId`, archives
-the linked implementation session, and returns:
+the run to `done`, moves the card to `done`, clears the active review gate,
+archives the linked implementation session, and returns:
 
 ```json
 {
@@ -882,9 +912,9 @@ the linked implementation session, and returns:
 ```
 
 If the card has no implementation run in review, the daemon returns an error.
-Review acceptance events include `reviewStageId`, `reviewStageLabel`, and, when
-acceptance advances to another review gate, `nextReviewStageId` and
-`nextReviewStageLabel`.
+Review acceptance events include `reviewStageId`, `reviewStageLabel`,
+`workflowStageId`, `workflowStageLabel`, and, when acceptance advances to
+another review gate, `nextReviewStageId` and `nextReviewStageLabel`.
 
 `work-item-runs-list`
 
@@ -977,7 +1007,7 @@ Bulk import. Requires either `args.items` (inline JSON array) or `args.path`
 {
   "title": "required",
   "body": "optional",
-  "status": "todo|ready|doing|review|done",
+  "status": "todo|planning|doing|review|done",
   "projectId": "optional",
   "externalRef": { "provider": "gh", "externalId": "123", "url": "optional" },
   "parentExternalId": "100"
