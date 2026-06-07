@@ -34,7 +34,7 @@ pub fn load_settings() -> RouxSettings {
 
 fn load_settings_from_path(path: &Path) -> RouxSettings {
     if path.exists() {
-        let content = fs::read_to_string(&path).unwrap_or_default();
+        let content = fs::read_to_string(path).unwrap_or_default();
         roux_core::load_settings_json_with_kanban_workflow(&content, |workflow_path| {
             let resolved = resolve_workflow_path(path, workflow_path);
             fs::read_to_string(&resolved).map_err(|err| {
