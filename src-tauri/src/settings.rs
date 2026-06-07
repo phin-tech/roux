@@ -37,9 +37,9 @@ fn load_settings_from_path(path: &Path) -> RouxSettings {
         let content = fs::read_to_string(path).unwrap_or_default();
         roux_core::load_settings_json_with_kanban_workflow(&content, |workflow_path| {
             let resolved = resolve_workflow_path(path, workflow_path);
-            fs::read_to_string(&resolved).map_err(|err| {
-                format!("failed to read workflow JSON {}: {err}", resolved.display())
-            })
+            let content = fs::read_to_string(&resolved)
+                .map_err(|err| roux_core::WorkflowLoadError::read(&resolved, err))?;
+            roux_core::parse_kanban_workflow_json(&content).map_err(|err| err.with_path(&resolved))
         })
     } else {
         RouxSettings::default()
@@ -51,9 +51,8 @@ pub fn load_kanban_workflow_for_settings(settings: RouxSettings) -> RouxSettings
     roux_core::load_kanban_workflow_for_settings(settings, |workflow_path| {
         let resolved = resolve_workflow_path(&path, workflow_path);
         let content = fs::read_to_string(&resolved)
-            .map_err(|err| format!("failed to read workflow JSON {}: {err}", resolved.display()))?;
-        roux_core::parse_kanban_workflow_json(&content)
-            .map_err(|err| format!("failed to load workflow JSON {}: {err}", resolved.display()))
+            .map_err(|err| roux_core::WorkflowLoadError::read(&resolved, err))?;
+        roux_core::parse_kanban_workflow_json(&content).map_err(|err| err.with_path(&resolved))
     })
 }
 
@@ -209,5 +208,22 @@ mod tests {
         assert_eq!(settings.kanban.workflow.id, "inline");
         assert_eq!(settings.kanban.planning_instructions(), "Inline planning.");
         assert!(settings.kanban.workflow_load_error.as_deref().unwrap().contains("missing.json"));
+    }
+
+    #[test]
+    fn load_settings_from_path_reports_external_parse_errors_with_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let settings_path = dir.path().join("settings.json");
+        let workflow_path = dir.path().join("workflow.json");
+        fs::write(&workflow_path, "{ nope").unwrap();
+        let mut persisted = RouxSettings::default();
+        persisted.kanban.workflow_path = Some("workflow.json".into());
+        fs::write(&settings_path, serde_json::to_string_pretty(&persisted).unwrap()).unwrap();
+
+        let settings = super::load_settings_from_path(&settings_path);
+        let error = settings.kanban.workflow_load_error.unwrap();
+
+        assert!(error.contains("workflow.json"));
+        assert!(error.contains("invalid workflow JSON"));
     }
 }

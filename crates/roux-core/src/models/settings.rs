@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
+use std::path::Path;
+use thiserror::Error;
 
 use super::profile::{ProfileSource, SpawnProfile, TerminalEnvRule};
 
@@ -989,12 +991,40 @@ impl RouxSettings {
     }
 }
 
-pub fn parse_kanban_workflow_json(json: &str) -> Result<KanbanWorkflowSettings, String> {
+#[derive(Debug, Error)]
+pub enum WorkflowLoadError {
+    #[error("invalid workflow JSON: {0}")]
+    InvalidJson(String),
+    #[error("{0}")]
+    InvalidWorkflow(String),
+    #[error("failed to read workflow JSON {path}: {message}")]
+    Read { path: String, message: String },
+    #[error("failed to load workflow JSON {path}: {source}")]
+    Load { path: String, source: Box<WorkflowLoadError> },
+}
+
+impl WorkflowLoadError {
+    pub fn read(path: impl AsRef<Path>, source: impl std::fmt::Display) -> Self {
+        Self::Read { path: path.as_ref().display().to_string(), message: source.to_string() }
+    }
+
+    pub fn with_path(self, path: impl AsRef<Path>) -> Self {
+        match self {
+            Self::Read { .. } | Self::Load { .. } => self,
+            source => {
+                Self::Load { path: path.as_ref().display().to_string(), source: Box::new(source) }
+            }
+        }
+    }
+}
+
+pub fn parse_kanban_workflow_json(json: &str) -> Result<KanbanWorkflowSettings, WorkflowLoadError> {
     let workflow: KanbanWorkflowSettings =
         serde_json::from_str::<BundledKanbanWorkflowSettings>(json)
-            .map_err(|err| format!("invalid workflow JSON: {err}"))?
+            .map_err(|err| WorkflowLoadError::InvalidJson(err.to_string()))?
             .into();
-    validate_kanban_workflow_runtime_shape(&workflow)?;
+    validate_kanban_workflow_runtime_shape(&workflow)
+        .map_err(WorkflowLoadError::InvalidWorkflow)?;
     Ok(normalize_kanban_workflow(&workflow))
 }
 
@@ -1003,13 +1033,10 @@ pub fn load_settings_json_with_kanban_workflow<F>(
     mut load_workflow: F,
 ) -> RouxSettings
 where
-    F: FnMut(&str) -> Result<String, String>,
+    F: FnMut(&str) -> Result<KanbanWorkflowSettings, WorkflowLoadError>,
 {
-    let settings =
-        serde_json::from_str::<RouxSettings>(settings_json).unwrap_or_default().normalized();
-    load_kanban_workflow_for_settings(settings, |path| {
-        load_workflow(path).and_then(|json| parse_kanban_workflow_json(&json))
-    })
+    let settings = serde_json::from_str::<RouxSettings>(settings_json).unwrap_or_default();
+    load_kanban_workflow_for_settings(settings, |path| load_workflow(path))
 }
 
 pub fn load_kanban_workflow_for_settings<F>(
@@ -1017,7 +1044,7 @@ pub fn load_kanban_workflow_for_settings<F>(
     mut load_workflow: F,
 ) -> RouxSettings
 where
-    F: FnMut(&str) -> Result<KanbanWorkflowSettings, String>,
+    F: FnMut(&str) -> Result<KanbanWorkflowSettings, WorkflowLoadError>,
 {
     let settings = settings.normalized();
     let Some(path) = settings.kanban.workflow_path.as_deref() else {
@@ -1029,16 +1056,16 @@ where
 
 pub fn apply_kanban_workflow_load_result(
     settings: RouxSettings,
-    result: Result<KanbanWorkflowSettings, String>,
+    result: Result<KanbanWorkflowSettings, WorkflowLoadError>,
 ) -> RouxSettings {
-    let mut settings = settings.normalized();
+    let mut settings = settings;
     match result {
         Ok(workflow) => {
             settings.kanban.workflow = normalize_kanban_workflow(&workflow);
             settings.kanban.workflow_load_error = None;
         }
         Err(err) => {
-            settings.kanban.workflow_load_error = Some(err);
+            settings.kanban.workflow_load_error = Some(err.to_string());
         }
     }
     settings
@@ -1714,7 +1741,9 @@ mod tests {
 
         let failed = super::apply_kanban_workflow_load_result(
             settings,
-            Err("failed to load /tmp/flow.json: nope".into()),
+            Err(super::WorkflowLoadError::InvalidWorkflow(
+                "failed to load /tmp/flow.json: nope".into(),
+            )),
         );
         assert_eq!(failed.kanban.workflow.id, "inline");
         assert_eq!(

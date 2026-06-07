@@ -2060,9 +2060,9 @@ fn load_daemon_settings() -> roux_core::RouxSettings {
         let content = std::fs::read_to_string(&path).unwrap_or_default();
         roux_core::load_settings_json_with_kanban_workflow(&content, |workflow_path| {
             let resolved = resolve_settings_relative_path(&path, workflow_path);
-            std::fs::read_to_string(&resolved).map_err(|err| {
-                format!("failed to read workflow JSON {}: {err}", resolved.display())
-            })
+            let content = std::fs::read_to_string(&resolved)
+                .map_err(|err| roux_core::WorkflowLoadError::read(&resolved, err))?;
+            roux_core::parse_kanban_workflow_json(&content).map_err(|err| err.with_path(&resolved))
         })
     } else {
         roux_core::RouxSettings::default()

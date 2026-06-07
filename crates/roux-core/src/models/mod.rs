@@ -52,8 +52,8 @@ pub use settings::{
     KanbanReviewStageSettings, KanbanSettings, KanbanStartupSidebar, KanbanWorkflowPhaseCategory,
     KanbanWorkflowPhaseSettings, KanbanWorkflowSettings, LibrarySource, LibrarySourceKind,
     RouxSettings, SkillSyncMode, SplitProfileBehavior, StartupTarget, StatusBarPosition,
-    TabPosition, TerminalDefaults, UpdateChannel, WorktreeCleanupMode, WorktreeDefaultBase,
-    WorktreeProvider,
+    TabPosition, TerminalDefaults, UpdateChannel, WorkflowLoadError, WorktreeCleanupMode,
+    WorktreeDefaultBase, WorktreeProvider,
 };
 pub use subscription::{BusSubscription, BusSubscriptionEvent};
 pub use task::{KeepOpen, TaskDefinition, TaskGroup};

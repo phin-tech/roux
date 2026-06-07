@@ -292,12 +292,14 @@
     </button>
   </div>
   {#if workflowActionError}
-    <div class="mt-2 text-xs text-red">{workflowActionError}</div>
+    <div class="mt-2 text-xs text-red" role="alert">{workflowActionError}</div>
   {:else if workflowActionStatus}
     <div class="mt-2 text-xs text-text-muted">{workflowActionStatus}</div>
   {/if}
   {#if kanban.workflowLoadError}
-    <div class="mt-2 text-xs text-red">{kanban.workflowLoadError}</div>
+    <div class="mt-2 text-xs text-red" role="alert">
+      {kanban.workflowLoadError}
+    </div>
   {/if}
   {#if isFileBackedWorkflow}
     <div class="mt-2 text-xs text-text-muted">
