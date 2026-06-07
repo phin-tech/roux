@@ -63,8 +63,8 @@ use work_items::{
     handle_work_item_move, handle_work_item_plan, handle_work_item_restore,
     handle_work_item_review_accept, handle_work_item_review_request,
     handle_work_item_review_request_changes, handle_work_item_run_events,
-    handle_work_item_run_stop, handle_work_item_runs_list, handle_work_item_start,
-    handle_work_item_update, schedule_pending_work_item_decision_timeouts,
+    handle_work_item_run_stage, handle_work_item_run_stop, handle_work_item_runs_list,
+    handle_work_item_start, handle_work_item_update, schedule_pending_work_item_decision_timeouts,
 };
 
 const DEFAULT_LATEST_OUTPUT_BYTES: usize = 8 * 1024;
@@ -283,6 +283,7 @@ async fn handle_request_with_watch_runner(
         "work-item-detach-session" => handle_work_item_detach_session(req, host).await,
         "work-item-plan" => handle_work_item_plan(req, host, identity).await,
         "work-item-start" => handle_work_item_start(req, host, identity).await,
+        "work-item-run-stage" => handle_work_item_run_stage(req, host, identity).await,
         "work-item-review-accept" => handle_work_item_review_accept(req, host).await,
         "work-item-review-request" => handle_work_item_review_request(req, host).await,
         "work-item-review-request-changes" => {

@@ -2,6 +2,7 @@ use serde::Serialize;
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
+use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::io::AsyncWriteExt;
 
@@ -1093,6 +1094,250 @@ async fn stop_planning_run_for_replacement(
     Ok(())
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WorkflowStageOutcome {
+    Complete,
+    Passed,
+    Failed,
+    ChangesRequested,
+}
+
+impl WorkflowStageOutcome {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Complete => "complete",
+            Self::Passed => "passed",
+            Self::Failed => "failed",
+            Self::ChangesRequested => "changes_requested",
+        }
+    }
+}
+
+fn manual_stage_outcome(args: &serde_json::Value) -> Option<WorkflowStageOutcome> {
+    optional_string_arg(args, &["outcome"]).and_then(|outcome| match outcome.as_str() {
+        "complete" | "completed" => Some(WorkflowStageOutcome::Complete),
+        "pass" | "passed" => Some(WorkflowStageOutcome::Passed),
+        "fail" | "failed" => Some(WorkflowStageOutcome::Failed),
+        "changes_requested" | "changesRequested" | "request_changes" | "requestChanges" => {
+            Some(WorkflowStageOutcome::ChangesRequested)
+        }
+        _ => None,
+    })
+}
+
+fn stage_agent_profile<'a>(
+    stage: &'a roux_core::KanbanWorkflowStageSettings,
+    phase: &'a roux_core::KanbanWorkflowPhaseSettings,
+) -> Option<&'a str> {
+    stage
+        .agent_profile
+        .as_deref()
+        .or_else(|| match &stage.runner {
+            Some(roux_core::KanbanWorkflowRunnerSettings::Agent { agent_profile }) => {
+                agent_profile.as_deref()
+            }
+            _ => None,
+        })
+        .or(phase.agent_profile.as_deref())
+        .map(str::trim)
+        .filter(|profile| !profile.is_empty())
+}
+
+fn merge_object_string_arg(args: &mut serde_json::Value, key: &str, value: &str) {
+    if !args.is_object() {
+        *args = serde_json::Value::Object(serde_json::Map::new());
+    }
+    if let Some(object) = args.as_object_mut() {
+        object.insert(key.to_string(), serde_json::Value::String(value.to_string()));
+    }
+}
+
+fn merge_object_bool_arg(args: &mut serde_json::Value, key: &str, value: bool) {
+    if !args.is_object() {
+        *args = serde_json::Value::Object(serde_json::Map::new());
+    }
+    if let Some(object) = args.as_object_mut() {
+        object.insert(key.to_string(), serde_json::Value::Bool(value));
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_workflow_command(
+    host: &RuntimeHost,
+    item: &roux_core::WorkItem,
+    workflow: &roux_core::KanbanWorkflowSettings,
+    phase: &roux_core::KanbanWorkflowPhaseSettings,
+    stage: &roux_core::KanbanWorkflowStageSettings,
+    command: &str,
+    args: &[String],
+    cwd: roux_core::KanbanWorkflowCommandCwd,
+    run_id: &str,
+) -> Result<WorkflowStageOutcome, Response> {
+    let cwd_path = resolve_workflow_command_cwd(item, cwd)?;
+    let started = SystemTime::now();
+    let output = Command::new(command)
+        .args(args)
+        .current_dir(&cwd_path)
+        .envs(workflow.env.iter())
+        .envs(phase.env.iter())
+        .envs(stage.env.iter())
+        .output()
+        .map_err(|err| {
+            Response::err(format!("workflow command {command:?} failed to start: {err}"))
+        })?;
+    let duration_ms = started.elapsed().map(|d| d.as_millis() as u64).unwrap_or(0);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout_preview = truncate_preview(&stdout, 16 * 1024);
+    let stderr_preview = truncate_preview(&stderr, 16 * 1024);
+    let exit_code = output.status.code();
+    let _ = host.work_item_handle.append_run_event(
+        run_id,
+        roux_core::WorkItemRunEventKind::Result,
+        serde_json::json!({
+            "stage": "workflowCommandFinished",
+            "command": command,
+            "args": args,
+            "cwd": cwd_path.to_string_lossy(),
+            "exitCode": exit_code,
+            "success": output.status.success(),
+            "durationMs": duration_ms,
+            "stdoutPreview": stdout_preview,
+            "stderrPreview": stderr_preview,
+            "truncated": stdout.len() > 16 * 1024 || stderr.len() > 16 * 1024,
+        }),
+    );
+    Ok(if output.status.success() {
+        if stage.kind == roux_core::KanbanWorkflowStageKind::Gate {
+            WorkflowStageOutcome::Passed
+        } else {
+            WorkflowStageOutcome::Complete
+        }
+    } else {
+        WorkflowStageOutcome::Failed
+    })
+}
+
+fn resolve_workflow_command_cwd(
+    item: &roux_core::WorkItem,
+    cwd: roux_core::KanbanWorkflowCommandCwd,
+) -> Result<PathBuf, Response> {
+    match cwd {
+        roux_core::KanbanWorkflowCommandCwd::Worktree => item
+            .worktree_path
+            .as_deref()
+            .or(item.repo_path.as_deref())
+            .map(PathBuf::from)
+            .ok_or_else(|| {
+                Response::err("workflow command cwd worktree requires worktreePath or repoPath")
+            }),
+        roux_core::KanbanWorkflowCommandCwd::Project
+        | roux_core::KanbanWorkflowCommandCwd::Repo => item
+            .repo_path
+            .as_deref()
+            .or(item.worktree_path.as_deref())
+            .map(PathBuf::from)
+            .ok_or_else(|| Response::err("workflow command cwd requires repoPath or worktreePath")),
+        roux_core::KanbanWorkflowCommandCwd::None => std::env::current_dir()
+            .map_err(|err| Response::err(format!("failed to resolve daemon cwd: {err}"))),
+    }
+}
+
+fn truncate_preview(value: &str, max_bytes: usize) -> String {
+    if value.len() <= max_bytes {
+        return value.to_string();
+    }
+    let mut end = max_bytes;
+    while !value.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}...", &value[..end])
+}
+
+fn workflow_stage_snapshot(
+    workflow: &roux_core::KanbanWorkflowSettings,
+    phase_id: &str,
+    phase: &roux_core::KanbanWorkflowPhaseSettings,
+    stage_id: &str,
+    stage: &roux_core::KanbanWorkflowStageSettings,
+) -> serde_json::Value {
+    serde_json::json!({
+        "workflowId": workflow.id,
+        "workflowLabel": workflow.label,
+        "phaseId": phase_id,
+        "phaseLabel": phase.label,
+        "stageId": stage_id,
+        "stageLabel": stage.label,
+        "stageKind": stage.kind,
+        "category": stage.category,
+        "prompt": stage.prompt,
+        "runner": stage.runner,
+        "gate": stage.gate,
+        "envKeys": {
+            "workflow": workflow.env.keys().collect::<Vec<_>>(),
+            "phase": phase.env.keys().collect::<Vec<_>>(),
+            "stage": stage.env.keys().collect::<Vec<_>>(),
+        },
+        "transitions": stage.transitions,
+    })
+}
+
+fn apply_workflow_transition(
+    host: &RuntimeHost,
+    workflow: &roux_core::KanbanWorkflowSettings,
+    item: &roux_core::WorkItem,
+    stage: &roux_core::KanbanWorkflowStageSettings,
+    outcome: WorkflowStageOutcome,
+) -> Result<Option<roux_core::WorkItem>, Response> {
+    let target = match outcome {
+        WorkflowStageOutcome::Complete => stage.transitions.on_complete.as_deref(),
+        WorkflowStageOutcome::Passed => stage.transitions.on_passed.as_deref(),
+        WorkflowStageOutcome::Failed => stage.transitions.on_failed.as_deref(),
+        WorkflowStageOutcome::ChangesRequested => stage.transitions.on_changes_requested.as_deref(),
+    };
+    let Some(target_stage_id) = target else {
+        return Ok(None);
+    };
+    let Some((_phase_id, _phase, target_stage)) =
+        roux_core::workflow_stage(workflow, target_stage_id)
+    else {
+        return Err(Response::err(format!(
+            "workflow transition target {target_stage_id:?} not found"
+        )));
+    };
+    host.work_item_handle
+        .move_to_workflow_stage(
+            &item.id,
+            workflow_status_for_category(target_stage.category),
+            &workflow.id,
+            target_stage_id,
+            &target_stage.label,
+        )
+        .map_err(Response::err)
+}
+
+fn workflow_status_for_category(
+    category: roux_core::KanbanWorkflowPhaseCategory,
+) -> roux_core::WorkItemStatus {
+    match category {
+        roux_core::KanbanWorkflowPhaseCategory::Todo => roux_core::WorkItemStatus::Todo,
+        roux_core::KanbanWorkflowPhaseCategory::Planning => roux_core::WorkItemStatus::Planning,
+        roux_core::KanbanWorkflowPhaseCategory::Doing => roux_core::WorkItemStatus::Doing,
+        roux_core::KanbanWorkflowPhaseCategory::Review => roux_core::WorkItemStatus::Review,
+        roux_core::KanbanWorkflowPhaseCategory::Done => roux_core::WorkItemStatus::Done,
+    }
+}
+
+fn default_stage_id_for_status(status: &roux_core::WorkItemStatus) -> &'static str {
+    match status {
+        roux_core::WorkItemStatus::Todo => roux_core::KANBAN_STAGE_TODO,
+        roux_core::WorkItemStatus::Planning => roux_core::KANBAN_STAGE_PLANNING,
+        roux_core::WorkItemStatus::Doing => roux_core::KANBAN_STAGE_IMPLEMENTATION,
+        roux_core::WorkItemStatus::Review => roux_core::FIRST_REVIEW_STAGE_ID,
+        roux_core::WorkItemStatus::Done => roux_core::KANBAN_STAGE_DONE,
+    }
+}
+
 fn active_work_item_run(
     host: &RuntimeHost,
     item_id: &str,
@@ -1615,6 +1860,170 @@ async fn start_work_item_run_with_hooks(
     };
 
     Ok(roux_core::WorkItemStartResult { item, session, run })
+}
+
+pub(super) async fn handle_work_item_run_stage(
+    req: Request,
+    host: &RuntimeHost,
+    identity: &DaemonIdentity,
+) -> Response {
+    match run_work_item_stage(req, host, identity).await {
+        Ok(value) => Response::success(value),
+        Err(response) => response,
+    }
+}
+
+async fn run_work_item_stage(
+    mut req: Request,
+    host: &RuntimeHost,
+    identity: &DaemonIdentity,
+) -> Result<serde_json::Value, Response> {
+    let Some(item_id) = optional_string_arg(&req.args, &["id"]) else {
+        return Err(Response::err("id required"));
+    };
+    let item = match host.work_item_handle.get(&item_id) {
+        Ok(Some(item)) => item,
+        Ok(None) => return Err(Response::err("work item not found")),
+        Err(err) => return Err(Response::err(err)),
+    };
+    reject_archived_work_item(&item)?;
+
+    let settings = load_daemon_settings();
+    if let Some(error) = settings.kanban.workflow_load_error.as_deref() {
+        return Err(Response::err(format!("workflow JSON is invalid: {error}")));
+    }
+    let stage_id = optional_string_arg(&req.args, &["stageId", "stage_id"])
+        .or_else(|| item.workflow_stage_id.clone())
+        .unwrap_or_else(|| default_stage_id_for_status(&item.status).to_string());
+    let Some((phase_id, phase, stage)) = settings.kanban.stage(&stage_id) else {
+        return Err(Response::err(format!(
+            "workflow stage {stage_id:?} not found; move the card to a valid stage"
+        )));
+    };
+
+    if let Some(profile_id) = stage_agent_profile(stage, phase) {
+        merge_object_string_arg(&mut req.args, "profile", profile_id);
+    }
+
+    if let Some(roux_core::KanbanWorkflowRunnerSettings::Agent { .. }) = &stage.runner {
+        if stage.category == roux_core::KanbanWorkflowPhaseCategory::Planning {
+            return plan_work_item_run(req, host, identity).await.and_then(|result| {
+                serde_json::to_value(result).map_err(|err| Response::err(err.to_string()))
+            });
+        }
+        let mut start_req = req;
+        if stage_id == roux_core::KANBAN_STAGE_FIX_CI {
+            merge_object_bool_arg(&mut start_req.args, "fixCi", true);
+        }
+        return start_work_item_run(start_req, host, identity).await.and_then(|result| {
+            serde_json::to_value(result).map_err(|err| Response::err(err.to_string()))
+        });
+    }
+
+    let run = host
+        .work_item_handle
+        .create_starting_run(
+            &item_id,
+            item.session_id.as_deref(),
+            None,
+            None,
+            item.worktree_path.as_deref(),
+            item.branch.as_deref(),
+        )
+        .map_err(Response::err)?;
+    let snapshot =
+        workflow_stage_snapshot(&settings.kanban.workflow, phase_id, phase, &stage_id, stage);
+    let _ = host.work_item_handle.append_run_event(
+        &run.id,
+        roux_core::WorkItemRunEventKind::Lifecycle,
+        serde_json::json!({
+            "stage": "workflowStageStarted",
+            "workflow": snapshot,
+        }),
+    );
+
+    let outcome = match stage.kind {
+        roux_core::KanbanWorkflowStageKind::Manual => {
+            manual_stage_outcome(&req.args).unwrap_or(WorkflowStageOutcome::Complete)
+        }
+        roux_core::KanbanWorkflowStageKind::Gate => match &stage.gate {
+            Some(roux_core::KanbanWorkflowGateSettings::Manual) => {
+                manual_stage_outcome(&req.args).unwrap_or(WorkflowStageOutcome::Passed)
+            }
+            Some(roux_core::KanbanWorkflowGateSettings::Command {
+                command,
+                args,
+                cwd,
+                timeout_seconds: _,
+            }) => run_workflow_command(
+                host,
+                &item,
+                &settings.kanban.workflow,
+                phase,
+                stage,
+                command,
+                args,
+                *cwd,
+                &run.id,
+            )?,
+            None => {
+                return Err(Response::err(format!("workflow gate stage {stage_id:?} has no gate")))
+            }
+        },
+        roux_core::KanbanWorkflowStageKind::Work => match &stage.runner {
+            Some(roux_core::KanbanWorkflowRunnerSettings::Command {
+                command,
+                args,
+                cwd,
+                timeout_seconds: _,
+            }) => run_workflow_command(
+                host,
+                &item,
+                &settings.kanban.workflow,
+                phase,
+                stage,
+                command,
+                args,
+                *cwd,
+                &run.id,
+            )?,
+            Some(roux_core::KanbanWorkflowRunnerSettings::Agent { .. }) => {
+                unreachable!("agent runner handled above")
+            }
+            None => {
+                return Err(Response::err(format!(
+                    "workflow work stage {stage_id:?} has no runner"
+                )))
+            }
+        },
+    };
+
+    let status = match outcome {
+        WorkflowStageOutcome::Failed => roux_core::WorkItemRunStatus::Failed,
+        _ => roux_core::WorkItemRunStatus::Done,
+    };
+    let run = host
+        .work_item_handle
+        .set_run_status(
+            &run.id,
+            status,
+            serde_json::json!({
+                "reason": "workflowStageFinished",
+                "outcome": outcome.as_str(),
+                "workflow": snapshot,
+            }),
+        )
+        .map_err(Response::err)?
+        .unwrap_or(run);
+
+    let item = apply_workflow_transition(host, &settings.kanban.workflow, &item, stage, outcome)?
+        .unwrap_or(item);
+    serde_json::to_value(serde_json::json!({
+        "item": item,
+        "run": run,
+        "outcome": outcome.as_str(),
+    }))
+    .map_err(|err| Response::err(err.to_string()))
 }
 
 fn enforce_work_item_start_plan_gate(
