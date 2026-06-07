@@ -134,7 +134,8 @@ use run events for chronological execution history.
 
 The MCP server exposes the same daemon-backed board surface with tools such as
 `roux_list_work_items`, `roux_create_work_item`, `roux_plan_work_item`,
-`roux_start_work_item`, `roux_accept_work_item_review`,
+`roux_start_work_item`, `roux_run_work_item_stage`,
+`roux_accept_work_item_review`,
 `roux_request_work_item_review`, `roux_request_work_item_review_changes`,
 `roux_list_work_item_runs`, and `roux_resolve_work_item_decision`. It also
 exposes document tools:

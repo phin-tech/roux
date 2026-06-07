@@ -3752,7 +3752,7 @@ mod tests {
             "--note",
             "Add coverage",
             "--status",
-            "ready",
+            "planning",
         ])
         .unwrap();
         match cli.command {
@@ -3764,7 +3764,7 @@ mod tests {
             } => {
                 assert_eq!(target, "run-1");
                 assert_eq!(note, "Add coverage");
-                assert_eq!(status.as_deref(), Some("ready"));
+                assert_eq!(status.as_deref(), Some("planning"));
             }
             _ => panic!("expected WorkItem::Review::RequestChanges"),
         }
@@ -3775,13 +3775,13 @@ mod tests {
         let request = build_work_item_review_request_changes(
             "run-1".into(),
             "Add coverage".into(),
-            Some("ready".into()),
+            Some("planning".into()),
         );
 
         assert_eq!(request["command"], "work-item-review-request-changes");
         assert_eq!(request["args"]["id"], "run-1");
         assert_eq!(request["args"]["note"], "Add coverage");
-        assert_eq!(request["args"]["status"], "ready");
+        assert_eq!(request["args"]["status"], "planning");
     }
 
     #[test]

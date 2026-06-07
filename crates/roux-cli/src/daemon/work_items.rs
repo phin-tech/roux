@@ -4485,7 +4485,7 @@ mod tests {
         let mut settings = roux_core::RouxSettings::default();
         settings.kanban.workflow.phases.get_mut("planning").unwrap().instructions =
             "Ask about release timing.".into();
-        settings.kanban.workflow.phases.get_mut("implementation").unwrap().instructions =
+        settings.kanban.workflow.phases.get_mut("doing").unwrap().instructions =
             "Use narrow commits.".into();
         settings
             .kanban
@@ -4594,7 +4594,7 @@ mod tests {
             default_agent_profile: "fallback".into(),
             ..roux_core::RouxSettings::default()
         };
-        settings.kanban.workflow.phases.get_mut("implementation").unwrap().agent_profile =
+        settings.kanban.workflow.phases.get_mut("doing").unwrap().agent_profile =
             Some("codex".into());
 
         let profile = implementation_agent_profile_id(
@@ -4613,7 +4613,7 @@ mod tests {
         );
         assert_eq!(profile, "codex");
 
-        settings.kanban.workflow.phases.get_mut("implementation").unwrap().agent_profile = None;
+        settings.kanban.workflow.phases.get_mut("doing").unwrap().agent_profile = None;
         let profile = implementation_agent_profile_id(
             &req("work-item-start", serde_json::json!({})),
             &item_without_profile,
@@ -6126,7 +6126,7 @@ mod tests {
                 serde_json::json!({
                     "runId": run.id,
                     "note": "Please add retry coverage.",
-                    "status": "ready",
+                    "status": "planning",
                 }),
             ),
             &host,
@@ -6135,7 +6135,7 @@ mod tests {
         .await;
         assert!(resp.ok, "request changes failed: {:?}", resp.error);
         let data = resp.data.as_ref().unwrap();
-        assert_eq!(data["item"]["status"], "ready");
+        assert_eq!(data["item"]["status"], "planning");
         assert_eq!(data["item"]["reviewStageId"], "local_review");
         assert!(data["item"]["sessionId"].is_null());
         assert_eq!(data["run"]["status"], "changesRequested");
@@ -6162,7 +6162,7 @@ mod tests {
             event.kind == roux_core::WorkItemRunEventKind::StatusChanged
                 && event.payload["status"] == "changes_requested"
                 && event.payload["reason"] == "changesRequested"
-                && event.payload["targetStatus"] == "ready"
+                && event.payload["targetStatus"] == "planning"
                 && event.payload["feedbackDocumentId"] == document_id
                 && event.payload["reviewStageId"] == "local_review"
                 && event.payload["reviewStageLabel"] == "Local Review"
