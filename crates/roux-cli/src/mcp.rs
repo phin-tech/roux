@@ -808,6 +808,11 @@ impl RouxMcpServer {
         &self,
         Parameters(params): Parameters<WorkItemStartParams>,
     ) -> Result<CallToolResult, ErrorData> {
+        if params.fix_ci {
+            let status = daemon_status_data().await.map_err(ErrorData::from)?;
+            validate_work_item_start_daemon_capabilities(&params, &status)
+                .map_err(ErrorData::from)?;
+        }
         call_socket(build_work_item_start_request(params)).await
     }
 
@@ -1778,6 +1783,50 @@ async fn call_socket_typed(request: Value) -> Result<CallToolResult, McpToolErro
     response_to_tool_output(response)
 }
 
+async fn daemon_status_data() -> Result<Value, McpToolError> {
+    ensure_mcp_enabled().await?;
+    let response = tokio::task::spawn_blocking(|| {
+        crate::cli_socket::send_socket_command(json!({ "command": "daemon-status" }))
+    })
+    .await
+    .map_err(|e| McpToolError::TaskJoin(e.to_string()))?
+    .map_err(McpToolError::Socket)?;
+
+    if !response.get("ok").and_then(Value::as_bool).unwrap_or(false) {
+        return Err(McpToolError::SocketResponse(
+            response
+                .get("error")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown Roux socket error")
+                .to_string(),
+        ));
+    }
+
+    response
+        .get("data")
+        .cloned()
+        .ok_or_else(|| McpToolError::SocketResponse("daemon-status returned no data".to_string()))
+}
+
+fn daemon_status_has_capability(status: &Value, capability: &str) -> bool {
+    status
+        .get("capabilities")
+        .and_then(Value::as_array)
+        .is_some_and(|capabilities| capabilities.iter().any(|candidate| candidate == capability))
+}
+
+fn validate_work_item_start_daemon_capabilities(
+    params: &WorkItemStartParams,
+    status: &Value,
+) -> Result<(), McpToolError> {
+    if params.fix_ci && !daemon_status_has_capability(status, "work-item-start-fix-ci") {
+        return Err(McpToolError::InvalidParams(
+            "Fix CI work item starts require daemon capability work-item-start-fix-ci. Restart the Roux daemon.",
+        ));
+    }
+    Ok(())
+}
+
 async fn ensure_mcp_enabled() -> Result<(), McpToolError> {
     let response = tokio::task::spawn_blocking(|| {
         crate::cli_socket::send_socket_command(json!({ "command": "mcp-enabled" }))
@@ -2305,6 +2354,50 @@ mod tests {
         assert_eq!(request["args"]["fetchFirst"], true);
         assert_eq!(request["args"]["forceStart"], true);
         assert_eq!(request["args"]["fixCi"], true);
+    }
+
+    #[test]
+    fn work_item_start_fix_ci_requires_daemon_capability() {
+        let params = WorkItemStartParams {
+            id: "wi-1".into(),
+            profile: None,
+            repo_path: None,
+            name: None,
+            worktree_path: None,
+            branch: None,
+            base: None,
+            fetch_first: false,
+            force_start: false,
+            fix_ci: true,
+        };
+        let status = serde_json::json!({
+            "capabilities": ["work-item-start"],
+        });
+
+        let err = validate_work_item_start_daemon_capabilities(&params, &status).unwrap_err();
+
+        assert!(err.to_string().contains("work-item-start-fix-ci"));
+    }
+
+    #[test]
+    fn work_item_start_fix_ci_accepts_daemon_capability() {
+        let params = WorkItemStartParams {
+            id: "wi-1".into(),
+            profile: None,
+            repo_path: None,
+            name: None,
+            worktree_path: None,
+            branch: None,
+            base: None,
+            fetch_first: false,
+            force_start: false,
+            fix_ci: true,
+        };
+        let status = serde_json::json!({
+            "capabilities": ["work-item-start", "work-item-start-fix-ci"],
+        });
+
+        assert!(validate_work_item_start_daemon_capabilities(&params, &status).is_ok());
     }
 
     #[test]
