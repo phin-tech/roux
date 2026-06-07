@@ -11,6 +11,7 @@ export const commands = {
 	cmdValidateKanbanWorkflow: (settings: RouxSettings) => typedError<RouxSettings, string>(__TAURI_INVOKE("cmd_validate_kanban_workflow", { settings })),
 	cmdKanbanWorkflowConfigDir: () => typedError<string, string>(__TAURI_INVOKE("cmd_kanban_workflow_config_dir")),
 	cmdCreateKanbanWorkflowExample: () => typedError<KanbanWorkflowExampleResult, string>(__TAURI_INVOKE("cmd_create_kanban_workflow_example")),
+	cmdSaveKanbanWorkflowJson: (workflowPath: string, workflow: KanbanWorkflowSettings) => typedError<string, string>(__TAURI_INVOKE("cmd_save_kanban_workflow_json", { workflowPath, workflow })),
 	cmdMcpStatus: () => __TAURI_INVOKE<McpStatus>("cmd_mcp_status"),
 	cmdPreviewMcpHostConfig: (host: McpHostId) => typedError<McpHostConfigPreview, string>(__TAURI_INVOKE("cmd_preview_mcp_host_config", { host })),
 	cmdConfigureMcpHost: (host: McpHostId) => typedError<McpHostConfigPreview, string>(__TAURI_INVOKE("cmd_configure_mcp_host", { host })),

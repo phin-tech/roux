@@ -19,6 +19,7 @@
   import {
     createKanbanWorkflowExample,
     kanbanWorkflowConfigDir,
+    saveKanbanWorkflowJson,
     validateKanbanWorkflow,
   } from "$lib/tauri";
   import {
@@ -37,7 +38,7 @@
   ];
 
   let workflowActionBusy = $state<
-    "browse" | "validate" | "copy" | "reveal" | null
+    "browse" | "validate" | "copy" | "save" | "reveal" | null
   >(null);
   let workflowActionError = $state<string | null>(null);
   let workflowActionStatus = $state<string | null>(null);
@@ -181,6 +182,29 @@
     }
   }
 
+  async function saveWorkflowJson(): Promise<void> {
+    const workflowPath = kanban.workflowPath?.trim() ?? "";
+    if (!workflowPath) {
+      workflowActionError = "Set a JSON file path before saving.";
+      workflowActionStatus = null;
+      return;
+    }
+    workflowActionBusy = "save";
+    workflowActionError = null;
+    workflowActionStatus = null;
+    try {
+      const path = await saveKanbanWorkflowJson(workflowPath, kanban.workflow);
+      const validated = await applyValidatedKanban(kanban);
+      workflowActionStatus = validated.workflowLoadError
+        ? null
+        : `Saved ${path}.`;
+    } catch (error) {
+      workflowActionError = errorMessage(error);
+    } finally {
+      workflowActionBusy = null;
+    }
+  }
+
   async function revealWorkflowConfigDir(): Promise<void> {
     workflowActionBusy = "reveal";
     workflowActionError = null;
@@ -283,6 +307,15 @@
     >
       <Copy size={12} />
       Copy example
+    </button>
+    <button
+      type="button"
+      class={workflowActionButton}
+      disabled={workflowActionBusy !== null || !kanban.workflowPath}
+      onclick={() => void saveWorkflowJson()}
+    >
+      <Check size={12} />
+      Save JSON
     </button>
     <button
       type="button"

@@ -397,6 +397,16 @@ export async function createKanbanWorkflowExample(): Promise<KanbanWorkflowExamp
   return invoke("cmd_create_kanban_workflow_example");
 }
 
+export async function saveKanbanWorkflowJson(
+  workflowPath: string,
+  workflow: import("$lib/bindings").KanbanWorkflowSettings,
+): Promise<string> {
+  const { commands } = await import("$lib/bindings");
+  const r = await commands.cmdSaveKanbanWorkflowJson(workflowPath, workflow);
+  if (r.status === "error") throw new Error(r.error);
+  return r.data;
+}
+
 export async function createWorktree(
   repoPath: string,
   branch: string,
