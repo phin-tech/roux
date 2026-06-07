@@ -22,6 +22,7 @@
   import { settings } from "$lib/stores/settings";
   import { reviewStageLabel } from "$lib/workItems/reviewStages";
   import {
+    workflowStage,
     workflowStageActionLabel,
     workflowStageLabel,
   } from "$lib/workItems/workflow";
@@ -183,8 +184,20 @@
       workflowStageName ??
       "Run",
   );
+  const activeWorkflowStage = $derived(
+    workflowStage($settings.kanban, item.workflowStageId),
+  );
+  const workflowStageIsAgentBacked = $derived(
+    activeWorkflowStage?.runner?.type === "agent",
+  );
   const canRunWorkflowStage = $derived(
-    !!onRunStage && !!item.workflowStageId && item.status !== "done",
+    !!onRunStage &&
+      !!item.workflowStageId &&
+      item.status !== "done" &&
+      (!workflowStageIsAgentBacked ||
+        phase.action.kind === "plan" ||
+        phase.action.kind === "start" ||
+        phase.action.kind === "accept-review"),
   );
   const reviewSessionId = $derived(reviewPackage?.sessionId ?? null);
   const reviewStageName = $derived(

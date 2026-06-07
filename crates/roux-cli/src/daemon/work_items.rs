@@ -2,9 +2,9 @@ use serde::Serialize;
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
-use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
-use tokio::io::AsyncWriteExt;
+use std::process::Stdio;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use roux_core::WorkItemInputPresence;
 use roux_runtime::host::RuntimeHost;
@@ -1102,6 +1102,12 @@ enum WorkflowStageOutcome {
     ChangesRequested,
 }
 
+struct WorkflowCommandOutput {
+    status: std::process::ExitStatus,
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+}
+
 impl WorkflowStageOutcome {
     fn as_str(self) -> &'static str {
         match self {
@@ -1113,16 +1119,27 @@ impl WorkflowStageOutcome {
     }
 }
 
-fn manual_stage_outcome(args: &serde_json::Value) -> Option<WorkflowStageOutcome> {
-    optional_string_arg(args, &["outcome"]).and_then(|outcome| match outcome.as_str() {
-        "complete" | "completed" => Some(WorkflowStageOutcome::Complete),
-        "pass" | "passed" => Some(WorkflowStageOutcome::Passed),
-        "fail" | "failed" => Some(WorkflowStageOutcome::Failed),
+fn manual_stage_outcome(
+    args: &serde_json::Value,
+) -> Result<Option<WorkflowStageOutcome>, Response> {
+    let Some(outcome_value) = args.get("outcome") else {
+        return Ok(None);
+    };
+    let Some(outcome) = outcome_value.as_str().map(str::trim).filter(|value| !value.is_empty())
+    else {
+        return Err(Response::err("invalid workflow stage outcome; expected non-empty string"));
+    };
+    match outcome {
+        "complete" | "completed" => Ok(Some(WorkflowStageOutcome::Complete)),
+        "pass" | "passed" => Ok(Some(WorkflowStageOutcome::Passed)),
+        "fail" | "failed" => Ok(Some(WorkflowStageOutcome::Failed)),
         "changes_requested" | "changesRequested" | "request_changes" | "requestChanges" => {
-            Some(WorkflowStageOutcome::ChangesRequested)
+            Ok(Some(WorkflowStageOutcome::ChangesRequested))
         }
-        _ => None,
-    })
+        _ => Err(Response::err(format!(
+            "invalid workflow stage outcome {outcome:?}; expected complete, passed, failed, or changesRequested"
+        ))),
+    }
 }
 
 fn stage_agent_profile<'a>(
@@ -1162,7 +1179,7 @@ fn merge_object_bool_arg(args: &mut serde_json::Value, key: &str, value: bool) {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn run_workflow_command(
+async fn run_workflow_command(
     host: &RuntimeHost,
     item: &roux_core::WorkItem,
     workflow: &roux_core::KanbanWorkflowSettings,
@@ -1171,20 +1188,103 @@ fn run_workflow_command(
     command: &str,
     args: &[String],
     cwd: roux_core::KanbanWorkflowCommandCwd,
+    timeout_seconds: Option<u64>,
     run_id: &str,
 ) -> Result<WorkflowStageOutcome, Response> {
     let cwd_path = resolve_workflow_command_cwd(item, cwd)?;
     let started = SystemTime::now();
-    let output = Command::new(command)
+    let mut child_command = tokio::process::Command::new(command);
+    child_command
         .args(args)
         .current_dir(&cwd_path)
         .envs(workflow.env.iter())
         .envs(phase.env.iter())
         .envs(stage.env.iter())
-        .output()
-        .map_err(|err| {
-            Response::err(format!("workflow command {command:?} failed to start: {err}"))
-        })?;
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+    configure_workflow_command_process_group(&mut child_command);
+    let mut child = child_command.spawn().map_err(|err| {
+        Response::err(format!("workflow command {command:?} failed to start: {err}"))
+    })?;
+    let child_id = child.id();
+    let mut stdout = child.stdout.take();
+    let mut stderr = child.stderr.take();
+    let mut stdout_task = tokio::spawn(async move {
+        let mut buffer = Vec::new();
+        if let Some(stdout) = stdout.as_mut() {
+            stdout.read_to_end(&mut buffer).await?;
+        }
+        std::io::Result::Ok(buffer)
+    });
+    let mut stderr_task = tokio::spawn(async move {
+        let mut buffer = Vec::new();
+        if let Some(stderr) = stderr.as_mut() {
+            stderr.read_to_end(&mut buffer).await?;
+        }
+        std::io::Result::Ok(buffer)
+    });
+    let deadline = timeout_seconds
+        .filter(|seconds| *seconds > 0)
+        .map(|seconds| (seconds, tokio::time::Instant::now() + Duration::from_secs(seconds)));
+    let status_result = match deadline {
+        Some((seconds, deadline)) => match tokio::time::timeout_at(deadline, child.wait()).await {
+            Ok(status) => status,
+            Err(_) => {
+                stdout_task.abort();
+                stderr_task.abort();
+                record_workflow_command_timeout(
+                    host, run_id, command, args, &cwd_path, seconds, started, child_id, &mut child,
+                )
+                .await;
+                return Ok(WorkflowStageOutcome::Failed);
+            }
+        },
+        None => child.wait().await,
+    };
+    let status = status_result.map_err(|err| {
+        Response::err(format!("workflow command {command:?} failed while running: {err}"))
+    })?;
+    let stdout = match deadline {
+        Some((seconds, deadline)) => {
+            match tokio::time::timeout_at(deadline, &mut stdout_task).await {
+                Ok(result) => result,
+                Err(_) => {
+                    stdout_task.abort();
+                    stderr_task.abort();
+                    record_workflow_command_timeout(
+                        host, run_id, command, args, &cwd_path, seconds, started, child_id,
+                        &mut child,
+                    )
+                    .await;
+                    return Ok(WorkflowStageOutcome::Failed);
+                }
+            }
+        }
+        None => (&mut stdout_task).await,
+    }
+    .map_err(|err| Response::err(format!("workflow command stdout join failed: {err}")))?
+    .map_err(|err| Response::err(format!("workflow command stdout read failed: {err}")))?;
+    let stderr = match deadline {
+        Some(seconds) => match tokio::time::timeout_at(seconds.1, &mut stderr_task).await {
+            Ok(result) => result,
+            Err(_) => {
+                stdout_task.abort();
+                stderr_task.abort();
+                record_workflow_command_timeout(
+                    host, run_id, command, args, &cwd_path, seconds.0, started, child_id,
+                    &mut child,
+                )
+                .await;
+                return Ok(WorkflowStageOutcome::Failed);
+            }
+        },
+        None => (&mut stderr_task).await,
+    }
+    .map_err(|err| Response::err(format!("workflow command stderr join failed: {err}")))?
+    .map_err(|err| Response::err(format!("workflow command stderr read failed: {err}")))?;
+    let output = WorkflowCommandOutput { status, stdout, stderr };
     let duration_ms = started.elapsed().map(|d| d.as_millis() as u64).unwrap_or(0);
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -1252,6 +1352,77 @@ fn truncate_preview(value: &str, max_bytes: usize) -> String {
         end -= 1;
     }
     format!("{}...", &value[..end])
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn record_workflow_command_timeout(
+    host: &RuntimeHost,
+    run_id: &str,
+    command: &str,
+    args: &[String],
+    cwd_path: &Path,
+    timeout_seconds: u64,
+    started: SystemTime,
+    child_id: Option<u32>,
+    child: &mut tokio::process::Child,
+) {
+    kill_workflow_command_tree(child_id, child).await;
+    let duration_ms = started.elapsed().map(|d| d.as_millis() as u64).unwrap_or(0);
+    let _ = host.work_item_handle.append_run_event(
+        run_id,
+        roux_core::WorkItemRunEventKind::Result,
+        serde_json::json!({
+            "stage": "workflowCommandTimedOut",
+            "command": command,
+            "args": args,
+            "cwd": cwd_path.to_string_lossy(),
+            "timeoutSeconds": timeout_seconds,
+            "durationMs": duration_ms,
+        }),
+    );
+}
+
+#[cfg(unix)]
+fn configure_workflow_command_process_group(command: &mut tokio::process::Command) {
+    command.process_group(0);
+}
+
+#[cfg(not(unix))]
+fn configure_workflow_command_process_group(_command: &mut tokio::process::Command) {}
+
+#[cfg(unix)]
+async fn kill_workflow_command_tree(child_id: Option<u32>, child: &mut tokio::process::Child) {
+    let Some(child_id) = child_id else {
+        let _ = child.kill().await;
+        let _ = child.wait().await;
+        return;
+    };
+    unsafe {
+        let _ = libc::kill(-(child_id as libc::pid_t), libc::SIGKILL);
+    }
+    let _ = child.kill().await;
+    let _ = child.wait().await;
+}
+
+#[cfg(windows)]
+async fn kill_workflow_command_tree(child_id: Option<u32>, child: &mut tokio::process::Child) {
+    if let Some(child_id) = child_id {
+        let _ = tokio::process::Command::new("taskkill")
+            .args(["/PID", &child_id.to_string(), "/T", "/F"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .await;
+    }
+    let _ = child.kill().await;
+    let _ = child.wait().await;
+}
+
+#[cfg(not(any(unix, windows)))]
+async fn kill_workflow_command_tree(_child_id: Option<u32>, child: &mut tokio::process::Child) {
+    let _ = child.kill().await;
+    let _ = child.wait().await;
 }
 
 fn workflow_stage_snapshot(
@@ -1911,9 +2082,21 @@ async fn run_work_item_stage(
     if let Some(roux_core::KanbanWorkflowRunnerSettings::Agent { .. }) = &stage.runner {
         if stage.category == roux_core::KanbanWorkflowPhaseCategory::Planning {
             let result = plan_work_item_run(req, host, identity).await?;
+            let item = host
+                .work_item_handle
+                .move_to_workflow_stage(
+                    &result.item.id,
+                    workflow_status_for_category(stage.category),
+                    &settings.kanban.workflow.id,
+                    &stage_id,
+                    &stage.label,
+                )
+                .map_err(Response::err)?
+                .unwrap_or(result.item);
             return Ok(roux_core::WorkItemStageRunResult {
-                item: result.item,
+                item,
                 run: result.run,
+                session: Some(result.session),
                 outcome: "started".to_string(),
             });
         }
@@ -1922,9 +2105,21 @@ async fn run_work_item_stage(
             merge_object_bool_arg(&mut start_req.args, "fixCi", true);
         }
         let result = start_work_item_run(start_req, host, identity).await?;
+        let item = host
+            .work_item_handle
+            .move_to_workflow_stage(
+                &result.item.id,
+                workflow_status_for_category(stage.category),
+                &settings.kanban.workflow.id,
+                &stage_id,
+                &stage.label,
+            )
+            .map_err(Response::err)?
+            .unwrap_or(result.item);
         return Ok(roux_core::WorkItemStageRunResult {
-            item: result.item,
+            item,
             run: result.run,
+            session: Some(result.session),
             outcome: "started".to_string(),
         });
     }
@@ -1951,30 +2146,32 @@ async fn run_work_item_stage(
         }),
     );
 
-    let outcome = match stage.kind {
-        roux_core::KanbanWorkflowStageKind::Manual => {
-            manual_stage_outcome(&req.args).unwrap_or(WorkflowStageOutcome::Complete)
-        }
+    let outcome_result = match stage.kind {
+        roux_core::KanbanWorkflowStageKind::Manual => manual_stage_outcome(&req.args)
+            .map(|outcome| outcome.unwrap_or(WorkflowStageOutcome::Complete)),
         roux_core::KanbanWorkflowStageKind::Gate => match &stage.gate {
-            Some(roux_core::KanbanWorkflowGateSettings::Manual) => {
-                manual_stage_outcome(&req.args).unwrap_or(WorkflowStageOutcome::Passed)
-            }
+            Some(roux_core::KanbanWorkflowGateSettings::Manual) => manual_stage_outcome(&req.args)
+                .map(|outcome| outcome.unwrap_or(WorkflowStageOutcome::Passed)),
             Some(roux_core::KanbanWorkflowGateSettings::Command {
                 command,
                 args,
                 cwd,
-                timeout_seconds: _,
-            }) => run_workflow_command(
-                host,
-                &item,
-                &settings.kanban.workflow,
-                phase,
-                stage,
-                command,
-                args,
-                *cwd,
-                &run.id,
-            )?,
+                timeout_seconds,
+            }) => {
+                run_workflow_command(
+                    host,
+                    &item,
+                    &settings.kanban.workflow,
+                    phase,
+                    stage,
+                    command,
+                    args,
+                    *cwd,
+                    *timeout_seconds,
+                    &run.id,
+                )
+                .await
+            }
             None => {
                 return Err(Response::err(format!("workflow gate stage {stage_id:?} has no gate")))
             }
@@ -1984,18 +2181,22 @@ async fn run_work_item_stage(
                 command,
                 args,
                 cwd,
-                timeout_seconds: _,
-            }) => run_workflow_command(
-                host,
-                &item,
-                &settings.kanban.workflow,
-                phase,
-                stage,
-                command,
-                args,
-                *cwd,
-                &run.id,
-            )?,
+                timeout_seconds,
+            }) => {
+                run_workflow_command(
+                    host,
+                    &item,
+                    &settings.kanban.workflow,
+                    phase,
+                    stage,
+                    command,
+                    args,
+                    *cwd,
+                    *timeout_seconds,
+                    &run.id,
+                )
+                .await
+            }
             Some(roux_core::KanbanWorkflowRunnerSettings::Agent { .. }) => {
                 unreachable!("agent runner handled above")
             }
@@ -2005,6 +2206,20 @@ async fn run_work_item_stage(
                 )))
             }
         },
+    };
+    let outcome = match outcome_result {
+        Ok(outcome) => outcome,
+        Err(err) => {
+            let _ = host.work_item_handle.set_run_status(
+                &run.id,
+                roux_core::WorkItemRunStatus::Failed,
+                serde_json::json!({
+                    "reason": "workflowStageFailed",
+                    "workflow": snapshot,
+                }),
+            );
+            return Err(err);
+        }
     };
 
     let status = match outcome {
@@ -2027,7 +2242,12 @@ async fn run_work_item_stage(
 
     let item = apply_workflow_transition(host, &settings.kanban.workflow, &item, stage, outcome)?
         .unwrap_or(item);
-    Ok(roux_core::WorkItemStageRunResult { item, run, outcome: outcome.as_str().to_string() })
+    Ok(roux_core::WorkItemStageRunResult {
+        item,
+        run,
+        session: None,
+        outcome: outcome.as_str().to_string(),
+    })
 }
 
 fn enforce_work_item_start_plan_gate(
@@ -4997,6 +5217,89 @@ mod tests {
         ] {
             assert!(caps.contains(&serde_json::json!(cap)), "missing capability: {cap}");
         }
+
+        shutdown_host(host, joins).await;
+    }
+
+    #[tokio::test]
+    async fn daemon_work_item_run_stage_rejects_invalid_manual_outcome_and_fails_run() {
+        let dir = tempfile::tempdir().unwrap();
+        let (host, identity, joins) = make_host_and_identity(&dir).await;
+        for (title, outcome) in [
+            ("bogus", serde_json::json!("bogus")),
+            ("blank", serde_json::json!("  ")),
+            ("number", serde_json::json!(1)),
+        ] {
+            let item = host
+                .work_item_handle
+                .create(roux_core::WorkItemInput {
+                    title: format!("Manual stage {title}"),
+                    ..Default::default()
+                })
+                .unwrap();
+
+            let resp = handle_request(
+                req(
+                    "work-item-run-stage",
+                    serde_json::json!({ "id": item.id.clone(), "outcome": outcome }),
+                ),
+                &host,
+                &identity,
+            )
+            .await;
+
+            assert!(!resp.ok);
+            assert!(resp.error.as_deref().unwrap_or("").contains("invalid workflow stage outcome"));
+            let runs = host.work_item_handle.list_runs(Some(&item.id)).unwrap();
+            assert_eq!(runs.len(), 1);
+            assert_eq!(runs[0].status, roux_core::WorkItemRunStatus::Failed);
+        }
+
+        shutdown_host(host, joins).await;
+    }
+
+    #[cfg(not(windows))]
+    #[tokio::test]
+    async fn workflow_command_timeout_finishes_as_failed_outcome() {
+        let dir = tempfile::tempdir().unwrap();
+        let (host, _identity, joins) = make_host_and_identity(&dir).await;
+        let item = host
+            .work_item_handle
+            .create(roux_core::WorkItemInput {
+                title: "Timed command".into(),
+                ..Default::default()
+            })
+            .unwrap();
+        let run = host
+            .work_item_handle
+            .create_starting_run(&item.id, None, None, None, None, None)
+            .unwrap();
+        let workflow = roux_core::KanbanWorkflowSettings::default();
+        let phase = workflow.phases.get("doing").unwrap();
+        let mut stage = phase.stages.get(roux_core::KANBAN_STAGE_IMPLEMENTATION).unwrap().clone();
+        stage.kind = roux_core::KanbanWorkflowStageKind::Work;
+
+        let outcome = run_workflow_command(
+            &host,
+            &item,
+            &workflow,
+            phase,
+            &stage,
+            "sh",
+            &["-c".to_string(), "(sleep 2) &".to_string()],
+            roux_core::KanbanWorkflowCommandCwd::None,
+            Some(1),
+            &run.id,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(outcome, WorkflowStageOutcome::Failed);
+        let events = host.work_item_handle.list_run_events(&run.id).unwrap();
+        assert!(events.iter().any(|event| {
+            event.payload["stage"] == "workflowCommandTimedOut"
+                && event.payload["timeoutSeconds"] == 1
+        }));
 
         shutdown_host(host, joins).await;
     }

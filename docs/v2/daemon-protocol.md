@@ -760,7 +760,8 @@ Planning profile resolution is request `profile`, then
 Daemon-owned workflow stage action. Requires `args.id`. Optional:
 `args.stageId` / `stage_id` overrides the card's current `workflowStageId`, and
 `args.outcome` can drive manual stages/gates. Supported manual outcomes are
-`complete`, `passed`, `failed`, and `changesRequested`.
+`complete`, `passed`, `failed`, and `changes_requested` (`changesRequested` is
+also accepted as input).
 
 If the target stage has an agent runner, the daemon delegates to
 `work-item-plan` for planning stages or `work-item-start` for other work
@@ -771,9 +772,13 @@ is:
 {
   "item": {},
   "run": {},
-  "outcome": "started|complete|passed|failed|changesRequested"
+  "session": {},
+  "outcome": "started|complete|passed|failed|changes_requested"
 }
 ```
+
+`session` is present for agent-backed stages that start or plan work and absent
+for manual and command-backed stages.
 
 Manual stages and manual gates create a run, record workflow lifecycle events,
 apply the configured transition for the selected outcome, and return the run

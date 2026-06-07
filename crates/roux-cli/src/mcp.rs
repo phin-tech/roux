@@ -268,7 +268,27 @@ pub struct WorkItemRunStageParams {
     pub id: String,
     pub stage_id: Option<String>,
     /// Manual stage/gate outcome: complete | passed | failed | changesRequested.
-    pub outcome: Option<String>,
+    pub outcome: Option<WorkItemStageOutcomeParam>,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum WorkItemStageOutcomeParam {
+    Complete,
+    Passed,
+    Failed,
+    ChangesRequested,
+}
+
+impl WorkItemStageOutcomeParam {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Complete => "complete",
+            Self::Passed => "passed",
+            Self::Failed => "failed",
+            Self::ChangesRequested => "changesRequested",
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -2118,7 +2138,9 @@ fn build_work_item_run_stage_request(params: WorkItemRunStageParams) -> Value {
     let mut args = serde_json::Map::new();
     args.insert("id".into(), Value::String(params.id));
     insert_optional_string(&mut args, "stageId", params.stage_id);
-    insert_optional_string(&mut args, "outcome", params.outcome);
+    if let Some(outcome) = params.outcome {
+        args.insert("outcome".into(), Value::String(outcome.as_str().to_string()));
+    }
     json!({
         "command": "work-item-run-stage",
         "args": Value::Object(args),
@@ -2480,7 +2502,7 @@ mod tests {
         let request = build_work_item_run_stage_request(WorkItemRunStageParams {
             id: "wi-1".into(),
             stage_id: Some("pr_review".into()),
-            outcome: Some("passed".into()),
+            outcome: Some(WorkItemStageOutcomeParam::Passed),
         });
 
         assert_eq!(request["command"], "work-item-run-stage");

@@ -65,6 +65,7 @@
   });
 
   const kanban = $derived(normalizeKanbanSettings($settings.kanban));
+  const workflowJsonBacked = $derived(Boolean(kanban.workflowPath?.trim()));
   const orderedPhaseIds = $derived(
     kanban.workflow.phaseOrder.filter((id): id is WorkflowPhaseId =>
       (WORKFLOW_PHASE_IDS as readonly string[]).includes(id),
@@ -265,6 +266,7 @@
     aria-label="Workflow label"
     class="mt-2 w-full rounded border border-border bg-bg-deep px-2 py-1.5 text-xs text-text-primary outline-none focus:border-accent-dim"
     value={kanban.workflow.label}
+    disabled={workflowJsonBacked}
     oninput={(e) => updateWorkflowLabel(e.currentTarget.value)}
   />
   <label
@@ -339,8 +341,8 @@
   {/if}
   {#if kanban.workflowPath}
     <div class="mt-2 text-xs text-text-muted">
-      Edits below update the active workflow in settings. Use Validate after changing
-      the JSON file on disk.
+      Workflow fields are read-only while JSON owns the workflow. Use Validate
+      after changing the file on disk.
     </div>
   {/if}
 </div>
@@ -368,6 +370,7 @@
             aria-label={`${phaseInfo.title} label`}
             class="w-40 rounded border border-border bg-bg-deep px-2 py-1 text-xs text-text-primary outline-none focus:border-accent-dim"
             value={phase.label}
+            disabled={workflowJsonBacked}
             oninput={(e) =>
               updatePhase(phaseInfo.id, { label: e.currentTarget.value })}
           />
@@ -381,6 +384,7 @@
           aria-label={`${phaseInfo.title} agent`}
           class="max-w-[14rem] cursor-pointer appearance-none rounded border border-border bg-bg-deep px-2 py-1 pr-6 text-xs text-text-primary outline-none focus:border-accent-dim"
           value={phase.agentProfile ?? ""}
+          disabled={workflowJsonBacked}
           onchange={(e) =>
             updatePhase(phaseInfo.id, {
               agentProfile: e.currentTarget.value || null,
@@ -398,6 +402,7 @@
       aria-label={`${phaseInfo.title} instructions`}
       class="mt-3 min-h-20 w-full resize-y rounded border border-border bg-bg-deep px-2 py-1.5 text-xs text-text-primary outline-none focus:border-accent-dim"
       value={phase.instructions}
+      disabled={workflowJsonBacked}
       oninput={(e) =>
         updatePhase(phaseInfo.id, { instructions: e.currentTarget.value })}
     ></textarea>
@@ -417,6 +422,7 @@
                     aria-label={`${stageId} label`}
                     class="w-40 rounded border border-border bg-bg-deep px-2 py-1 text-xs text-text-primary outline-none focus:border-accent-dim"
                     value={stage.label}
+                    disabled={workflowJsonBacked}
                     oninput={(e) =>
                       updateStage(phaseInfo.id, stageId, {
                         label: e.currentTarget.value,
@@ -431,6 +437,7 @@
                     aria-label={`${stageId} action label`}
                     class="w-32 rounded border border-border bg-bg-deep px-2 py-1 text-xs text-text-primary outline-none focus:border-accent-dim"
                     value={stage.actionLabel}
+                    disabled={workflowJsonBacked}
                     oninput={(e) =>
                       updateStage(phaseInfo.id, stageId, {
                         actionLabel: e.currentTarget.value,
@@ -443,9 +450,10 @@
               >
                 Agent
                 <select
-                  aria-label={`${stage.label || stageId} agent`}
+                  aria-label={`${stage.label || stageId} stage agent`}
                   class="max-w-[14rem] cursor-pointer appearance-none rounded border border-border bg-bg-deep px-2 py-1 pr-6 text-xs text-text-primary outline-none focus:border-accent-dim"
                   value={stage.agentProfile ?? ""}
+                  disabled={workflowJsonBacked}
                   onchange={(e) =>
                     updateStage(phaseInfo.id, stageId, {
                       agentProfile: e.currentTarget.value || null,
@@ -459,9 +467,10 @@
               </label>
             </div>
             <textarea
-              aria-label={`${stage.label} instructions`}
+              aria-label={`${stage.label || stageId} stage instructions`}
               class="mt-2 min-h-16 w-full resize-y rounded border border-border bg-bg-deep px-2 py-1.5 text-xs text-text-primary outline-none focus:border-accent-dim"
               value={stage.instructions}
+              disabled={workflowJsonBacked}
               oninput={(e) =>
                 updateStage(phaseInfo.id, stageId, {
                   instructions: e.currentTarget.value,

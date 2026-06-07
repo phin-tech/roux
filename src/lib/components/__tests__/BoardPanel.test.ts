@@ -7,6 +7,7 @@ import {
   requestWorkItemChanges,
   moveWorkItem,
   planWorkItem,
+  runWorkItemStage,
   startWorkItem,
   stopWorkItemRun,
   activePlanningRunByItem,
@@ -67,6 +68,12 @@ vi.mock("$lib/stores/workItems", async () => {
     requestWorkItemChanges: vi.fn().mockResolvedValue({}),
     moveWorkItem: vi.fn().mockResolvedValue({}),
     planWorkItem: vi.fn().mockResolvedValue("plan-sess-1"),
+    runWorkItemStage: vi.fn().mockResolvedValue({
+      item: {},
+      run: { sessionId: null },
+      session: null,
+      outcome: "complete",
+    }),
     startWorkItem: vi.fn().mockResolvedValue("sess-1"),
     stopWorkItemRun: vi.fn().mockResolvedValue({}),
     createWorkItem: vi.fn().mockResolvedValue({}),
@@ -486,6 +493,29 @@ describe("BoardPanel", () => {
     await fireEvent.click(screen.getByRole("button", { name: "Fix CI" }));
 
     expect(startWorkItem).toHaveBeenCalledWith("wi-review", { fixCi: true });
+  });
+
+  it("shows manual workflow stage action even when card is not startable", async () => {
+    const item = workItem({
+      id: "wi-manual",
+      title: "Manual task",
+      status: "todo",
+      workflowStageId: "todo",
+      workflowStageLabel: "Todo",
+      repoPath: null,
+      agentProfile: null,
+    });
+    seedColumns([item]);
+    render(BoardPanel, { visible: true, onclose: vi.fn() });
+
+    expect(screen.getByText("Plan")).toBeTruthy();
+    await fireEvent.click(
+      screen.getByRole("button", { name: "Run workflow stage" }),
+    );
+
+    expect(runWorkItemStage).toHaveBeenCalledWith("wi-manual", {
+      stageId: "todo",
+    });
   });
 
   it("requests changes from a review card with a human note", async () => {

@@ -20,7 +20,7 @@ use roux_core::{
     WorkItemRunKind, WorkItemRunStatus, WorkItemStatus,
 };
 
-pub const WORK_ITEM_SCHEMA_VERSION: i64 = 10;
+pub const WORK_ITEM_SCHEMA_VERSION: i64 = 11;
 
 type ReviewRequestStoreResult =
     Option<(WorkItem, WorkItemRun, WorkItemRunEvent, Option<WorkItemRunEvent>)>;
@@ -255,6 +255,7 @@ impl WorkItemStore {
             add_column_if_missing(&conn, "work_items", "workflow_id", "TEXT")?;
             add_column_if_missing(&conn, "work_items", "workflow_stage_id", "TEXT")?;
             add_column_if_missing(&conn, "work_items", "workflow_stage_label", "TEXT")?;
+            conn.execute("UPDATE work_items SET status = 'planning' WHERE status = 'ready'", [])?;
             conn.execute(
                 "UPDATE work_items
                  SET workflow_id = ?1
@@ -291,6 +292,19 @@ impl WorkItemStore {
             )?;
             conn.execute_batch("PRAGMA user_version = 10;")?;
             version = 10;
+        }
+        if version < 11 {
+            conn.execute(
+                "UPDATE work_items
+                 SET workflow_stage_id = 'planning',
+                     workflow_stage_label = 'Planning'
+                 WHERE status = 'ready'
+                   AND (workflow_stage_id IS NULL OR workflow_stage_id = 'todo')",
+                [],
+            )?;
+            conn.execute("UPDATE work_items SET status = 'planning' WHERE status = 'ready'", [])?;
+            conn.execute_batch("PRAGMA user_version = 11;")?;
+            version = 11;
         }
         debug_assert!(version >= WORK_ITEM_SCHEMA_VERSION);
         Ok(WorkItemStore { conn })
@@ -1385,9 +1399,14 @@ impl WorkItemStore {
         };
         let review_stage_id =
             review_stage_id.unwrap_or_else(|| roux_core::FIRST_REVIEW_STAGE_ID.to_string());
+        let workflow_id = workflow_id_for_settings(kanban);
         let next_stage_id = roux_core::next_review_stage_id(&review_stage_id);
         add_review_stage_payload_fields(&mut payload, kanban, &review_stage_id, next_stage_id);
         if next_stage_id.is_some() {
+            let next_stage_label = review_stage_label(
+                kanban,
+                next_stage_id.unwrap_or(roux_core::FINAL_REVIEW_STAGE_ID),
+            );
             set_payload_string_field(&mut payload, "status", WorkItemRunStatus::Review.as_str());
             let changed = tx.execute(
                 "UPDATE work_item_runs
@@ -1403,9 +1422,19 @@ impl WorkItemStore {
                 "UPDATE work_items
                  SET status = ?2,
                      review_stage_id = ?3,
+                     workflow_id = COALESCE(workflow_id, ?6),
+                     workflow_stage_id = ?3,
+                     workflow_stage_label = ?5,
                      updated_at = ?4
                  WHERE id = ?1",
-                params![work_item_id, WorkItemStatus::Review.as_str(), next_stage_id, now as i64,],
+                params![
+                    work_item_id,
+                    WorkItemStatus::Review.as_str(),
+                    next_stage_id,
+                    now as i64,
+                    next_stage_label,
+                    workflow_id,
+                ],
             )?;
         } else {
             let changed = tx.execute(
@@ -1429,9 +1458,12 @@ impl WorkItemStore {
                 "UPDATE work_items
                  SET status = ?2,
                      review_stage_id = NULL,
+                     workflow_id = COALESCE(workflow_id, ?4),
+                     workflow_stage_id = 'done',
+                     workflow_stage_label = 'Done',
                      updated_at = ?3
                  WHERE id = ?1",
-                params![work_item_id, WorkItemStatus::Done.as_str(), now as i64],
+                params![work_item_id, WorkItemStatus::Done.as_str(), now as i64, workflow_id],
             )?;
         }
         let payload = serde_json::to_string(&payload)
@@ -1531,6 +1563,8 @@ impl WorkItemStore {
         }
         let review_stage_id =
             review_stage_id.unwrap_or_else(|| roux_core::FIRST_REVIEW_STAGE_ID.to_string());
+        let review_stage_label = review_stage_label(kanban, &review_stage_id);
+        let workflow_id = workflow_id_for_settings(kanban);
         add_review_stage_payload_fields(&mut payload, kanban, &review_stage_id, None);
         set_payload_string_field(&mut payload, "status", WorkItemRunStatus::Review.as_str());
         let payload = serde_json::to_string(&payload)
@@ -1561,13 +1595,18 @@ impl WorkItemStore {
             "UPDATE work_items
              SET status = ?2,
                  review_stage_id = COALESCE(review_stage_id, ?4),
+                 workflow_id = COALESCE(workflow_id, ?6),
+                 workflow_stage_id = COALESCE(review_stage_id, ?4),
+                 workflow_stage_label = ?5,
                  updated_at = ?3
              WHERE id = ?1",
             params![
                 work_item_id,
                 WorkItemStatus::Review.as_str(),
                 now as i64,
-                roux_core::FIRST_REVIEW_STAGE_ID,
+                review_stage_id,
+                review_stage_label,
+                workflow_id,
             ],
         )?;
         tx.execute(
@@ -1715,6 +1754,9 @@ impl WorkItemStore {
         }
         let review_stage_id =
             review_stage_id.unwrap_or_else(|| roux_core::FIRST_REVIEW_STAGE_ID.to_string());
+        let workflow_id = workflow_id_for_settings(kanban);
+        let (workflow_stage_id, workflow_stage_label) =
+            request_changes_workflow_stage(kanban, &review_stage_id, &target_status);
         add_review_stage_payload_fields(&mut payload, kanban, &review_stage_id, None);
         let payload = serde_json::to_string(&payload)
             .map_err(|err| rusqlite::Error::ToSqlConversionFailure(Box::new(err)))?;
@@ -1738,11 +1780,21 @@ impl WorkItemStore {
         }
         tx.execute(
             "UPDATE work_items
-             SET status = ?2,
+                 SET status = ?2,
                  session_id = NULL,
+                 workflow_id = COALESCE(workflow_id, ?6),
+                 workflow_stage_id = ?4,
+                 workflow_stage_label = ?5,
                  updated_at = ?3
              WHERE id = ?1",
-            params![work_item_id, target_status.as_str(), now as i64],
+            params![
+                work_item_id,
+                target_status.as_str(),
+                now as i64,
+                workflow_stage_id,
+                workflow_stage_label,
+                workflow_id,
+            ],
         )?;
         if let Some((id, input, byte_len, sha256)) = feedback {
             tx.execute(
@@ -2064,6 +2116,48 @@ fn review_stage_label(kanban: Option<&KanbanSettings>, id: &str) -> String {
         .unwrap_or_else(|| roux_core::review_stage_label(id))
 }
 
+fn workflow_id_for_settings(kanban: Option<&KanbanSettings>) -> &str {
+    kanban.map(|kanban| kanban.workflow.id.as_str()).unwrap_or("default")
+}
+
+fn request_changes_workflow_stage(
+    kanban: Option<&KanbanSettings>,
+    review_stage_id: &str,
+    target_status: &WorkItemStatus,
+) -> (String, String) {
+    if let Some(kanban) = kanban {
+        if let Some((_, _, review_stage)) =
+            roux_core::workflow_stage(&kanban.workflow, review_stage_id)
+        {
+            if let Some(target_stage_id) = review_stage.transitions.on_changes_requested.as_deref()
+            {
+                if let Some((_, _, target_stage)) =
+                    roux_core::workflow_stage(&kanban.workflow, target_stage_id)
+                {
+                    if workflow_status_for_category(target_stage.category) == *target_status {
+                        return (target_stage_id.to_string(), target_stage.label.clone());
+                    }
+                }
+            }
+        }
+    }
+    let stage_id = default_workflow_stage_id_for_status(target_status.as_str()).to_string();
+    let label = default_workflow_stage_label(&stage_id);
+    (stage_id, label)
+}
+
+fn workflow_status_for_category(
+    category: roux_core::KanbanWorkflowPhaseCategory,
+) -> WorkItemStatus {
+    match category {
+        roux_core::KanbanWorkflowPhaseCategory::Todo => WorkItemStatus::Todo,
+        roux_core::KanbanWorkflowPhaseCategory::Planning => WorkItemStatus::Planning,
+        roux_core::KanbanWorkflowPhaseCategory::Doing => WorkItemStatus::Doing,
+        roux_core::KanbanWorkflowPhaseCategory::Review => WorkItemStatus::Review,
+        roux_core::KanbanWorkflowPhaseCategory::Done => WorkItemStatus::Done,
+    }
+}
+
 fn set_payload_string_field(payload: &mut Value, key: &str, value: &str) {
     let object = payload_object_mut(payload);
     object.insert(key.to_string(), Value::String(value.to_string()));
@@ -2089,7 +2183,7 @@ fn session_already_bound_error(session_id: &str, work_item_id: &str) -> rusqlite
 fn default_workflow_stage_id_for_status(status: &str) -> &'static str {
     match status {
         "todo" => "todo",
-        "planning" => "planning",
+        "planning" | "ready" => "planning",
         "doing" => "implementation",
         "review" => roux_core::FIRST_REVIEW_STAGE_ID,
         "done" => "done",
@@ -2322,7 +2416,7 @@ mod tests {
     fn pending_migrations_are_versions_after_current() {
         assert_eq!(
             roux_core::pending_work_item_migrations(4, WORK_ITEM_SCHEMA_VERSION),
-            vec![5, 6, 7, 8, 9, 10]
+            vec![5, 6, 7, 8, 9, 10, 11]
         );
         assert!(roux_core::pending_work_item_migrations(
             WORK_ITEM_SCHEMA_VERSION,
@@ -2342,6 +2436,38 @@ mod tests {
         let version: i64 =
             store.conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
         assert_eq!(version, WORK_ITEM_SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn v11_migration_repairs_ready_rows_in_existing_v10_database() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("board.db");
+        {
+            let mut store = WorkItemStore::open(&path).unwrap();
+            let item = store.create("i-1".into(), input("Ready card"), 1000).unwrap();
+            store
+                .conn
+                .execute(
+                    "UPDATE work_items
+                     SET status = 'ready',
+                         workflow_stage_id = 'todo',
+                         workflow_stage_label = 'Todo'
+                     WHERE id = ?1",
+                    params![item.id],
+                )
+                .unwrap();
+            store.conn.execute_batch("PRAGMA user_version = 10;").unwrap();
+        }
+
+        let store = WorkItemStore::open(&path).unwrap();
+        let version: i64 =
+            store.conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
+        let item = store.get("i-1").unwrap().unwrap();
+
+        assert_eq!(version, WORK_ITEM_SCHEMA_VERSION);
+        assert_eq!(item.status, WorkItemStatus::Planning);
+        assert_eq!(item.workflow_stage_id.as_deref(), Some("planning"));
+        assert_eq!(item.workflow_stage_label.as_deref(), Some("Planning"));
     }
 
     #[test]
@@ -2458,6 +2584,8 @@ mod tests {
         let item = store.get("i-1").unwrap().unwrap();
         assert_eq!(item.status, WorkItemStatus::Review);
         assert_eq!(item.review_stage_id.as_deref(), Some("local_review"));
+        assert_eq!(item.workflow_stage_id.as_deref(), Some("local_review"));
+        assert_eq!(item.workflow_stage_label.as_deref(), Some("Local Review"));
     }
 
     #[test]
@@ -2508,6 +2636,8 @@ mod tests {
 
         assert_eq!(item.status, WorkItemStatus::Review);
         assert_eq!(item.review_stage_id.as_deref(), Some("pr_review"));
+        assert_eq!(item.workflow_stage_id.as_deref(), Some("pr_review"));
+        assert_eq!(item.workflow_stage_label.as_deref(), Some("PR Review"));
         assert_eq!(run.status, roux_core::WorkItemRunStatus::Review);
         assert_eq!(event.payload["reviewStageId"], "local_review");
         assert_eq!(event.payload["nextReviewStageId"], "pr_review");
@@ -2627,6 +2757,8 @@ mod tests {
         let item = store.get("i-1").unwrap().unwrap();
         assert_eq!(item.status, WorkItemStatus::Doing);
         assert_eq!(item.review_stage_id.as_deref(), Some("pr_review"));
+        assert_eq!(item.workflow_stage_id.as_deref(), Some("implementation"));
+        assert_eq!(item.workflow_stage_label.as_deref(), Some("Implementation"));
     }
 
     #[test]
@@ -2668,6 +2800,8 @@ mod tests {
 
         assert_eq!(item.status, WorkItemStatus::Done);
         assert_eq!(item.review_stage_id, None);
+        assert_eq!(item.workflow_stage_id.as_deref(), Some("done"));
+        assert_eq!(item.workflow_stage_label.as_deref(), Some("Done"));
         assert_eq!(run.status, roux_core::WorkItemRunStatus::Done);
         assert_eq!(event.payload["reviewStageId"], "pr_review");
     }

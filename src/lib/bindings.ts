@@ -653,7 +653,7 @@ export type KanbanWorkflowPromptMode = "append" | "replace";
 
 export type KanbanWorkflowPromptSettings = {
 	mode?: KanbanWorkflowPromptMode,
-	text?: string,
+	instructions?: string,
 };
 
 export type KanbanWorkflowCommandCwd = "worktree" | "project" | "repo" | "none";
@@ -1778,6 +1778,7 @@ export type WorkItemReviewRequestResult = {
 export type WorkItemStageRunResult = {
 	item: WorkItem,
 	run: WorkItemRun,
+	session: Session | null,
 	outcome: string,
 };
 

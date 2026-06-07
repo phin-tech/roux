@@ -12,6 +12,7 @@ use super::session::Session;
 pub enum WorkItemStatus {
     #[default]
     Todo,
+    #[serde(alias = "ready")]
     Planning,
     Doing,
     Review,
@@ -32,7 +33,7 @@ impl WorkItemStatus {
     pub fn from_str_opt(s: &str) -> Option<Self> {
         match s {
             "todo" => Some(Self::Todo),
-            "planning" => Some(Self::Planning),
+            "planning" | "ready" => Some(Self::Planning),
             "doing" => Some(Self::Doing),
             "review" => Some(Self::Review),
             "done" => Some(Self::Done),
@@ -736,6 +737,7 @@ pub struct WorkItemReviewAcceptResult {
 pub struct WorkItemStageRunResult {
     pub item: WorkItem,
     pub run: WorkItemRun,
+    pub session: Option<Session>,
     pub outcome: String,
 }
 
@@ -858,13 +860,14 @@ mod tests {
         for (s, expected) in [
             ("todo", WorkItemStatus::Todo),
             ("planning", WorkItemStatus::Planning),
+            ("ready", WorkItemStatus::Planning),
             ("doing", WorkItemStatus::Doing),
             ("review", WorkItemStatus::Review),
             ("done", WorkItemStatus::Done),
         ] {
             let status = WorkItemStatus::from_str_opt(s).unwrap();
             assert_eq!(status, expected);
-            assert_eq!(status.as_str(), s);
+            assert_eq!(status.as_str(), expected.as_str());
         }
     }
 

@@ -142,6 +142,7 @@ vi.mock("$lib/tauri", () => ({
     path: "/tmp/roux/kanban-workflow.json",
     workflowPath: "kanban-workflow.json",
   }),
+  saveKanbanWorkflowJson: vi.fn().mockResolvedValue("/tmp/roux/kanban-workflow.json"),
   onSettingsChanged: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock("$lib/stores/updater", () => ({
@@ -164,6 +165,7 @@ import {
   createKanbanWorkflowExample,
   getRuntimeStatus,
   kanbanWorkflowConfigDir,
+  saveKanbanWorkflowJson,
   updateSettings,
   validateKanbanWorkflow,
 } from "$lib/tauri";
@@ -183,6 +185,7 @@ describe("SettingsPanel Kanban tab", () => {
       path: "/tmp/roux/kanban-workflow.json",
       workflowPath: "kanban-workflow.json",
     });
+    vi.mocked(saveKanbanWorkflowJson).mockResolvedValue("/tmp/roux/kanban-workflow.json");
     vi.mocked(open).mockReset();
     vi.mocked(revealItemInDir).mockReset();
   });
@@ -308,6 +311,29 @@ describe("SettingsPanel Kanban tab", () => {
       expect(
         (screen.getByLabelText("Workflow JSON file") as HTMLInputElement).value,
       ).toBe("kanban-workflow.json");
+    });
+  });
+
+  it("saves the active Kanban workflow JSON and validates it", async () => {
+    settings.set({
+      ...DEFAULT_SETTINGS,
+      kanban: {
+        ...DEFAULT_SETTINGS.kanban,
+        workflowPath: "kanban-workflow.json",
+      },
+    });
+
+    render(SettingsPanel, { visible: true, onclose: vi.fn() });
+
+    await fireEvent.click(screen.getByRole("button", { name: "Kanban" }));
+    await fireEvent.click(screen.getByRole("button", { name: "Save JSON" }));
+
+    await waitFor(() => {
+      expect(saveKanbanWorkflowJson).toHaveBeenCalledWith(
+        "kanban-workflow.json",
+        expect.objectContaining({ id: "default" }),
+      );
+      expect(validateKanbanWorkflow).toHaveBeenCalled();
     });
   });
 
