@@ -731,6 +731,14 @@ pub struct WorkItemReviewAcceptResult {
     pub run: WorkItemRun,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkItemStageRunResult {
+    pub item: WorkItem,
+    pub run: WorkItemRun,
+    pub outcome: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub enum WorkItemRunEventKind {

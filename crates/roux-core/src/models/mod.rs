@@ -77,6 +77,7 @@ pub use work_item::{
     WorkItemReviewAcceptResult, WorkItemReviewRequestChangesResult, WorkItemReviewRequestResult,
     WorkItemRun, WorkItemRunEvent, WorkItemRunEventKind, WorkItemRunKind, WorkItemRunStatus,
     WorkItemSessionAttachDecision, WorkItemSessionAttachError, WorkItemSessionAttachInput,
-    WorkItemStartResult, WorkItemStatus, FINAL_REVIEW_STAGE_ID, FIRST_REVIEW_STAGE_ID,
+    WorkItemStageRunResult, WorkItemStartResult, WorkItemStatus, FINAL_REVIEW_STAGE_ID,
+    FIRST_REVIEW_STAGE_ID,
 };
 pub use worktree::{Worktree, WorktrunkMetadata};

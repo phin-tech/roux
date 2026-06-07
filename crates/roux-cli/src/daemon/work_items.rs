@@ -1868,7 +1868,10 @@ pub(super) async fn handle_work_item_run_stage(
     identity: &DaemonIdentity,
 ) -> Response {
     match run_work_item_stage(req, host, identity).await {
-        Ok(value) => Response::success(value),
+        Ok(value) => match serde_json::to_value(value) {
+            Ok(value) => Response::success(value),
+            Err(err) => Response::err(err.to_string()),
+        },
         Err(response) => response,
     }
 }
@@ -1877,7 +1880,7 @@ async fn run_work_item_stage(
     mut req: Request,
     host: &RuntimeHost,
     identity: &DaemonIdentity,
-) -> Result<serde_json::Value, Response> {
+) -> Result<roux_core::WorkItemStageRunResult, Response> {
     let Some(item_id) = optional_string_arg(&req.args, &["id"]) else {
         return Err(Response::err("id required"));
     };
@@ -1907,16 +1910,22 @@ async fn run_work_item_stage(
 
     if let Some(roux_core::KanbanWorkflowRunnerSettings::Agent { .. }) = &stage.runner {
         if stage.category == roux_core::KanbanWorkflowPhaseCategory::Planning {
-            return plan_work_item_run(req, host, identity).await.and_then(|result| {
-                serde_json::to_value(result).map_err(|err| Response::err(err.to_string()))
+            let result = plan_work_item_run(req, host, identity).await?;
+            return Ok(roux_core::WorkItemStageRunResult {
+                item: result.item,
+                run: result.run,
+                outcome: "started".to_string(),
             });
         }
         let mut start_req = req;
         if stage_id == roux_core::KANBAN_STAGE_FIX_CI {
             merge_object_bool_arg(&mut start_req.args, "fixCi", true);
         }
-        return start_work_item_run(start_req, host, identity).await.and_then(|result| {
-            serde_json::to_value(result).map_err(|err| Response::err(err.to_string()))
+        let result = start_work_item_run(start_req, host, identity).await?;
+        return Ok(roux_core::WorkItemStageRunResult {
+            item: result.item,
+            run: result.run,
+            outcome: "started".to_string(),
         });
     }
 
@@ -2018,12 +2027,7 @@ async fn run_work_item_stage(
 
     let item = apply_workflow_transition(host, &settings.kanban.workflow, &item, stage, outcome)?
         .unwrap_or(item);
-    serde_json::to_value(serde_json::json!({
-        "item": item,
-        "run": run,
-        "outcome": outcome.as_str(),
-    }))
-    .map_err(|err| Response::err(err.to_string()))
+    Ok(roux_core::WorkItemStageRunResult { item, run, outcome: outcome.as_str().to_string() })
 }
 
 fn enforce_work_item_start_plan_gate(
