@@ -17,8 +17,8 @@ use tokio::sync::broadcast;
 use uuid::Uuid;
 
 use roux_core::{
-    Attachment, AttachmentDocument, AttachmentInput, AttachmentTargetKind, WorkItem,
-    WorkItemDecision, WorkItemDecisionOption, WorkItemEvent, WorkItemInput,
+    Attachment, AttachmentDocument, AttachmentInput, AttachmentTargetKind, KanbanSettings,
+    WorkItem, WorkItemDecision, WorkItemDecisionOption, WorkItemEvent, WorkItemInput,
     WorkItemMigrationStatus, WorkItemMigrationStorage, WorkItemRun, WorkItemRunEvent,
     WorkItemRunEventKind, WorkItemRunKind, WorkItemRunStatus, WorkItemStatus,
 };
@@ -668,7 +668,25 @@ impl WorkItemHandle {
     pub fn accept_review(
         &self,
         work_item_id: &str,
+        payload: serde_json::Value,
+    ) -> Result<Option<(WorkItem, WorkItemRun)>, String> {
+        self.accept_review_with_stage_labels(work_item_id, payload, None)
+    }
+
+    pub fn accept_review_with_kanban_settings(
+        &self,
+        work_item_id: &str,
+        payload: serde_json::Value,
+        kanban: &KanbanSettings,
+    ) -> Result<Option<(WorkItem, WorkItemRun)>, String> {
+        self.accept_review_with_stage_labels(work_item_id, payload, Some(kanban))
+    }
+
+    fn accept_review_with_stage_labels(
+        &self,
+        work_item_id: &str,
         mut payload: serde_json::Value,
+        kanban: Option<&KanbanSettings>,
     ) -> Result<Option<(WorkItem, WorkItemRun)>, String> {
         let now = now_secs();
         if let serde_json::Value::Object(ref mut object) = payload {
@@ -677,12 +695,20 @@ impl WorkItemHandle {
             });
         }
         let event_id = Uuid::new_v4().to_string();
-        let result = self
-            .inner
-            .lock()
-            .unwrap()
-            .accept_review(work_item_id, event_id, payload, now)
-            .map_err(|e| format!("work-item review accept: {e}"))?;
+        let result = {
+            let mut store = self.inner.lock().unwrap();
+            match kanban {
+                Some(kanban) => store.accept_review_with_kanban_settings(
+                    work_item_id,
+                    event_id,
+                    payload,
+                    now,
+                    kanban,
+                ),
+                None => store.accept_review(work_item_id, event_id, payload, now),
+            }
+            .map_err(|e| format!("work-item review accept: {e}"))?
+        };
         if let Some((item, run, event)) = result {
             self.broadcast(WorkItemEvent::RunUpdated { run: run.clone() });
             self.broadcast(WorkItemEvent::RunEventAppended { event });
@@ -701,8 +727,28 @@ impl WorkItemHandle {
     pub fn request_review(
         &self,
         run_id: &str,
+        payload: serde_json::Value,
+        result_payload: Option<serde_json::Value>,
+    ) -> Result<Option<(WorkItem, WorkItemRun)>, String> {
+        self.request_review_with_stage_labels(run_id, payload, result_payload, None)
+    }
+
+    pub fn request_review_with_kanban_settings(
+        &self,
+        run_id: &str,
+        payload: serde_json::Value,
+        result_payload: Option<serde_json::Value>,
+        kanban: &KanbanSettings,
+    ) -> Result<Option<(WorkItem, WorkItemRun)>, String> {
+        self.request_review_with_stage_labels(run_id, payload, result_payload, Some(kanban))
+    }
+
+    fn request_review_with_stage_labels(
+        &self,
+        run_id: &str,
         mut payload: serde_json::Value,
         result_payload: Option<serde_json::Value>,
+        kanban: Option<&KanbanSettings>,
     ) -> Result<Option<(WorkItem, WorkItemRun)>, String> {
         let now = now_secs();
         if let serde_json::Value::Object(ref mut object) = payload {
@@ -712,12 +758,21 @@ impl WorkItemHandle {
         }
         let event_id = Uuid::new_v4().to_string();
         let result_event = result_payload.map(|payload| (Uuid::new_v4().to_string(), payload));
-        let result = self
-            .inner
-            .lock()
-            .unwrap()
-            .request_review(run_id, event_id, payload, result_event, now)
-            .map_err(|e| format!("work-item review request: {e}"))?;
+        let result = {
+            let mut store = self.inner.lock().unwrap();
+            match kanban {
+                Some(kanban) => store.request_review_with_kanban_settings(
+                    run_id,
+                    event_id,
+                    payload,
+                    result_event,
+                    now,
+                    kanban,
+                ),
+                None => store.request_review(run_id, event_id, payload, result_event, now),
+            }
+            .map_err(|e| format!("work-item review request: {e}"))?
+        };
         if let Some((item, run, event, result_event)) = result {
             self.broadcast(WorkItemEvent::RunUpdated { run: run.clone() });
             self.broadcast(WorkItemEvent::RunEventAppended { event });
@@ -740,8 +795,36 @@ impl WorkItemHandle {
         &self,
         run_id: &str,
         target_status: WorkItemStatus,
+        payload: serde_json::Value,
+        feedback: Option<AttachmentInput>,
+    ) -> Result<Option<(WorkItem, WorkItemRun, Option<Attachment>)>, String> {
+        self.request_changes_with_stage_labels(run_id, target_status, payload, feedback, None)
+    }
+
+    pub fn request_changes_with_kanban_settings(
+        &self,
+        run_id: &str,
+        target_status: WorkItemStatus,
+        payload: serde_json::Value,
+        feedback: Option<AttachmentInput>,
+        kanban: &KanbanSettings,
+    ) -> Result<Option<(WorkItem, WorkItemRun, Option<Attachment>)>, String> {
+        self.request_changes_with_stage_labels(
+            run_id,
+            target_status,
+            payload,
+            feedback,
+            Some(kanban),
+        )
+    }
+
+    fn request_changes_with_stage_labels(
+        &self,
+        run_id: &str,
+        target_status: WorkItemStatus,
         mut payload: serde_json::Value,
         feedback: Option<AttachmentInput>,
+        kanban: Option<&KanbanSettings>,
     ) -> Result<Option<(WorkItem, WorkItemRun, Option<Attachment>)>, String> {
         let now = now_secs();
         if let serde_json::Value::Object(ref mut object) = payload {
@@ -759,12 +842,24 @@ impl WorkItemHandle {
             let sha256 = sha256_hex(input.content.as_bytes());
             (id, input, byte_len, sha256)
         });
-        let result = self
-            .inner
-            .lock()
-            .unwrap()
-            .request_changes(run_id, target_status, event_id, payload, feedback, now)
-            .map_err(|e| format!("work-item review request changes: {e}"))?;
+        let result = {
+            let mut store = self.inner.lock().unwrap();
+            match kanban {
+                Some(kanban) => store.request_changes_with_kanban_settings(
+                    run_id,
+                    target_status,
+                    event_id,
+                    payload,
+                    feedback,
+                    now,
+                    kanban,
+                ),
+                None => {
+                    store.request_changes(run_id, target_status, event_id, payload, feedback, now)
+                }
+            }
+            .map_err(|e| format!("work-item review request changes: {e}"))?
+        };
         if let Some((item, run, event, attachment)) = result {
             self.broadcast(WorkItemEvent::RunUpdated { run: run.clone() });
             self.broadcast(WorkItemEvent::RunEventAppended { event });

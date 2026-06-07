@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
 use super::profile::{ProfileSource, SpawnProfile, TerminalEnvRule};
 
@@ -342,30 +342,201 @@ fn default_agent_profile() -> String {
     "claude".to_string()
 }
 
+const KANBAN_WORKFLOW_DEFAULT_ID: &str = "default";
+const KANBAN_WORKFLOW_DEFAULT_LABEL: &str = "Default";
+const KANBAN_PHASE_PLANNING: &str = "planning";
+const KANBAN_PHASE_IMPLEMENTATION: &str = "implementation";
+const KANBAN_PHASE_REVIEW: &str = "review";
+const KANBAN_REVIEW_STAGE_LOCAL: &str = "local_review";
+const KANBAN_REVIEW_STAGE_PR: &str = "pr_review";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum KanbanWorkflowPhaseCategory {
+    #[default]
+    Planning,
+    Implementation,
+    Review,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct KanbanReviewStageSettings {
+    pub label: String,
+    pub agent_profile: Option<String>,
+    pub instructions: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase", default)]
+pub struct KanbanWorkflowPhaseSettings {
+    pub category: KanbanWorkflowPhaseCategory,
+    pub label: String,
+    pub agent_profile: Option<String>,
+    pub instructions: String,
+    pub stages: BTreeMap<String, KanbanReviewStageSettings>,
+}
+
+impl Default for KanbanWorkflowPhaseSettings {
+    fn default() -> Self {
+        Self {
+            category: KanbanWorkflowPhaseCategory::Planning,
+            label: String::new(),
+            agent_profile: None,
+            instructions: String::new(),
+            stages: BTreeMap::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase", default)]
+pub struct KanbanWorkflowSettings {
+    pub id: String,
+    pub label: String,
+    pub phases: BTreeMap<String, KanbanWorkflowPhaseSettings>,
+}
+
+impl Default for KanbanWorkflowSettings {
+    fn default() -> Self {
+        Self {
+            id: KANBAN_WORKFLOW_DEFAULT_ID.to_string(),
+            label: KANBAN_WORKFLOW_DEFAULT_LABEL.to_string(),
+            phases: default_kanban_workflow_phases(),
+        }
+    }
+}
+
+fn default_kanban_workflow() -> KanbanWorkflowSettings {
+    KanbanWorkflowSettings::default()
+}
+
+fn default_kanban_workflow_phases() -> BTreeMap<String, KanbanWorkflowPhaseSettings> {
+    BTreeMap::from([
+        (
+            KANBAN_PHASE_PLANNING.to_string(),
+            KanbanWorkflowPhaseSettings {
+                category: KanbanWorkflowPhaseCategory::Planning,
+                label: "Planning".to_string(),
+                agent_profile: None,
+                instructions: String::new(),
+                stages: BTreeMap::new(),
+            },
+        ),
+        (
+            KANBAN_PHASE_IMPLEMENTATION.to_string(),
+            KanbanWorkflowPhaseSettings {
+                category: KanbanWorkflowPhaseCategory::Implementation,
+                label: "Implementation".to_string(),
+                agent_profile: None,
+                instructions: String::new(),
+                stages: BTreeMap::new(),
+            },
+        ),
+        (
+            KANBAN_PHASE_REVIEW.to_string(),
+            KanbanWorkflowPhaseSettings {
+                category: KanbanWorkflowPhaseCategory::Review,
+                label: "Review".to_string(),
+                agent_profile: None,
+                instructions: String::new(),
+                stages: default_kanban_review_stages(),
+            },
+        ),
+    ])
+}
+
+fn default_kanban_review_stages() -> BTreeMap<String, KanbanReviewStageSettings> {
+    BTreeMap::from([
+        (
+            KANBAN_REVIEW_STAGE_LOCAL.to_string(),
+            KanbanReviewStageSettings {
+                label: "Local Review".to_string(),
+                agent_profile: None,
+                instructions: String::new(),
+            },
+        ),
+        (
+            KANBAN_REVIEW_STAGE_PR.to_string(),
+            KanbanReviewStageSettings {
+                label: "PR Review".to_string(),
+                agent_profile: None,
+                instructions: String::new(),
+            },
+        ),
+    ])
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase", default)]
 pub struct KanbanSettings {
-    #[serde(default = "default_agent_profile")]
-    pub default_agent_profile: String,
-    #[serde(default)]
-    pub planning_prompt_append: String,
-    #[serde(default)]
-    pub implementation_prompt_append: String,
-    #[serde(default)]
-    pub review_prompt_append: String,
     #[serde(default)]
     pub startup_sidebar: KanbanStartupSidebar,
+    #[serde(default = "default_kanban_workflow")]
+    pub workflow: KanbanWorkflowSettings,
 }
 
 impl Default for KanbanSettings {
     fn default() -> Self {
         Self {
-            default_agent_profile: default_agent_profile(),
-            planning_prompt_append: String::new(),
-            implementation_prompt_append: String::new(),
-            review_prompt_append: String::new(),
             startup_sidebar: KanbanStartupSidebar::Restore,
+            workflow: KanbanWorkflowSettings::default(),
         }
+    }
+}
+
+impl KanbanSettings {
+    pub fn phase(&self, id: &str) -> Option<&KanbanWorkflowPhaseSettings> {
+        self.workflow.phases.get(id)
+    }
+
+    pub fn planning_phase(&self) -> Option<&KanbanWorkflowPhaseSettings> {
+        self.phase(KANBAN_PHASE_PLANNING)
+    }
+
+    pub fn implementation_phase(&self) -> Option<&KanbanWorkflowPhaseSettings> {
+        self.phase(KANBAN_PHASE_IMPLEMENTATION)
+    }
+
+    pub fn review_phase(&self) -> Option<&KanbanWorkflowPhaseSettings> {
+        self.phase(KANBAN_PHASE_REVIEW)
+    }
+
+    pub fn phase_agent_profile(&self, phase_id: &str) -> Option<&str> {
+        self.phase(phase_id)
+            .and_then(|phase| phase.agent_profile.as_deref())
+            .map(str::trim)
+            .filter(|profile| !profile.is_empty())
+    }
+
+    pub fn planning_instructions(&self) -> &str {
+        self.planning_phase().map(|phase| phase.instructions.as_str()).unwrap_or("")
+    }
+
+    pub fn implementation_instructions(&self) -> &str {
+        self.implementation_phase().map(|phase| phase.instructions.as_str()).unwrap_or("")
+    }
+
+    pub fn review_stage(&self, id: &str) -> Option<&KanbanReviewStageSettings> {
+        self.review_phase().and_then(|phase| phase.stages.get(id))
+    }
+
+    pub fn review_stage_agent_profile(&self, id: &str) -> Option<&str> {
+        self.review_stage(id)
+            .and_then(|stage| stage.agent_profile.as_deref())
+            .map(str::trim)
+            .filter(|profile| !profile.is_empty())
+    }
+
+    pub fn review_stage_instructions(&self, id: &str) -> &str {
+        self.review_stage(id).map(|stage| stage.instructions.as_str()).unwrap_or("")
+    }
+
+    pub fn review_stage_label(&self, id: &str) -> Option<&str> {
+        self.review_stage(id)
+            .map(|stage| stage.label.as_str())
+            .map(str::trim)
+            .filter(|label| !label.is_empty())
     }
 }
 
@@ -691,24 +862,10 @@ impl RouxSettings {
             .map(|cmd| cmd.trim().to_string())
             .filter(|cmd| !cmd.is_empty());
         s.default_agent_profile = s.default_agent_profile.trim().to_string();
-        s.kanban.default_agent_profile = s.kanban.default_agent_profile.trim().to_string();
         if s.default_agent_profile.is_empty() {
             s.default_agent_profile = default_agent_profile();
         }
-        // Migration bridge for settings files written before the global
-        // default existed. If Kanban carried the only non-default agent
-        // preference, promote it and then keep both readers in sync.
-        if s.default_agent_profile == default_agent_profile()
-            && !s.kanban.default_agent_profile.is_empty()
-            && s.kanban.default_agent_profile != default_agent_profile()
-        {
-            s.default_agent_profile = s.kanban.default_agent_profile.clone();
-        }
-        s.kanban.default_agent_profile = s.default_agent_profile.clone();
-        s.kanban.planning_prompt_append = s.kanban.planning_prompt_append.trim().to_string();
-        s.kanban.implementation_prompt_append =
-            s.kanban.implementation_prompt_append.trim().to_string();
-        s.kanban.review_prompt_append = s.kanban.review_prompt_append.trim().to_string();
+        s.kanban.workflow = normalize_kanban_workflow(&s.kanban.workflow);
         s.repo_roots = normalize_repo_roots(&s.repo_roots);
         s.library_pinned_repos = normalize_repo_roots(&s.library_pinned_repos);
         if s.library_sources.is_empty() && !s.library_pinned_repos.is_empty() {
@@ -770,6 +927,60 @@ impl RouxSettings {
         };
         s
     }
+}
+
+fn normalize_kanban_workflow(workflow: &KanbanWorkflowSettings) -> KanbanWorkflowSettings {
+    let defaults = KanbanWorkflowSettings::default();
+    let mut normalized = workflow.clone();
+    normalized.id = normalized.id.trim().to_string();
+    if normalized.id.is_empty() {
+        normalized.id = defaults.id;
+    }
+    normalized.label = normalized.label.trim().to_string();
+    if normalized.label.is_empty() {
+        normalized.label = defaults.label;
+    }
+
+    let mut phases = BTreeMap::new();
+    for (id, default_phase) in default_kanban_workflow_phases() {
+        let mut phase = normalized.phases.remove(&id).unwrap_or_else(|| default_phase.clone());
+        phase.category = default_phase.category;
+        phase.label = phase.label.trim().to_string();
+        if phase.label.is_empty() {
+            phase.label = default_phase.label;
+        }
+        phase.agent_profile = normalize_optional_string(&phase.agent_profile);
+        phase.instructions = phase.instructions.trim().to_string();
+        phase.stages = if id == KANBAN_PHASE_REVIEW {
+            normalize_kanban_review_stages(&phase.stages)
+        } else {
+            BTreeMap::new()
+        };
+        phases.insert(id, phase);
+    }
+    normalized.phases = phases;
+    normalized
+}
+
+fn normalize_kanban_review_stages(
+    stages: &BTreeMap<String, KanbanReviewStageSettings>,
+) -> BTreeMap<String, KanbanReviewStageSettings> {
+    let mut normalized = BTreeMap::new();
+    for (id, default_stage) in default_kanban_review_stages() {
+        let mut stage = stages.get(&id).cloned().unwrap_or_else(|| default_stage.clone());
+        stage.label = stage.label.trim().to_string();
+        if stage.label.is_empty() {
+            stage.label = default_stage.label;
+        }
+        stage.agent_profile = normalize_optional_string(&stage.agent_profile);
+        stage.instructions = stage.instructions.trim().to_string();
+        normalized.insert(id, stage);
+    }
+    normalized
+}
+
+fn normalize_optional_string(value: &Option<String>) -> Option<String> {
+    value.as_ref().map(|value| value.trim().to_string()).filter(|value| !value.is_empty())
 }
 
 fn normalize_external_tools(tools: &[ExternalTool]) -> Vec<ExternalTool> {
@@ -996,9 +1207,13 @@ mod theme_tests {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use super::{
-        stable_source_id, ExternalToolSurface, ExternalToolWebEmbedder, LibrarySource,
-        LibrarySourceKind, RouxSettings, SkillSyncMode, UpdateChannel,
+        stable_source_id, ExternalToolSurface, ExternalToolWebEmbedder, KanbanReviewStageSettings,
+        KanbanSettings, KanbanWorkflowPhaseCategory, KanbanWorkflowPhaseSettings,
+        KanbanWorkflowSettings, LibrarySource, LibrarySourceKind, RouxSettings, SkillSyncMode,
+        UpdateChannel,
     };
 
     #[test]
@@ -1097,15 +1312,25 @@ mod tests {
             "taskPanelCollapsed": true
         }"#;
         let parsed: RouxSettings = serde_json::from_str(legacy).unwrap();
-        assert_eq!(parsed.kanban.default_agent_profile, "claude");
         assert_eq!(parsed.kanban.startup_sidebar, super::KanbanStartupSidebar::Restore);
-        assert!(parsed.kanban.planning_prompt_append.is_empty());
-        assert!(parsed.kanban.implementation_prompt_append.is_empty());
-        assert!(parsed.kanban.review_prompt_append.is_empty());
+        assert_eq!(parsed.kanban.workflow.id, "default");
+        assert_eq!(parsed.kanban.workflow.label, "Default");
+        assert_eq!(
+            parsed.kanban.workflow.phases["planning"].category,
+            KanbanWorkflowPhaseCategory::Planning
+        );
+        assert_eq!(parsed.kanban.workflow.phases["planning"].label, "Planning");
+        assert_eq!(parsed.kanban.workflow.phases["implementation"].label, "Implementation");
+        assert_eq!(parsed.kanban.workflow.phases["review"].label, "Review");
+        assert_eq!(
+            parsed.kanban.workflow.phases["review"].stages["local_review"].label,
+            "Local Review"
+        );
+        assert_eq!(parsed.kanban.workflow.phases["review"].stages["pr_review"].label, "PR Review");
     }
 
     #[test]
-    fn legacy_kanban_agent_profile_promotes_to_global_default_agent() {
+    fn legacy_kanban_agent_profile_is_ignored() {
         let json = r#"{
             "tabPosition": "left",
             "tabWidth": 260,
@@ -1134,8 +1359,130 @@ mod tests {
         let settings: RouxSettings = serde_json::from_str(json).unwrap();
         let normalized = settings.normalized();
 
-        assert_eq!(normalized.default_agent_profile, "codex");
-        assert_eq!(normalized.kanban.default_agent_profile, "codex");
+        assert_eq!(normalized.default_agent_profile, "claude");
+        assert_eq!(normalized.kanban.workflow.id, "default");
+    }
+
+    #[test]
+    fn kanban_workflow_normalizes_known_phases_and_drops_unknowns() {
+        let settings = RouxSettings {
+            kanban: KanbanSettings {
+                workflow: KanbanWorkflowSettings {
+                    id: " custom ".into(),
+                    label: " Team Flow ".into(),
+                    phases: BTreeMap::from([
+                        (
+                            "planning".into(),
+                            KanbanWorkflowPhaseSettings {
+                                category: KanbanWorkflowPhaseCategory::Review,
+                                label: " Plan It ".into(),
+                                agent_profile: Some(" codex ".into()),
+                                instructions: " Ask first. ".into(),
+                                stages: BTreeMap::from([(
+                                    "should_drop".into(),
+                                    KanbanReviewStageSettings {
+                                        label: "Drop".into(),
+                                        agent_profile: Some("drop".into()),
+                                        instructions: "drop".into(),
+                                    },
+                                )]),
+                            },
+                        ),
+                        (
+                            "review".into(),
+                            KanbanWorkflowPhaseSettings {
+                                category: KanbanWorkflowPhaseCategory::Implementation,
+                                label: " Review It ".into(),
+                                agent_profile: Some(" ".into()),
+                                instructions: " ".into(),
+                                stages: BTreeMap::from([
+                                    (
+                                        "local_review".into(),
+                                        KanbanReviewStageSettings {
+                                            label: " Local Gate ".into(),
+                                            agent_profile: Some(" claude ".into()),
+                                            instructions: " Check locally. ".into(),
+                                        },
+                                    ),
+                                    (
+                                        "security_review".into(),
+                                        KanbanReviewStageSettings {
+                                            label: "Security".into(),
+                                            agent_profile: None,
+                                            instructions: "drop".into(),
+                                        },
+                                    ),
+                                ]),
+                            },
+                        ),
+                        (
+                            "deploy".into(),
+                            KanbanWorkflowPhaseSettings {
+                                label: "Deploy".into(),
+                                ..KanbanWorkflowPhaseSettings::default()
+                            },
+                        ),
+                    ]),
+                },
+                ..KanbanSettings::default()
+            },
+            ..RouxSettings::default()
+        };
+
+        let normalized = settings.normalized();
+
+        assert_eq!(normalized.kanban.workflow.id, "custom");
+        assert_eq!(normalized.kanban.workflow.label, "Team Flow");
+        assert_eq!(
+            normalized.kanban.workflow.phases.keys().cloned().collect::<Vec<_>>(),
+            vec!["implementation", "planning", "review"]
+        );
+        let planning = &normalized.kanban.workflow.phases["planning"];
+        assert_eq!(planning.category, KanbanWorkflowPhaseCategory::Planning);
+        assert_eq!(planning.label, "Plan It");
+        assert_eq!(planning.agent_profile.as_deref(), Some("codex"));
+        assert_eq!(planning.instructions, "Ask first.");
+        assert!(planning.stages.is_empty());
+
+        let implementation = &normalized.kanban.workflow.phases["implementation"];
+        assert_eq!(implementation.category, KanbanWorkflowPhaseCategory::Implementation);
+        assert_eq!(implementation.label, "Implementation");
+
+        let review = &normalized.kanban.workflow.phases["review"];
+        assert_eq!(review.category, KanbanWorkflowPhaseCategory::Review);
+        assert_eq!(review.label, "Review It");
+        assert!(review.agent_profile.is_none());
+        assert_eq!(
+            review.stages.keys().cloned().collect::<Vec<_>>(),
+            vec!["local_review", "pr_review"]
+        );
+        assert_eq!(review.stages["local_review"].label, "Local Gate");
+        assert_eq!(review.stages["local_review"].agent_profile.as_deref(), Some("claude"));
+        assert_eq!(review.stages["local_review"].instructions, "Check locally.");
+        assert_eq!(review.stages["pr_review"].label, "PR Review");
+    }
+
+    #[test]
+    fn kanban_workflow_serde_uses_json_native_shape() {
+        let settings = KanbanSettings::default();
+        let value = serde_json::to_value(&settings).unwrap();
+
+        assert_eq!(value["startupSidebar"], "restore");
+        assert_eq!(value["workflow"]["id"], "default");
+        assert_eq!(value["workflow"]["label"], "Default");
+        assert_eq!(value["workflow"]["phases"]["planning"]["category"], "planning");
+        assert_eq!(
+            value["workflow"]["phases"]["planning"]["agentProfile"],
+            serde_json::Value::Null
+        );
+        assert_eq!(
+            value["workflow"]["phases"]["review"]["stages"]["local_review"]["label"],
+            "Local Review"
+        );
+        assert!(value.get("planningPromptAppend").is_none());
+        assert!(value.get("implementationPromptAppend").is_none());
+        assert!(value.get("reviewPromptAppend").is_none());
+        assert!(value.get("defaultAgentProfile").is_none());
     }
 
     #[test]
@@ -1179,7 +1526,6 @@ mod tests {
         let normalized = settings.normalized();
 
         assert_eq!(normalized.default_agent_profile, "claude");
-        assert_eq!(normalized.kanban.default_agent_profile, "claude");
     }
 
     #[test]

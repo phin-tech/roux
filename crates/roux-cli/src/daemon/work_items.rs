@@ -501,7 +501,12 @@ pub(super) async fn handle_work_item_review_accept(req: Request, host: &RuntimeH
         "acceptedBy": optional_string_arg(&req.args, &["acceptedBy", "accepted_by"])
             .unwrap_or_else(|| "user".to_string()),
     });
-    match host.work_item_handle.accept_review(&item_id, payload) {
+    let settings = load_daemon_settings();
+    match host.work_item_handle.accept_review_with_kanban_settings(
+        &item_id,
+        payload,
+        &settings.kanban,
+    ) {
         Ok(Some((item, run))) => {
             if run.status == roux_core::WorkItemRunStatus::Done {
                 if let Err(response) = archive_linked_session(host, run.session_id.as_deref()).await
@@ -534,7 +539,13 @@ pub(super) async fn handle_work_item_review_request(req: Request, host: &Runtime
             .unwrap_or_else(|| "agent".to_string()),
     });
     let result_payload = review_request_result_payload(&req.args);
-    match host.work_item_handle.request_review(&run_id, payload, result_payload) {
+    let settings = load_daemon_settings();
+    match host.work_item_handle.request_review_with_kanban_settings(
+        &run_id,
+        payload,
+        result_payload,
+        &settings.kanban,
+    ) {
         Ok(Some((item, run))) => {
             match serde_json::to_value(roux_core::WorkItemReviewRequestResult { item, run }) {
                 Ok(value) => Response::success(value),
@@ -650,11 +661,13 @@ pub(super) async fn handle_work_item_review_request_changes(
         "note": note,
         "targetStatus": target_status.as_str(),
     });
-    match host.work_item_handle.request_changes(
+    let settings = load_daemon_settings();
+    match host.work_item_handle.request_changes_with_kanban_settings(
         &run.id,
         target_status,
         payload,
         Some(attachment_input),
+        &settings.kanban,
     ) {
         Ok(Some((item, run, Some(attachment)))) => {
             match serde_json::to_value(roux_core::WorkItemReviewRequestChangesResult {
@@ -816,9 +829,7 @@ async fn plan_work_item_run_with_hooks(
     }
 
     let settings = load_daemon_settings();
-    let profile_id = optional_string_arg(&req.args, &["profile", "agentProfile", "agent_profile"])
-        .or_else(|| item.agent_profile.clone())
-        .unwrap_or_else(|| settings.kanban.default_agent_profile.clone());
+    let profile_id = planning_agent_profile_id(&req, &settings);
     let Some(profile) = roux_core::providers::resolve_profile(&profile_id, &settings) else {
         return Err(Response::err(format!("agent profile not found: {profile_id}")));
     };
@@ -1143,9 +1154,7 @@ async fn start_work_item_run_with_hooks(
     }
 
     let settings = load_daemon_settings();
-    let profile_id = optional_string_arg(&req.args, &["profile", "agentProfile", "agent_profile"])
-        .or_else(|| item.agent_profile.clone())
-        .unwrap_or_else(|| settings.kanban.default_agent_profile.clone());
+    let profile_id = implementation_agent_profile_id(&req, &item, &settings);
     let Some(profile) = roux_core::providers::resolve_profile(&profile_id, &settings) else {
         return Err(record_start_failure_response(
             host,
@@ -2614,7 +2623,7 @@ fn render_work_item_planning_prompt(
     append_custom_prompt_section(
         &mut prompt,
         "Additional planning instructions",
-        &settings.kanban.planning_prompt_append,
+        settings.kanban.planning_instructions(),
     );
     prompt
 }
@@ -2873,14 +2882,35 @@ fn render_work_item_task_prompt(
     append_custom_prompt_section(
         &mut prompt,
         "Additional implementation instructions",
-        &settings.kanban.implementation_prompt_append,
+        settings.kanban.implementation_instructions(),
     );
+    let review_stage_id =
+        item.review_stage_id.as_deref().unwrap_or(roux_core::FIRST_REVIEW_STAGE_ID);
     append_custom_prompt_section(
         &mut prompt,
         "Additional review handoff instructions",
-        &settings.kanban.review_prompt_append,
+        settings.kanban.review_stage_instructions(review_stage_id),
     );
     prompt
+}
+
+fn planning_agent_profile_id(req: &Request, settings: &roux_core::RouxSettings) -> String {
+    optional_string_arg(&req.args, &["profile", "agentProfile", "agent_profile"])
+        .or_else(|| settings.kanban.planning_phase().and_then(|phase| phase.agent_profile.clone()))
+        .unwrap_or_else(|| settings.default_agent_profile.clone())
+}
+
+fn implementation_agent_profile_id(
+    req: &Request,
+    item: &roux_core::WorkItem,
+    settings: &roux_core::RouxSettings,
+) -> String {
+    optional_string_arg(&req.args, &["profile", "agentProfile", "agent_profile"])
+        .or_else(|| item.agent_profile.clone())
+        .or_else(|| {
+            settings.kanban.implementation_phase().and_then(|phase| phase.agent_profile.clone())
+        })
+        .unwrap_or_else(|| settings.default_agent_profile.clone())
 }
 
 fn append_plan_prompt_context(
@@ -3862,7 +3892,7 @@ mod tests {
     }
 
     #[test]
-    fn work_item_prompts_append_kanban_custom_instructions() {
+    fn work_item_prompts_append_workflow_custom_instructions() {
         let item = roux_core::WorkItem {
             id: "wi-1".into(),
             project_id: None,
@@ -3889,15 +3919,21 @@ mod tests {
             created_at: 0,
             updated_at: 0,
         };
-        let settings = roux_core::RouxSettings {
-            kanban: roux_core::KanbanSettings {
-                planning_prompt_append: "Ask about release timing.".into(),
-                implementation_prompt_append: "Use narrow commits.".into(),
-                review_prompt_append: "Summarize review risks.".into(),
-                ..roux_core::KanbanSettings::default()
-            },
-            ..roux_core::RouxSettings::default()
-        };
+        let mut settings = roux_core::RouxSettings::default();
+        settings.kanban.workflow.phases.get_mut("planning").unwrap().instructions =
+            "Ask about release timing.".into();
+        settings.kanban.workflow.phases.get_mut("implementation").unwrap().instructions =
+            "Use narrow commits.".into();
+        settings
+            .kanban
+            .workflow
+            .phases
+            .get_mut("review")
+            .unwrap()
+            .stages
+            .get_mut("local_review")
+            .unwrap()
+            .instructions = "Summarize review risks.".into();
 
         let plan_prompt = render_work_item_planning_prompt(&item, "plan-run-1", None, &settings);
         assert!(plan_prompt.contains("Roux work item id: wi-1"));
@@ -3921,6 +3957,95 @@ mod tests {
         );
         assert!(task_prompt
             .contains("Additional review handoff instructions:\nSummarize review risks."));
+    }
+
+    #[test]
+    fn planning_agent_profile_uses_phase_before_global_default() {
+        let mut settings = roux_core::RouxSettings {
+            default_agent_profile: "claude".into(),
+            ..roux_core::RouxSettings::default()
+        };
+        settings.kanban.workflow.phases.get_mut("planning").unwrap().agent_profile =
+            Some("codex".into());
+
+        let profile =
+            planning_agent_profile_id(&req("work-item-plan", serde_json::json!({})), &settings);
+
+        assert_eq!(profile, "codex");
+    }
+
+    #[test]
+    fn planning_agent_profile_request_overrides_phase() {
+        let mut settings = roux_core::RouxSettings::default();
+        settings.kanban.workflow.phases.get_mut("planning").unwrap().agent_profile =
+            Some("codex".into());
+
+        let profile = planning_agent_profile_id(
+            &req("work-item-plan", serde_json::json!({ "profile": "claude" })),
+            &settings,
+        );
+
+        assert_eq!(profile, "claude");
+    }
+
+    #[test]
+    fn implementation_agent_profile_prefers_card_then_phase_then_global_default() {
+        let item = roux_core::WorkItem {
+            id: "wi-1".into(),
+            project_id: None,
+            title: "Fix tests".into(),
+            body: None,
+            status: roux_core::WorkItemStatus::Todo,
+            review_stage_id: None,
+            parent_id: None,
+            agent_profile: Some("claude".into()),
+            repo_path: None,
+            base_branch: None,
+            worktree_path: None,
+            branch: None,
+            fetch_first: None,
+            start_error: None,
+            session_id: None,
+            provider: None,
+            external_id: None,
+            external_url: None,
+            sort_order: 0.0,
+            pinned_pr_url: None,
+            archived_at: None,
+            cost: None,
+            created_at: 0,
+            updated_at: 0,
+        };
+        let mut settings = roux_core::RouxSettings {
+            default_agent_profile: "fallback".into(),
+            ..roux_core::RouxSettings::default()
+        };
+        settings.kanban.workflow.phases.get_mut("implementation").unwrap().agent_profile =
+            Some("codex".into());
+
+        let profile = implementation_agent_profile_id(
+            &req("work-item-start", serde_json::json!({})),
+            &item,
+            &settings,
+        );
+        assert_eq!(profile, "claude");
+
+        let mut item_without_profile = item;
+        item_without_profile.agent_profile = None;
+        let profile = implementation_agent_profile_id(
+            &req("work-item-start", serde_json::json!({})),
+            &item_without_profile,
+            &settings,
+        );
+        assert_eq!(profile, "codex");
+
+        settings.kanban.workflow.phases.get_mut("implementation").unwrap().agent_profile = None;
+        let profile = implementation_agent_profile_id(
+            &req("work-item-start", serde_json::json!({})),
+            &item_without_profile,
+            &settings,
+        );
+        assert_eq!(profile, "fallback");
     }
 
     #[tokio::test]

@@ -1,62 +1,208 @@
 <script lang="ts">
+  import type {
+    KanbanWorkflowPhaseSettings,
+    KanbanReviewStageSettings,
+  } from "$lib/bindings";
+  import { profileList, type SpawnProfile } from "$lib/panes/profiles";
   import { settings, updateSetting } from "$lib/stores/settings";
-  import type { KanbanSettings } from "$lib/bindings";
+  import {
+    REVIEW_STAGE_IDS,
+    normalizeKanbanSettings,
+    type RequiredKanbanSettings,
+    type ReviewStageId,
+    type WorkflowPhaseId,
+  } from "$lib/workItems/workflow";
 
-  const KANBAN_DEFAULTS: KanbanSettings = {
-    defaultAgentProfile: "claude",
-    planningPromptAppend: "",
-    implementationPromptAppend: "",
-    reviewPromptAppend: "",
-    startupSidebar: "restore",
-  };
+  const workflowPhases: { id: WorkflowPhaseId; title: string }[] = [
+    { id: "planning", title: "Planning" },
+    { id: "implementation", title: "Implementation" },
+    { id: "review", title: "Review" },
+  ];
 
-  function kanbanSettings(): KanbanSettings {
-    return { ...KANBAN_DEFAULTS, ...($settings.kanban ?? {}) };
+  const availableProfiles = $derived.by<SpawnProfile[]>(() => {
+    const byId = new Map<string, SpawnProfile>();
+    for (const profile of $profileList) byId.set(profile.id, profile);
+    for (const profile of $settings.spawnProfiles ?? []) {
+      byId.set(profile.id, { ...profile, source: "user" });
+    }
+    return Array.from(byId.values()).filter((profile) => {
+      const provider = profile.provider;
+      const command = (profile.startupCommand ?? "").trim();
+      // Planning/start runs reject plain shells and profiles without commands.
+      return (
+        (provider === "claude" || provider === "codex") &&
+        profile.startupBehavior !== "typeOnly" &&
+        command.length > 0
+      );
+    });
+  });
+
+  const kanban = $derived(normalizeKanbanSettings($settings.kanban));
+
+  function updateKanban(next: RequiredKanbanSettings): void {
+    updateSetting("kanban", next);
   }
 
-  let kanban = $derived(kanbanSettings());
+  function updateWorkflowLabel(label: string): void {
+    updateKanban({
+      ...kanban,
+      workflow: { ...kanban.workflow, label },
+    });
+  }
 
-  function updateKanban<K extends keyof KanbanSettings>(
-    key: K,
-    value: KanbanSettings[K],
+  function updatePhase(
+    phaseId: WorkflowPhaseId,
+    patch: Partial<KanbanWorkflowPhaseSettings>,
   ): void {
-    updateSetting("kanban", { ...kanbanSettings(), [key]: value });
+    updateKanban({
+      ...kanban,
+      workflow: {
+        ...kanban.workflow,
+        phases: {
+          ...kanban.workflow.phases,
+          [phaseId]: {
+            ...kanban.workflow.phases[phaseId],
+            ...patch,
+          },
+        },
+      },
+    });
+  }
+
+  function updateReviewStage(
+    stageId: ReviewStageId,
+    patch: Partial<KanbanReviewStageSettings>,
+  ): void {
+    const review = kanban.workflow.phases.review;
+    updatePhase("review", {
+      stages: {
+        ...review.stages,
+        [stageId]: {
+          ...review.stages[stageId],
+          ...patch,
+        },
+      },
+    });
   }
 </script>
 
 <div class="py-2">
-  <div class="text-[13px]">Planning instructions</div>
-  <div class="mt-0.5 text-[11px] text-text-muted">
-    Appended after Roux's required planning prompt.
-  </div>
-  <textarea
-    class="mt-2 min-h-24 w-full resize-y rounded border border-border bg-bg-deep px-2 py-1.5 text-xs text-text-primary outline-none focus:border-accent-dim"
-    value={kanban.planningPromptAppend}
-    oninput={(e) => updateKanban("planningPromptAppend", e.currentTarget.value)}
-  ></textarea>
+  <label for="kanban-workflow-label" class="text-[13px] font-semibold"
+    >Workflow</label
+  >
+  <input
+    id="kanban-workflow-label"
+    aria-label="Workflow label"
+    class="mt-2 w-full rounded border border-border bg-bg-deep px-2 py-1.5 text-xs text-text-primary outline-none focus:border-accent-dim"
+    value={kanban.workflow.label}
+    oninput={(e) => updateWorkflowLabel(e.currentTarget.value)}
+  />
 </div>
 
-<div class="py-2">
-  <div class="text-[13px]">Implementation instructions</div>
-  <div class="mt-0.5 text-[11px] text-text-muted">
-    Appended after Roux's required Start prompt.
-  </div>
-  <textarea
-    class="mt-2 min-h-24 w-full resize-y rounded border border-border bg-bg-deep px-2 py-1.5 text-xs text-text-primary outline-none focus:border-accent-dim"
-    value={kanban.implementationPromptAppend}
-    oninput={(e) =>
-      updateKanban("implementationPromptAppend", e.currentTarget.value)}
-  ></textarea>
-</div>
+{#each workflowPhases as phaseInfo (phaseInfo.id)}
+  {@const phase = kanban.workflow.phases[phaseInfo.id]}
+  <div class="mt-3 rounded border border-border-subtle bg-bg-surface/35 p-3">
+    <div class="flex flex-wrap items-start justify-between gap-3">
+      <div>
+        <div class="text-[13px] font-semibold">{phaseInfo.title}</div>
+        <div class="mt-1 flex flex-wrap items-center gap-2">
+          <label
+            class="text-[11px] uppercase tracking-wider text-text-muted"
+            for={`kanban-${phaseInfo.id}-label`}
+          >
+            Label
+          </label>
+          <input
+            id={`kanban-${phaseInfo.id}-label`}
+            aria-label={`${phaseInfo.title} label`}
+            class="w-40 rounded border border-border bg-bg-deep px-2 py-1 text-xs text-text-primary outline-none focus:border-accent-dim"
+            value={phase.label}
+            oninput={(e) =>
+              updatePhase(phaseInfo.id, { label: e.currentTarget.value })}
+          />
+        </div>
+      </div>
+      <label
+        class="flex flex-col gap-1 text-[11px] uppercase tracking-wider text-text-muted"
+      >
+        Agent
+        <select
+          aria-label={`${phaseInfo.title} agent`}
+          class="max-w-[14rem] cursor-pointer appearance-none rounded border border-border bg-bg-deep px-2 py-1 pr-6 text-xs text-text-primary outline-none focus:border-accent-dim"
+          value={phase.agentProfile ?? ""}
+          onchange={(e) =>
+            updatePhase(phaseInfo.id, {
+              agentProfile: e.currentTarget.value || null,
+            })}
+        >
+          <option value="">Global default</option>
+          {#each availableProfiles as profile (profile.id)}
+            <option value={profile.id}>{profile.name}</option>
+          {/each}
+        </select>
+      </label>
+    </div>
 
-<div class="py-2">
-  <div class="text-[13px]">Review handoff instructions</div>
-  <div class="mt-0.5 text-[11px] text-text-muted">
-    Included in the implementation prompt until automated review runs exist.
+    {#if phaseInfo.id === "review"}
+      <div class="mt-3 space-y-3">
+        {#each REVIEW_STAGE_IDS as stageId (stageId)}
+          {@const stage = phase.stages[stageId]}
+          <div class="border-t border-border-subtle pt-3">
+            <div class="flex flex-wrap items-start justify-between gap-3">
+              <label
+                class="flex flex-col gap-1 text-[11px] uppercase tracking-wider text-text-muted"
+              >
+                Stage label
+                <input
+                  aria-label={`${stageId} label`}
+                  class="w-40 rounded border border-border bg-bg-deep px-2 py-1 text-xs text-text-primary outline-none focus:border-accent-dim"
+                  value={stage.label}
+                  oninput={(e) =>
+                    updateReviewStage(stageId, {
+                      label: e.currentTarget.value,
+                    })}
+                />
+              </label>
+              <label
+                class="flex flex-col gap-1 text-[11px] uppercase tracking-wider text-text-muted"
+              >
+                Agent
+                <select
+                  aria-label={`${stage.label || stageId} agent`}
+                  class="max-w-[14rem] cursor-pointer appearance-none rounded border border-border bg-bg-deep px-2 py-1 pr-6 text-xs text-text-primary outline-none focus:border-accent-dim"
+                  value={stage.agentProfile ?? ""}
+                  onchange={(e) =>
+                    updateReviewStage(stageId, {
+                      agentProfile: e.currentTarget.value || null,
+                    })}
+                >
+                  <option value="">Review phase/default</option>
+                  {#each availableProfiles as profile (profile.id)}
+                    <option value={profile.id}>{profile.name}</option>
+                  {/each}
+                </select>
+              </label>
+            </div>
+            <textarea
+              aria-label={`${stage.label} instructions`}
+              class="mt-2 min-h-20 w-full resize-y rounded border border-border bg-bg-deep px-2 py-1.5 text-xs text-text-primary outline-none focus:border-accent-dim"
+              value={stage.instructions}
+              oninput={(e) =>
+                updateReviewStage(stageId, {
+                  instructions: e.currentTarget.value,
+                })}
+            ></textarea>
+          </div>
+        {/each}
+      </div>
+    {:else}
+      <textarea
+        aria-label={`${phaseInfo.title} instructions`}
+        class="mt-3 min-h-24 w-full resize-y rounded border border-border bg-bg-deep px-2 py-1.5 text-xs text-text-primary outline-none focus:border-accent-dim"
+        value={phase.instructions}
+        oninput={(e) =>
+          updatePhase(phaseInfo.id, { instructions: e.currentTarget.value })}
+      ></textarea>
+    {/if}
   </div>
-  <textarea
-    class="mt-2 min-h-24 w-full resize-y rounded border border-border bg-bg-deep px-2 py-1.5 text-xs text-text-primary outline-none focus:border-accent-dim"
-    value={kanban.reviewPromptAppend}
-    oninput={(e) => updateKanban("reviewPromptAppend", e.currentTarget.value)}
-  ></textarea>
-</div>
+{/each}

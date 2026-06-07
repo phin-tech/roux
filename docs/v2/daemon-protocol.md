@@ -749,9 +749,10 @@ daemon returns the existing planning run and session by default. With
 cleans up its session, and creates a fresh planning run. If another active run
 exists, planning is rejected.
 
-Planning profile resolution is request `profile`, then card `agentProfile`,
-then `settings.kanban.defaultAgentProfile`. The generated planning prompt
-includes `settings.kanban.planningPromptAppend` when configured.
+Planning profile resolution is request `profile`, then
+`settings.kanban.workflow.phases.planning.agentProfile`, then the global
+`settings.defaultAgentProfile`. The generated planning prompt includes
+`settings.kanban.workflow.phases.planning.instructions` when configured.
 
 `work-item-start`
 
@@ -763,8 +764,9 @@ without an attached approved plan.
 The daemon rejects archived cards, cards that already have an active run, and
 cards without a repo path or project repo to derive from. Restore archived cards
 before starting them. Start profile resolution is request `profile`, then card
-`agentProfile`, then `settings.kanban.defaultAgentProfile`. Plain-shell and
-type-only profiles are not valid Start profiles.
+`agentProfile`, then `settings.kanban.workflow.phases.implementation.agentProfile`,
+then the global `settings.defaultAgentProfile`. Plain-shell and type-only
+profiles are not valid Start profiles.
 
 On success for an unbound card, the daemon creates or reuses the card's
 dedicated worktree, creates a daemon session/PTY, creates a `starting`
@@ -785,9 +787,11 @@ to `doing`, clears `startError`, and returns:
 The generated implementation prompt includes the newest plan-like attached
 document when one exists, preferring work-item attachments whose title or source
 filename contains `plan`. It also includes
-`settings.kanban.implementationPromptAppend` when configured. The review
-handoff prompt includes `settings.kanban.reviewPromptAppend` and tells the
-agent to request review with `roux work-item review request <run-id>`.
+`settings.kanban.workflow.phases.implementation.instructions` when configured.
+The review handoff prompt includes the active review stage's instructions from
+`settings.kanban.workflow.phases.review.stages`; cards with no stored review
+stage use `local_review`. The handoff tells the agent to request review with
+`roux work-item review request <run-id>`.
 
 If the card already has a bound implementation `sessionId`, Start reuses that
 session and creates an additional implementation run/PTY in it instead of

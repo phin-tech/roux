@@ -24,7 +24,6 @@
   } from "$lib/stores/workItems";
   import { projects } from "$lib/stores/projects";
   import { settings } from "$lib/stores/settings";
-  import { defaultAgentProfileId } from "$lib/panes/defaultAgent";
   import { profileList } from "$lib/panes/profiles";
   import { listWorktrees } from "$lib/tauri";
   import {
@@ -70,7 +69,7 @@
     item ? ($attachmentsByWorkItem.get(item.id) ?? []) : [],
   );
   const reviewStageName = $derived(
-    item ? reviewStageLabel(item.reviewStageId) : null,
+    item ? reviewStageLabel(item.reviewStageId, $settings.kanban) : null,
   );
   const reviewStageLabelText = $derived(
     item?.status === "review" ? "Review stage" : "Next review stage",
@@ -96,7 +95,7 @@
   let projectId = $state<string | null>(null);
   let repoPath = $state("");
   let repoOverride = $state(true);
-  let profileId = $state(defaultAgentProfileId());
+  let profileId = $state("");
   let worktreeTarget = $state("");
   let branchBase = $state<BranchBase>("main");
   let worktrees = $state<Worktree[]>([]);
@@ -160,7 +159,7 @@
       repoOverride = !item.projectId || !!item.repoPath;
       repoPath =
         item.repoPath ?? projectRoot ?? $settings.defaultProjectPath ?? "";
-      profileId = item.agentProfile ?? defaultAgentProfileId();
+      profileId = item.agentProfile ?? "";
       worktreeTarget = item.worktreePath ?? item.branch ?? "";
       branchBase =
         item.fetchFirst || item.baseBranch === "origin/main"
@@ -175,7 +174,7 @@
       projectId = null;
       repoOverride = true;
       repoPath = $settings.defaultProjectPath ?? "";
-      profileId = defaultAgentProfileId();
+      profileId = "";
       worktreeTarget = "";
       branchBase = "main";
       resetTransientState();
@@ -241,7 +240,7 @@
 
   function applyTargetFields(payload: WorkItemInput): WorkItemInput {
     payload.repoPath = repoPathForSave();
-    payload.agentProfile = profileId || defaultAgentProfileId();
+    payload.agentProfile = profileId || null;
     const target = worktreeTarget.trim();
     const exactWorktree = worktrees.find(
       (wt) => wt.path === target || wt.branch === target,
@@ -610,7 +609,12 @@
 
             <label class="flex flex-col gap-1.5">
               <span class={sectionLabel}>Spawn profile</span>
-              <select class={inputClass} bind:value={profileId}>
+              <select
+                class={inputClass}
+                bind:value={profileId}
+                aria-label="Spawn profile"
+              >
+                <option value="">Workflow default</option>
                 {#each profileOptions as profile (profile.id)}
                   <option value={profile.id}>{profile.name}</option>
                 {/each}

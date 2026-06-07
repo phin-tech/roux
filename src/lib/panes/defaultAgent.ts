@@ -7,12 +7,8 @@ export function defaultAgentProfileId(): string {
 }
 
 export function effectiveDefaultAgentProfileId(
-  current: Pick<RouxSettings, "defaultAgentProfile" | "kanban">,
+  current: Pick<RouxSettings, "defaultAgentProfile">,
 ): string {
-  const id = (
-    current.defaultAgentProfile ??
-    current.kanban?.defaultAgentProfile ??
-    "claude"
-  ).trim();
+  const id = (current.defaultAgentProfile ?? "claude").trim();
   return id || "claude";
 }

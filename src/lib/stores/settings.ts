@@ -4,6 +4,7 @@ import { DEFAULT_SETTINGS } from "../types";
 import type { KanbanSettings, StartupTarget } from "$lib/bindings";
 import { normalizeTheme } from "$lib/themes";
 import { setUserProfiles } from "$lib/panes/profiles";
+import { normalizeKanbanSettings } from "$lib/workItems/workflow";
 import {
   getSettings,
   updateSettings as updateSettingsApi,
@@ -18,14 +19,6 @@ let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 // actually changes — otherwise every unrelated setting tweak would
 // force a subprocess spawn.
 let lastWorktrunkBinaryPath: string | null | undefined = undefined;
-
-const KANBAN_DEFAULTS: KanbanSettings = {
-  defaultAgentProfile: "claude",
-  planningPromptAppend: "",
-  implementationPromptAppend: "",
-  reviewPromptAppend: "",
-  startupSidebar: "restore",
-};
 
 export async function initSettings(): Promise<RouxSettings> {
   const raw = await getSettings();
@@ -71,7 +64,6 @@ export function setDefaultAgentProfile(profileId: string): void {
   updateSettingsDraft((s) => ({
     ...s,
     defaultAgentProfile: profileId,
-    kanban: { ...kanbanSettings(s), defaultAgentProfile: profileId },
   }));
 }
 
@@ -109,7 +101,7 @@ function scheduleSettingsPersist(updated: RouxSettings): void {
 }
 
 function kanbanSettings(current: RouxSettings): KanbanSettings {
-  return { ...KANBAN_DEFAULTS, ...(current.kanban ?? {}) };
+  return normalizeKanbanSettings(current.kanban);
 }
 
 function nextStartupExternalToolId(current: RouxSettings): string | null {
