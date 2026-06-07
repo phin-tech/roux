@@ -12,7 +12,7 @@ use super::session::Session;
 pub enum WorkItemStatus {
     #[default]
     Todo,
-    Ready,
+    Planning,
     Doing,
     Review,
     Done,
@@ -22,7 +22,7 @@ impl WorkItemStatus {
     pub fn as_str(&self) -> &str {
         match self {
             Self::Todo => "todo",
-            Self::Ready => "ready",
+            Self::Planning => "planning",
             Self::Doing => "doing",
             Self::Review => "review",
             Self::Done => "done",
@@ -32,7 +32,7 @@ impl WorkItemStatus {
     pub fn from_str_opt(s: &str) -> Option<Self> {
         match s {
             "todo" => Some(Self::Todo),
-            "ready" => Some(Self::Ready),
+            "planning" => Some(Self::Planning),
             "doing" => Some(Self::Doing),
             "review" => Some(Self::Review),
             "done" => Some(Self::Done),
@@ -130,6 +130,13 @@ pub struct WorkItem {
     pub title: String,
     pub body: Option<String>,
     pub status: WorkItemStatus,
+    /// Workflow that owns this card's precise execution stages.
+    pub workflow_id: Option<String>,
+    /// Precise workflow stage for execution. `status` is the coarse board
+    /// category derived from this stage.
+    pub workflow_stage_id: Option<String>,
+    /// Last resolved stage label for debugging after workflow JSON changes.
+    pub workflow_stage_label: Option<String>,
     /// Stable id of the review gate the card is currently satisfying.
     /// Labels are resolved from workflow metadata so display text can change
     /// without rewriting stored cards.
@@ -257,6 +264,9 @@ pub struct WorkItemInputPresence {
     pub branch: bool,
     pub fetch_first: bool,
     pub start_error: bool,
+    pub workflow_id: bool,
+    pub workflow_stage_id: bool,
+    pub workflow_stage_label: bool,
     pub project_id: bool,
     pub parent_id: bool,
 }
@@ -276,6 +286,9 @@ pub struct WorkItemInput {
     pub branch: Option<String>,
     pub fetch_first: Option<bool>,
     pub start_error: Option<String>,
+    pub workflow_id: Option<String>,
+    pub workflow_stage_id: Option<String>,
+    pub workflow_stage_label: Option<String>,
     pub project_id: Option<String>,
     pub parent_id: Option<String>,
     pub external_ref: Option<ExternalRef>,
@@ -306,6 +319,12 @@ struct WorkItemInputBinding {
     fetch_first: Option<bool>,
     #[specta(optional)]
     start_error: Option<String>,
+    #[specta(optional)]
+    workflow_id: Option<String>,
+    #[specta(optional)]
+    workflow_stage_id: Option<String>,
+    #[specta(optional)]
+    workflow_stage_label: Option<String>,
     #[specta(optional)]
     project_id: Option<String>,
     #[specta(optional)]
@@ -349,6 +368,18 @@ impl WorkItemInput {
         self.field_presence.start_error || self.start_error.is_some()
     }
 
+    pub fn workflow_id_present(&self) -> bool {
+        self.field_presence.workflow_id || self.workflow_id.is_some()
+    }
+
+    pub fn workflow_stage_id_present(&self) -> bool {
+        self.field_presence.workflow_stage_id || self.workflow_stage_id.is_some()
+    }
+
+    pub fn workflow_stage_label_present(&self) -> bool {
+        self.field_presence.workflow_stage_label || self.workflow_stage_label.is_some()
+    }
+
     pub fn project_id_present(&self) -> bool {
         self.field_presence.project_id || self.project_id.is_some()
     }
@@ -380,6 +411,12 @@ struct WorkItemInputSerde {
     fetch_first: Option<Option<bool>>,
     #[serde(default, deserialize_with = "deserialize_nullable_field")]
     start_error: Option<Option<String>>,
+    #[serde(default, deserialize_with = "deserialize_nullable_field")]
+    workflow_id: Option<Option<String>>,
+    #[serde(default, deserialize_with = "deserialize_nullable_field")]
+    workflow_stage_id: Option<Option<String>>,
+    #[serde(default, deserialize_with = "deserialize_nullable_field")]
+    workflow_stage_label: Option<Option<String>>,
     #[serde(default, deserialize_with = "deserialize_nullable_field")]
     project_id: Option<Option<String>>,
     #[serde(default, deserialize_with = "deserialize_nullable_field")]
@@ -415,6 +452,9 @@ impl<'de> Deserialize<'de> for WorkItemInput {
             branch: raw.branch.clone().flatten(),
             fetch_first: raw.fetch_first.flatten(),
             start_error: raw.start_error.clone().flatten(),
+            workflow_id: raw.workflow_id.clone().flatten(),
+            workflow_stage_id: raw.workflow_stage_id.clone().flatten(),
+            workflow_stage_label: raw.workflow_stage_label.clone().flatten(),
             project_id: raw.project_id.clone().flatten(),
             parent_id: raw.parent_id.clone().flatten(),
             external_ref: raw.external_ref,
@@ -428,6 +468,9 @@ impl<'de> Deserialize<'de> for WorkItemInput {
                 branch: raw.branch.is_some(),
                 fetch_first: raw.fetch_first.is_some(),
                 start_error: raw.start_error.is_some(),
+                workflow_id: raw.workflow_id.is_some(),
+                workflow_stage_id: raw.workflow_stage_id.is_some(),
+                workflow_stage_label: raw.workflow_stage_label.is_some(),
                 project_id: raw.project_id.is_some(),
                 parent_id: raw.parent_id.is_some(),
             },
@@ -475,6 +518,24 @@ impl Serialize for WorkItemInput {
             "startError",
             &self.start_error,
             self.start_error_present(),
+        )?;
+        serialize_optional_entry(
+            &mut map,
+            "workflowId",
+            &self.workflow_id,
+            self.workflow_id_present(),
+        )?;
+        serialize_optional_entry(
+            &mut map,
+            "workflowStageId",
+            &self.workflow_stage_id,
+            self.workflow_stage_id_present(),
+        )?;
+        serialize_optional_entry(
+            &mut map,
+            "workflowStageLabel",
+            &self.workflow_stage_label,
+            self.workflow_stage_label_present(),
         )?;
         serialize_optional_entry(
             &mut map,
@@ -788,7 +849,7 @@ mod tests {
     fn work_item_status_round_trips() {
         for (s, expected) in [
             ("todo", WorkItemStatus::Todo),
-            ("ready", WorkItemStatus::Ready),
+            ("planning", WorkItemStatus::Planning),
             ("doing", WorkItemStatus::Doing),
             ("review", WorkItemStatus::Review),
             ("done", WorkItemStatus::Done),

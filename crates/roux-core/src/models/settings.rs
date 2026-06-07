@@ -349,27 +349,140 @@ const DEFAULT_KANBAN_WORKFLOW_JSON: &str = include_str!(concat!(
     "/../../src/lib/workItems/defaultWorkflow.json"
 ));
 const KANBAN_WORKFLOW_DEFAULT_ID: &str = "default";
-const KANBAN_PHASE_PLANNING: &str = "planning";
-const KANBAN_PHASE_IMPLEMENTATION: &str = "implementation";
-const KANBAN_PHASE_REVIEW: &str = "review";
-const KANBAN_REVIEW_STAGE_LOCAL: &str = "local_review";
-const KANBAN_REVIEW_STAGE_PR: &str = "pr_review";
+pub const KANBAN_CATEGORY_TODO: &str = "todo";
+pub const KANBAN_CATEGORY_PLANNING: &str = "planning";
+pub const KANBAN_CATEGORY_DOING: &str = "doing";
+pub const KANBAN_CATEGORY_REVIEW: &str = "review";
+pub const KANBAN_CATEGORY_DONE: &str = "done";
+pub const KANBAN_PHASE_TODO: &str = "todo";
+pub const KANBAN_PHASE_PLANNING: &str = "planning";
+pub const KANBAN_PHASE_DOING: &str = "doing";
+pub const KANBAN_PHASE_REVIEW: &str = "review";
+pub const KANBAN_PHASE_DONE: &str = "done";
+pub const KANBAN_STAGE_TODO: &str = "todo";
+pub const KANBAN_STAGE_PLANNING: &str = "planning";
+pub const KANBAN_STAGE_IMPLEMENTATION: &str = "implementation";
+pub const KANBAN_STAGE_FIX_CI: &str = "fix_ci";
+pub const KANBAN_STAGE_LOCAL_REVIEW: &str = "local_review";
+pub const KANBAN_STAGE_PR_REVIEW: &str = "pr_review";
+pub const KANBAN_STAGE_DONE: &str = "done";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum KanbanWorkflowPhaseCategory {
+    Todo,
     #[default]
     Planning,
-    Implementation,
+    Doing,
     Review,
+    Done,
+}
+
+impl KanbanWorkflowPhaseCategory {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Todo => KANBAN_CATEGORY_TODO,
+            Self::Planning => KANBAN_CATEGORY_PLANNING,
+            Self::Doing => KANBAN_CATEGORY_DOING,
+            Self::Review => KANBAN_CATEGORY_REVIEW,
+            Self::Done => KANBAN_CATEGORY_DONE,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum KanbanWorkflowStageKind {
+    #[default]
+    Manual,
+    Work,
+    Gate,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum KanbanWorkflowPromptMode {
+    #[default]
+    Append,
+    Replace,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type, Default)]
 #[serde(rename_all = "camelCase", default)]
-pub struct KanbanReviewStageSettings {
+pub struct KanbanWorkflowPromptSettings {
+    pub mode: KanbanWorkflowPromptMode,
+    pub instructions: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum KanbanWorkflowCommandCwd {
+    #[default]
+    Worktree,
+    Project,
+    Repo,
+    None,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(tag = "type", rename_all = "snake_case", rename_all_fields = "camelCase")]
+pub enum KanbanWorkflowRunnerSettings {
+    Agent {
+        #[serde(default)]
+        agent_profile: Option<String>,
+    },
+    Command {
+        command: String,
+        #[serde(default)]
+        args: Vec<String>,
+        #[serde(default)]
+        cwd: KanbanWorkflowCommandCwd,
+        #[serde(default)]
+        timeout_seconds: Option<u64>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(tag = "type", rename_all = "snake_case", rename_all_fields = "camelCase")]
+pub enum KanbanWorkflowGateSettings {
+    Manual,
+    Command {
+        command: String,
+        #[serde(default)]
+        args: Vec<String>,
+        #[serde(default)]
+        cwd: KanbanWorkflowCommandCwd,
+        #[serde(default)]
+        timeout_seconds: Option<u64>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct KanbanWorkflowTransitions {
+    pub on_complete: Option<String>,
+    pub on_passed: Option<String>,
+    pub on_failed: Option<String>,
+    pub on_changes_requested: Option<String>,
+    pub on_ci_failed: Option<String>,
+    pub on_review_comments: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct KanbanWorkflowStageSettings {
     pub label: String,
+    pub action_label: Option<String>,
+    pub category: KanbanWorkflowPhaseCategory,
+    pub kind: KanbanWorkflowStageKind,
     pub agent_profile: Option<String>,
     pub instructions: String,
+    pub prompt: KanbanWorkflowPromptSettings,
+    pub runner: Option<KanbanWorkflowRunnerSettings>,
+    pub gate: Option<KanbanWorkflowGateSettings>,
+    pub env: BTreeMap<String, String>,
+    pub transitions: KanbanWorkflowTransitions,
+    pub terminal: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
@@ -379,7 +492,10 @@ pub struct KanbanWorkflowPhaseSettings {
     pub label: String,
     pub agent_profile: Option<String>,
     pub instructions: String,
-    pub stages: BTreeMap<String, KanbanReviewStageSettings>,
+    pub prompt: KanbanWorkflowPromptSettings,
+    pub env: BTreeMap<String, String>,
+    pub stage_order: Vec<String>,
+    pub stages: BTreeMap<String, KanbanWorkflowStageSettings>,
 }
 
 impl Default for KanbanWorkflowPhaseSettings {
@@ -389,6 +505,9 @@ impl Default for KanbanWorkflowPhaseSettings {
             label: String::new(),
             agent_profile: None,
             instructions: String::new(),
+            prompt: KanbanWorkflowPromptSettings::default(),
+            env: BTreeMap::new(),
+            stage_order: Vec::new(),
             stages: BTreeMap::new(),
         }
     }
@@ -399,6 +518,8 @@ impl Default for KanbanWorkflowPhaseSettings {
 pub struct KanbanWorkflowSettings {
     pub id: String,
     pub label: String,
+    pub env: BTreeMap<String, String>,
+    pub phase_order: Vec<String>,
     pub phases: BTreeMap<String, KanbanWorkflowPhaseSettings>,
 }
 
@@ -407,12 +528,22 @@ pub struct KanbanWorkflowSettings {
 struct BundledKanbanWorkflowSettings {
     id: String,
     label: String,
+    #[serde(default)]
+    env: BTreeMap<String, String>,
+    #[serde(default)]
+    phase_order: Vec<String>,
     phases: BTreeMap<String, KanbanWorkflowPhaseSettings>,
 }
 
 impl From<BundledKanbanWorkflowSettings> for KanbanWorkflowSettings {
     fn from(value: BundledKanbanWorkflowSettings) -> Self {
-        Self { id: value.id, label: value.label, phases: value.phases }
+        Self {
+            id: value.id,
+            label: value.label,
+            env: value.env,
+            phase_order: value.phase_order,
+            phases: value.phases,
+        }
     }
 }
 
@@ -440,14 +571,6 @@ fn default_kanban_workflow_phases() -> BTreeMap<String, KanbanWorkflowPhaseSetti
     default_kanban_workflow_from_json().phases
 }
 
-fn default_kanban_review_stages() -> BTreeMap<String, KanbanReviewStageSettings> {
-    default_kanban_workflow_from_json()
-        .phases
-        .remove(KANBAN_PHASE_REVIEW)
-        .map(|phase| phase.stages)
-        .unwrap_or_default()
-}
-
 fn validate_default_kanban_workflow(workflow: &KanbanWorkflowSettings) -> Result<(), String> {
     if workflow.id.trim() != KANBAN_WORKFLOW_DEFAULT_ID {
         return Err(format!(
@@ -467,14 +590,15 @@ fn validate_kanban_workflow_runtime_shape(workflow: &KanbanWorkflowSettings) -> 
     }
 
     let required_phases = [
+        (KANBAN_PHASE_TODO, KanbanWorkflowPhaseCategory::Todo),
         (KANBAN_PHASE_PLANNING, KanbanWorkflowPhaseCategory::Planning),
-        (KANBAN_PHASE_IMPLEMENTATION, KanbanWorkflowPhaseCategory::Implementation),
+        (KANBAN_PHASE_DOING, KanbanWorkflowPhaseCategory::Doing),
         (KANBAN_PHASE_REVIEW, KanbanWorkflowPhaseCategory::Review),
+        (KANBAN_PHASE_DONE, KanbanWorkflowPhaseCategory::Done),
     ];
     if workflow.phases.len() != required_phases.len() {
-        return Err(
-            "workflow must define exactly planning, implementation, and review phases".to_string()
-        );
+        return Err("workflow must define exactly todo, planning, doing, review, and done phases"
+            .to_string());
     }
     for phase_id in workflow.phases.keys() {
         if !required_phases.iter().any(|(expected_id, _)| phase_id == expected_id) {
@@ -491,33 +615,137 @@ fn validate_kanban_workflow_runtime_shape(workflow: &KanbanWorkflowSettings) -> 
         if phase.label.trim().is_empty() {
             return Err(format!("workflow phase {phase_id:?} label must not be empty"));
         }
-        if phase_id != KANBAN_PHASE_REVIEW && !phase.stages.is_empty() {
-            return Err(format!("workflow phase {phase_id:?} must not define review stages"));
+        if phase.stage_order.is_empty() {
+            return Err(format!("workflow phase {phase_id:?} must define stageOrder"));
+        }
+        for stage_id in &phase.stage_order {
+            let Some(stage) = phase.stages.get(stage_id) else {
+                return Err(format!(
+                    "workflow phase {phase_id:?} stageOrder references missing stage {stage_id:?}"
+                ));
+            };
+            if stage.label.trim().is_empty() {
+                return Err(format!(
+                    "workflow stage {stage_id:?} in phase {phase_id:?} label must not be empty"
+                ));
+            }
+            if stage.category != phase.category {
+                return Err(format!(
+                    "workflow stage {stage_id:?} in phase {phase_id:?} has the wrong category"
+                ));
+            }
+            validate_kanban_stage_execution_shape(stage_id, stage)?;
+            validate_kanban_stage_transitions(workflow, stage_id, &stage.transitions)?;
+        }
+        for stage_id in phase.stages.keys() {
+            if !phase.stage_order.iter().any(|ordered| ordered == stage_id) {
+                return Err(format!(
+                    "workflow phase {phase_id:?} stage {stage_id:?} is missing from stageOrder"
+                ));
+            }
         }
     }
 
-    let review =
-        workflow.phases.get(KANBAN_PHASE_REVIEW).expect("review phase was already validated");
-    let required_stages = [KANBAN_REVIEW_STAGE_LOCAL, KANBAN_REVIEW_STAGE_PR];
-    if review.stages.len() != required_stages.len() {
-        return Err(
-            "review phase must define exactly local_review and pr_review stages".to_string()
-        );
-    }
-    for stage_id in review.stages.keys() {
-        if !required_stages.iter().any(|expected_id| stage_id == expected_id) {
-            return Err(format!("unknown review stage {stage_id:?}"));
-        }
-    }
-    for stage_id in required_stages {
-        let Some(stage) = review.stages.get(stage_id) else {
-            return Err(format!("missing review stage {stage_id:?}"));
-        };
-        if stage.label.trim().is_empty() {
-            return Err(format!("review stage {stage_id:?} label must not be empty"));
-        }
-    }
+    Ok(())
+}
 
+fn validate_kanban_stage_execution_shape(
+    stage_id: &str,
+    stage: &KanbanWorkflowStageSettings,
+) -> Result<(), String> {
+    match stage.kind {
+        KanbanWorkflowStageKind::Manual => {
+            if stage.runner.is_some() || stage.gate.is_some() {
+                return Err(format!(
+                    "manual workflow stage {stage_id:?} must not define runner or gate"
+                ));
+            }
+        }
+        KanbanWorkflowStageKind::Work => {
+            if stage.runner.is_none() {
+                return Err(format!("work workflow stage {stage_id:?} must define runner"));
+            }
+            if stage.gate.is_some() {
+                return Err(format!("work workflow stage {stage_id:?} must not define gate"));
+            }
+        }
+        KanbanWorkflowStageKind::Gate => {
+            if stage.gate.is_none() {
+                return Err(format!("gate workflow stage {stage_id:?} must define gate"));
+            }
+            if stage.runner.is_some() {
+                return Err(format!("gate workflow stage {stage_id:?} must not define runner"));
+            }
+        }
+    }
+    if let Some(runner) = &stage.runner {
+        validate_kanban_runner(stage_id, runner)?;
+    }
+    if let Some(gate) = &stage.gate {
+        validate_kanban_gate(stage_id, gate)?;
+    }
+    Ok(())
+}
+
+fn validate_kanban_runner(
+    stage_id: &str,
+    runner: &KanbanWorkflowRunnerSettings,
+) -> Result<(), String> {
+    match runner {
+        KanbanWorkflowRunnerSettings::Agent { agent_profile } => {
+            if agent_profile.as_deref().map(str::trim) == Some("") {
+                return Err(format!("agent runner stage {stage_id:?} has empty agentProfile"));
+            }
+        }
+        KanbanWorkflowRunnerSettings::Command { command, args, .. } => {
+            validate_kanban_command(stage_id, command, args)?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_kanban_gate(stage_id: &str, gate: &KanbanWorkflowGateSettings) -> Result<(), String> {
+    match gate {
+        KanbanWorkflowGateSettings::Manual => {}
+        KanbanWorkflowGateSettings::Command { command, args, .. } => {
+            validate_kanban_command(stage_id, command, args)?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_kanban_command(stage_id: &str, command: &str, args: &[String]) -> Result<(), String> {
+    if command.trim().is_empty() {
+        return Err(format!("command workflow stage {stage_id:?} command must not be empty"));
+    }
+    if args.iter().any(|arg| arg.contains('\0')) {
+        return Err(format!("command workflow stage {stage_id:?} args must not contain NUL"));
+    }
+    Ok(())
+}
+
+fn validate_kanban_stage_transitions(
+    workflow: &KanbanWorkflowSettings,
+    stage_id: &str,
+    transitions: &KanbanWorkflowTransitions,
+) -> Result<(), String> {
+    for target in [
+        transitions.on_complete.as_deref(),
+        transitions.on_passed.as_deref(),
+        transitions.on_failed.as_deref(),
+        transitions.on_changes_requested.as_deref(),
+        transitions.on_ci_failed.as_deref(),
+        transitions.on_review_comments.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        if workflow_stage(workflow, target).is_none() {
+            return Err(format!(
+                "workflow stage {stage_id:?} transition references missing stage {target:?}"
+            ));
+        }
+    }
     Ok(())
 }
 
@@ -550,16 +778,51 @@ impl KanbanSettings {
         self.workflow.phases.get(id)
     }
 
+    pub fn todo_phase(&self) -> Option<&KanbanWorkflowPhaseSettings> {
+        self.phase(KANBAN_PHASE_TODO)
+    }
+
     pub fn planning_phase(&self) -> Option<&KanbanWorkflowPhaseSettings> {
         self.phase(KANBAN_PHASE_PLANNING)
     }
 
-    pub fn implementation_phase(&self) -> Option<&KanbanWorkflowPhaseSettings> {
-        self.phase(KANBAN_PHASE_IMPLEMENTATION)
+    pub fn doing_phase(&self) -> Option<&KanbanWorkflowPhaseSettings> {
+        self.phase(KANBAN_PHASE_DOING)
     }
 
     pub fn review_phase(&self) -> Option<&KanbanWorkflowPhaseSettings> {
         self.phase(KANBAN_PHASE_REVIEW)
+    }
+
+    pub fn done_phase(&self) -> Option<&KanbanWorkflowPhaseSettings> {
+        self.phase(KANBAN_PHASE_DONE)
+    }
+
+    pub fn stage(
+        &self,
+        id: &str,
+    ) -> Option<(&str, &KanbanWorkflowPhaseSettings, &KanbanWorkflowStageSettings)> {
+        workflow_stage(&self.workflow, id)
+    }
+
+    pub fn first_stage_in_category(
+        &self,
+        category: KanbanWorkflowPhaseCategory,
+    ) -> Option<(&str, &KanbanWorkflowStageSettings)> {
+        for phase_id in &self.workflow.phase_order {
+            let Some(phase) = self.workflow.phases.get(phase_id) else {
+                continue;
+            };
+            if phase.category != category {
+                continue;
+            }
+            for stage_id in &phase.stage_order {
+                if let Some(stage) = phase.stages.get(stage_id) {
+                    return Some((stage_id.as_str(), stage));
+                }
+            }
+        }
+        None
     }
 
     pub fn phase_agent_profile(&self, phase_id: &str) -> Option<&str> {
@@ -574,11 +837,13 @@ impl KanbanSettings {
     }
 
     pub fn implementation_instructions(&self) -> &str {
-        self.implementation_phase().map(|phase| phase.instructions.as_str()).unwrap_or("")
+        self.doing_phase().map(|phase| phase.instructions.as_str()).unwrap_or("")
     }
 
-    pub fn review_stage(&self, id: &str) -> Option<&KanbanReviewStageSettings> {
-        self.review_phase().and_then(|phase| phase.stages.get(id))
+    pub fn review_stage(&self, id: &str) -> Option<&KanbanWorkflowStageSettings> {
+        self.stage(id).and_then(|(_, _, stage)| {
+            (stage.category == KanbanWorkflowPhaseCategory::Review).then_some(stage)
+        })
     }
 
     pub fn review_stage_agent_profile(&self, id: &str) -> Option<&str> {
@@ -598,6 +863,26 @@ impl KanbanSettings {
             .map(str::trim)
             .filter(|label| !label.is_empty())
     }
+}
+
+pub fn workflow_stage<'a>(
+    workflow: &'a KanbanWorkflowSettings,
+    stage_id: &str,
+) -> Option<(&'a str, &'a KanbanWorkflowPhaseSettings, &'a KanbanWorkflowStageSettings)> {
+    for phase_id in &workflow.phase_order {
+        let Some(phase) = workflow.phases.get(phase_id) else {
+            continue;
+        };
+        if let Some(stage) = phase.stages.get(stage_id) {
+            return Some((phase_id.as_str(), phase, stage));
+        }
+    }
+    for (phase_id, phase) in &workflow.phases {
+        if let Some(stage) = phase.stages.get(stage_id) {
+            return Some((phase_id.as_str(), phase, stage));
+        }
+    }
+    None
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
@@ -1082,6 +1367,9 @@ fn normalize_kanban_workflow(workflow: &KanbanWorkflowSettings) -> KanbanWorkflo
     if normalized.label.is_empty() {
         normalized.label = defaults.label;
     }
+    normalized.env = normalize_string_map(&normalized.env);
+    normalized.phase_order =
+        normalize_order(&normalized.phase_order, &defaults.phase_order, &defaults.phase_order);
 
     let mut phases = BTreeMap::new();
     for (id, default_phase) in default_kanban_workflow_phases() {
@@ -1089,36 +1377,140 @@ fn normalize_kanban_workflow(workflow: &KanbanWorkflowSettings) -> KanbanWorkflo
         phase.category = default_phase.category;
         phase.label = phase.label.trim().to_string();
         if phase.label.is_empty() {
-            phase.label = default_phase.label;
+            phase.label = default_phase.label.clone();
         }
         phase.agent_profile = normalize_optional_string(&phase.agent_profile);
         phase.instructions = phase.instructions.trim().to_string();
-        phase.stages = if id == KANBAN_PHASE_REVIEW {
-            normalize_kanban_review_stages(&phase.stages)
-        } else {
-            BTreeMap::new()
-        };
+        phase.prompt = normalize_prompt(&phase.prompt);
+        phase.env = normalize_string_map(&phase.env);
+        phase.stage_order = normalize_order(
+            &phase.stage_order,
+            &default_phase.stage_order,
+            &default_phase.stage_order,
+        );
+        phase.stages = normalize_kanban_stages(&phase.stages, &default_phase);
         phases.insert(id, phase);
     }
     normalized.phases = phases;
     normalized
 }
 
-fn normalize_kanban_review_stages(
-    stages: &BTreeMap<String, KanbanReviewStageSettings>,
-) -> BTreeMap<String, KanbanReviewStageSettings> {
+fn normalize_kanban_stages(
+    stages: &BTreeMap<String, KanbanWorkflowStageSettings>,
+    default_phase: &KanbanWorkflowPhaseSettings,
+) -> BTreeMap<String, KanbanWorkflowStageSettings> {
     let mut normalized = BTreeMap::new();
-    for (id, default_stage) in default_kanban_review_stages() {
-        let mut stage = stages.get(&id).cloned().unwrap_or_else(|| default_stage.clone());
+    for (id, default_stage) in &default_phase.stages {
+        let mut stage = stages.get(id).cloned().unwrap_or_else(|| default_stage.clone());
         stage.label = stage.label.trim().to_string();
         if stage.label.is_empty() {
-            stage.label = default_stage.label;
+            stage.label = default_stage.label.clone();
         }
+        stage.action_label = normalize_optional_string(&stage.action_label);
+        stage.category = default_phase.category;
         stage.agent_profile = normalize_optional_string(&stage.agent_profile);
         stage.instructions = stage.instructions.trim().to_string();
-        normalized.insert(id, stage);
+        stage.prompt = normalize_prompt(&stage.prompt);
+        stage.runner = normalize_runner(stage.runner);
+        stage.gate = normalize_gate(stage.gate);
+        stage.env = normalize_string_map(&stage.env);
+        stage.transitions = normalize_transitions(&stage.transitions);
+        stage.terminal = default_stage.terminal || stage.terminal;
+        normalized.insert(id.clone(), stage);
     }
     normalized
+}
+
+fn normalize_prompt(prompt: &KanbanWorkflowPromptSettings) -> KanbanWorkflowPromptSettings {
+    KanbanWorkflowPromptSettings {
+        mode: prompt.mode,
+        instructions: prompt.instructions.trim().to_string(),
+    }
+}
+
+fn normalize_runner(
+    runner: Option<KanbanWorkflowRunnerSettings>,
+) -> Option<KanbanWorkflowRunnerSettings> {
+    runner.map(|runner| match runner {
+        KanbanWorkflowRunnerSettings::Agent { agent_profile } => {
+            KanbanWorkflowRunnerSettings::Agent {
+                agent_profile: normalize_optional_string(&agent_profile),
+            }
+        }
+        KanbanWorkflowRunnerSettings::Command { command, args, cwd, timeout_seconds } => {
+            KanbanWorkflowRunnerSettings::Command {
+                command: command.trim().to_string(),
+                args: normalize_string_vec(args),
+                cwd,
+                timeout_seconds,
+            }
+        }
+    })
+}
+
+fn normalize_gate(gate: Option<KanbanWorkflowGateSettings>) -> Option<KanbanWorkflowGateSettings> {
+    gate.map(|gate| match gate {
+        KanbanWorkflowGateSettings::Manual => KanbanWorkflowGateSettings::Manual,
+        KanbanWorkflowGateSettings::Command { command, args, cwd, timeout_seconds } => {
+            KanbanWorkflowGateSettings::Command {
+                command: command.trim().to_string(),
+                args: normalize_string_vec(args),
+                cwd,
+                timeout_seconds,
+            }
+        }
+    })
+}
+
+fn normalize_transitions(transitions: &KanbanWorkflowTransitions) -> KanbanWorkflowTransitions {
+    KanbanWorkflowTransitions {
+        on_complete: normalize_optional_string(&transitions.on_complete),
+        on_passed: normalize_optional_string(&transitions.on_passed),
+        on_failed: normalize_optional_string(&transitions.on_failed),
+        on_changes_requested: normalize_optional_string(&transitions.on_changes_requested),
+        on_ci_failed: normalize_optional_string(&transitions.on_ci_failed),
+        on_review_comments: normalize_optional_string(&transitions.on_review_comments),
+    }
+}
+
+fn normalize_order(order: &[String], fallback: &[String], allowed: &[String]) -> Vec<String> {
+    let mut seen = HashSet::new();
+    let mut normalized = Vec::new();
+    for id in order {
+        let id = id.trim();
+        if !id.is_empty()
+            && allowed.iter().any(|allowed_id| allowed_id == id)
+            && seen.insert(id.to_string())
+        {
+            normalized.push(id.to_string());
+        }
+    }
+    if normalized.is_empty() {
+        return fallback.to_vec();
+    }
+    for id in fallback {
+        if !seen.contains(id) {
+            normalized.push(id.clone());
+        }
+    }
+    normalized
+}
+
+fn normalize_string_map(map: &BTreeMap<String, String>) -> BTreeMap<String, String> {
+    map.iter()
+        .filter_map(|(key, value)| {
+            let key = key.trim();
+            if key.is_empty() {
+                None
+            } else {
+                Some((key.to_string(), value.trim().to_string()))
+            }
+        })
+        .collect()
+}
+
+fn normalize_string_vec(values: Vec<String>) -> Vec<String> {
+    values.into_iter().map(|value| value.trim().to_string()).collect()
 }
 
 fn normalize_optional_string(value: &Option<String>) -> Option<String> {
@@ -1352,10 +1744,10 @@ mod tests {
     use std::collections::BTreeMap;
 
     use super::{
-        stable_source_id, ExternalToolSurface, ExternalToolWebEmbedder, KanbanReviewStageSettings,
-        KanbanSettings, KanbanWorkflowPhaseCategory, KanbanWorkflowPhaseSettings,
-        KanbanWorkflowSettings, LibrarySource, LibrarySourceKind, RouxSettings, SkillSyncMode,
-        UpdateChannel,
+        stable_source_id, ExternalToolSurface, ExternalToolWebEmbedder, KanbanSettings,
+        KanbanWorkflowPhaseCategory, KanbanWorkflowPhaseSettings, KanbanWorkflowPromptMode,
+        KanbanWorkflowSettings, KanbanWorkflowStageSettings, LibrarySource, LibrarySourceKind,
+        RouxSettings, SkillSyncMode, UpdateChannel,
     };
 
     #[test]
@@ -1512,6 +1904,8 @@ mod tests {
                 workflow: KanbanWorkflowSettings {
                     id: " custom ".into(),
                     label: " Team Flow ".into(),
+                    env: BTreeMap::from([(" NO_COLOR ".into(), " 1 ".into())]),
+                    phase_order: vec![" review ".into(), "planning".into()],
                     phases: BTreeMap::from([
                         (
                             "planning".into(),
@@ -1520,41 +1914,48 @@ mod tests {
                                 label: " Plan It ".into(),
                                 agent_profile: Some(" codex ".into()),
                                 instructions: " Ask first. ".into(),
+                                stage_order: vec![" should_drop ".into()],
                                 stages: BTreeMap::from([(
-                                    "should_drop".into(),
-                                    KanbanReviewStageSettings {
+                                    "planning".into(),
+                                    KanbanWorkflowStageSettings {
                                         label: "Drop".into(),
                                         agent_profile: Some("drop".into()),
                                         instructions: "drop".into(),
+                                        ..KanbanWorkflowStageSettings::default()
                                     },
                                 )]),
+                                ..KanbanWorkflowPhaseSettings::default()
                             },
                         ),
                         (
                             "review".into(),
                             KanbanWorkflowPhaseSettings {
-                                category: KanbanWorkflowPhaseCategory::Implementation,
+                                category: KanbanWorkflowPhaseCategory::Doing,
                                 label: " Review It ".into(),
                                 agent_profile: Some(" ".into()),
                                 instructions: " ".into(),
+                                stage_order: vec!["local_review".into(), "security_review".into()],
                                 stages: BTreeMap::from([
                                     (
                                         "local_review".into(),
-                                        KanbanReviewStageSettings {
+                                        KanbanWorkflowStageSettings {
                                             label: " Local Gate ".into(),
                                             agent_profile: Some(" claude ".into()),
                                             instructions: " Check locally. ".into(),
+                                            ..KanbanWorkflowStageSettings::default()
                                         },
                                     ),
                                     (
                                         "security_review".into(),
-                                        KanbanReviewStageSettings {
+                                        KanbanWorkflowStageSettings {
                                             label: "Security".into(),
                                             agent_profile: None,
                                             instructions: "drop".into(),
+                                            ..KanbanWorkflowStageSettings::default()
                                         },
                                     ),
                                 ]),
+                                ..KanbanWorkflowPhaseSettings::default()
                             },
                         ),
                         (
@@ -1575,25 +1976,28 @@ mod tests {
 
         assert_eq!(normalized.kanban.workflow.id, "custom");
         assert_eq!(normalized.kanban.workflow.label, "Team Flow");
+        assert_eq!(normalized.kanban.workflow.env["NO_COLOR"], "1");
         assert_eq!(
             normalized.kanban.workflow.phases.keys().cloned().collect::<Vec<_>>(),
-            vec!["implementation", "planning", "review"]
+            vec!["doing", "done", "planning", "review", "todo"]
         );
         let planning = &normalized.kanban.workflow.phases["planning"];
         assert_eq!(planning.category, KanbanWorkflowPhaseCategory::Planning);
         assert_eq!(planning.label, "Plan It");
         assert_eq!(planning.agent_profile.as_deref(), Some("codex"));
         assert_eq!(planning.instructions, "Ask first.");
-        assert!(planning.stages.is_empty());
+        assert_eq!(planning.stage_order, vec!["planning"]);
+        assert_eq!(planning.stages["planning"].label, "Drop");
 
-        let implementation = &normalized.kanban.workflow.phases["implementation"];
-        assert_eq!(implementation.category, KanbanWorkflowPhaseCategory::Implementation);
-        assert_eq!(implementation.label, "Implementation");
+        let doing = &normalized.kanban.workflow.phases["doing"];
+        assert_eq!(doing.category, KanbanWorkflowPhaseCategory::Doing);
+        assert_eq!(doing.label, "Doing");
 
         let review = &normalized.kanban.workflow.phases["review"];
         assert_eq!(review.category, KanbanWorkflowPhaseCategory::Review);
         assert_eq!(review.label, "Review It");
         assert!(review.agent_profile.is_none());
+        assert_eq!(review.stage_order, vec!["local_review", "pr_review"]);
         assert_eq!(
             review.stages.keys().cloned().collect::<Vec<_>>(),
             vec!["local_review", "pr_review"]
@@ -1616,6 +2020,12 @@ mod tests {
         assert_eq!(
             value["workflow"]["phases"]["planning"]["agentProfile"],
             serde_json::Value::Null
+        );
+        assert_eq!(value["workflow"]["phaseOrder"][0], "todo");
+        assert_eq!(value["workflow"]["phases"]["doing"]["stageOrder"][0], "implementation");
+        assert_eq!(
+            value["workflow"]["phases"]["doing"]["stages"]["fix_ci"]["prompt"]["mode"],
+            "replace"
         );
         assert_eq!(
             value["workflow"]["phases"]["review"]["stages"]["local_review"]["label"],
@@ -1649,36 +2059,126 @@ mod tests {
         let json = r#"{
             "id": "personal",
             "label": "Personal",
+            "env": { "NO_COLOR": "1" },
+            "phaseOrder": ["todo", "planning", "doing", "review", "done"],
             "phases": {
+                "todo": {
+                    "category": "todo",
+                    "label": "Queue",
+                    "agentProfile": null,
+                    "instructions": "",
+                    "prompt": { "mode": "append", "instructions": "" },
+                    "env": {},
+                    "stageOrder": ["todo"],
+                    "stages": {
+                        "todo": {
+                            "label": "Todo",
+                            "category": "todo",
+                            "kind": "manual",
+                            "transitions": { "onComplete": "planning" }
+                        }
+                    }
+                },
                 "planning": {
                     "category": "planning",
                     "label": "Shape",
                     "agentProfile": "claude-plan",
                     "instructions": "Clarify scope.",
-                    "stages": {}
+                    "prompt": { "mode": "append", "instructions": "Plan carefully." },
+                    "env": {},
+                    "stageOrder": ["planning"],
+                    "stages": {
+                        "planning": {
+                            "label": "Shape",
+                            "category": "planning",
+                            "kind": "work",
+                            "runner": { "type": "agent", "agentProfile": "claude-plan" },
+                            "transitions": { "onComplete": "implementation" }
+                        }
+                    }
                 },
-                "implementation": {
-                    "category": "implementation",
+                "doing": {
+                    "category": "doing",
                     "label": "Build",
                     "agentProfile": "codex",
                     "instructions": "Keep commits small.",
-                    "stages": {}
+                    "prompt": { "mode": "append", "instructions": "" },
+                    "env": {},
+                    "stageOrder": ["implementation", "fix_ci"],
+                    "stages": {
+                        "implementation": {
+                            "label": "Build",
+                            "category": "doing",
+                            "kind": "work",
+                            "runner": { "type": "agent", "agentProfile": null },
+                            "transitions": { "onComplete": "local_review", "onCiFailed": "fix_ci" }
+                        },
+                        "fix_ci": {
+                            "label": "Fix CI",
+                            "category": "doing",
+                            "kind": "work",
+                            "prompt": { "mode": "replace", "instructions": "Fix CI only." },
+                            "runner": {
+                                "type": "command",
+                                "command": "gh",
+                                "args": ["pr", "checks", "--watch"],
+                                "cwd": "worktree",
+                                "timeoutSeconds": 900
+                            },
+                            "transitions": { "onComplete": "pr_review" }
+                        }
+                    }
                 },
                 "review": {
                     "category": "review",
                     "label": "Review",
                     "agentProfile": "claude-review",
                     "instructions": "",
+                    "prompt": { "mode": "append", "instructions": "" },
+                    "env": {},
+                    "stageOrder": ["local_review", "pr_review"],
                     "stages": {
                         "local_review": {
                             "label": "Local QA",
+                            "category": "review",
+                            "kind": "gate",
                             "agentProfile": null,
-                            "instructions": "Run local checks."
+                            "instructions": "Run local checks.",
+                            "gate": { "type": "manual" },
+                            "transitions": {
+                                "onPassed": "pr_review",
+                                "onChangesRequested": "implementation"
+                            }
                         },
                         "pr_review": {
                             "label": "Team Review",
+                            "category": "review",
+                            "kind": "gate",
                             "agentProfile": "claude-pr",
-                            "instructions": "Check CI and review comments."
+                            "instructions": "Check CI and review comments.",
+                            "gate": { "type": "manual" },
+                            "transitions": {
+                                "onPassed": "done",
+                                "onChangesRequested": "implementation",
+                                "onCiFailed": "fix_ci"
+                            }
+                        }
+                    }
+                },
+                "done": {
+                    "category": "done",
+                    "label": "Done",
+                    "agentProfile": null,
+                    "instructions": "",
+                    "prompt": { "mode": "append", "instructions": "" },
+                    "env": {},
+                    "stageOrder": ["done"],
+                    "stages": {
+                        "done": {
+                            "label": "Done",
+                            "category": "done",
+                            "kind": "manual",
+                            "terminal": true
                         }
                     }
                 }
@@ -1689,9 +2189,14 @@ mod tests {
 
         assert_eq!(workflow.id, "personal");
         assert_eq!(workflow.label, "Personal");
+        assert_eq!(workflow.env["NO_COLOR"], "1");
         assert_eq!(workflow.phases["planning"].label, "Shape");
         assert_eq!(workflow.phases["planning"].agent_profile.as_deref(), Some("claude-plan"));
-        assert_eq!(workflow.phases["implementation"].instructions, "Keep commits small.");
+        assert_eq!(workflow.phases["doing"].instructions, "Keep commits small.");
+        assert_eq!(
+            workflow.phases["doing"].stages["fix_ci"].prompt.mode,
+            KanbanWorkflowPromptMode::Replace
+        );
         assert_eq!(workflow.phases["review"].stages["local_review"].label, "Local QA");
         assert_eq!(
             workflow.phases["review"].stages["pr_review"].agent_profile.as_deref(),
@@ -1709,7 +2214,7 @@ mod tests {
 
         assert_eq!(workflow.id, "personal");
         assert_eq!(workflow.phases["planning"].agent_profile.as_deref(), Some("claude"));
-        assert_eq!(workflow.phases["implementation"].agent_profile.as_deref(), Some("codex"));
+        assert_eq!(workflow.phases["doing"].agent_profile.as_deref(), Some("codex"));
         assert_eq!(workflow.phases["review"].stages["pr_review"].label, "PR Review");
     }
 

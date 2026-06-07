@@ -1,36 +1,147 @@
 {
   "id": "personal",
   "label": "Personal Workflow",
+  "env": {
+    "NO_COLOR": "1"
+  },
+  "phaseOrder": ["todo", "planning", "doing", "review", "done"],
   "phases": {
+    "todo": {
+      "category": "todo",
+      "label": "Todo",
+      "agentProfile": null,
+      "instructions": "",
+      "prompt": { "mode": "append", "instructions": "" },
+      "env": {},
+      "stageOrder": ["todo"],
+      "stages": {
+        "todo": {
+          "label": "Todo",
+          "actionLabel": "Plan",
+          "category": "todo",
+          "kind": "manual",
+          "transitions": { "onComplete": "planning" }
+        }
+      }
+    },
     "planning": {
       "category": "planning",
       "label": "Planning",
       "agentProfile": "claude",
       "instructions": "Clarify scope, identify risks, and produce a concrete implementation plan.",
-      "stages": {}
+      "prompt": {
+        "mode": "append",
+        "instructions": "Clarify scope, identify risks, and produce a concrete implementation plan."
+      },
+      "env": {},
+      "stageOrder": ["planning"],
+      "stages": {
+        "planning": {
+          "label": "Planning",
+          "actionLabel": "Start",
+          "category": "planning",
+          "kind": "work",
+          "runner": { "type": "agent", "agentProfile": "claude" },
+          "transitions": { "onComplete": "implementation" }
+        }
+      }
     },
-    "implementation": {
-      "category": "implementation",
-      "label": "Implementation",
+    "doing": {
+      "category": "doing",
+      "label": "Doing",
       "agentProfile": "codex",
       "instructions": "Work in small commits, keep tests focused, and avoid unrelated refactors.",
-      "stages": {}
+      "prompt": {
+        "mode": "append",
+        "instructions": "Work in small commits, keep tests focused, and avoid unrelated refactors."
+      },
+      "env": {},
+      "stageOrder": ["implementation", "fix_ci"],
+      "stages": {
+        "implementation": {
+          "label": "Implementation",
+          "actionLabel": "Start",
+          "category": "doing",
+          "kind": "work",
+          "runner": { "type": "agent", "agentProfile": "codex" },
+          "transitions": {
+            "onComplete": "local_review",
+            "onCiFailed": "fix_ci",
+            "onReviewComments": "fix_ci"
+          }
+        },
+        "fix_ci": {
+          "label": "Fix CI",
+          "actionLabel": "Fix",
+          "category": "doing",
+          "kind": "work",
+          "prompt": {
+            "mode": "replace",
+            "instructions": "Fix CI only. Inspect failing checks, patch the smallest issue, rerun relevant checks, commit, and stop."
+          },
+          "runner": { "type": "agent", "agentProfile": "codex" },
+          "transitions": { "onComplete": "pr_review" }
+        }
+      }
     },
     "review": {
       "category": "review",
       "label": "Review",
-      "agentProfile": null,
+      "agentProfile": "claude",
       "instructions": "",
+      "prompt": { "mode": "append", "instructions": "" },
+      "env": {},
+      "stageOrder": ["local_review", "pr_review"],
       "stages": {
         "local_review": {
           "label": "Local Review",
-          "agentProfile": "claude",
-          "instructions": "Check the local diff, verify tests, and call out missing coverage."
+          "actionLabel": "Pass",
+          "category": "review",
+          "kind": "gate",
+          "instructions": "Check the local diff, verify tests, and call out missing coverage.",
+          "gate": { "type": "manual" },
+          "transitions": {
+            "onPassed": "pr_review",
+            "onChangesRequested": "implementation"
+          }
         },
         "pr_review": {
           "label": "PR Review",
-          "agentProfile": "claude",
-          "instructions": "Check CI, review comments, and whether the branch is ready to merge."
+          "actionLabel": "Pass",
+          "category": "review",
+          "kind": "gate",
+          "instructions": "Check CI, review comments, and whether the branch is ready to merge.",
+          "gate": {
+            "type": "command",
+            "command": "gh",
+            "args": ["pr", "checks", "--watch"],
+            "cwd": "worktree",
+            "timeoutSeconds": 900
+          },
+          "transitions": {
+            "onPassed": "done",
+            "onFailed": "fix_ci",
+            "onChangesRequested": "implementation",
+            "onCiFailed": "fix_ci",
+            "onReviewComments": "fix_ci"
+          }
+        }
+      }
+    },
+    "done": {
+      "category": "done",
+      "label": "Done",
+      "agentProfile": null,
+      "instructions": "",
+      "prompt": { "mode": "append", "instructions": "" },
+      "env": {},
+      "stageOrder": ["done"],
+      "stages": {
+        "done": {
+          "label": "Done",
+          "category": "done",
+          "kind": "manual",
+          "terminal": true
         }
       }
     }

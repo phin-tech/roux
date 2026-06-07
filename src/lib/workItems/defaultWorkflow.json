@@ -1,36 +1,167 @@
 {
   "id": "default",
   "label": "Default",
+  "env": {},
+  "phaseOrder": ["todo", "planning", "doing", "review", "done"],
   "phases": {
+    "todo": {
+      "category": "todo",
+      "label": "Todo",
+      "agentProfile": null,
+      "instructions": "",
+      "prompt": { "mode": "append", "instructions": "" },
+      "env": {},
+      "stageOrder": ["todo"],
+      "stages": {
+        "todo": {
+          "label": "Todo",
+          "actionLabel": "Plan",
+          "category": "todo",
+          "kind": "manual",
+          "agentProfile": null,
+          "instructions": "",
+          "prompt": { "mode": "append", "instructions": "" },
+          "env": {},
+          "transitions": { "onComplete": "planning" },
+          "terminal": false
+        }
+      }
+    },
     "planning": {
       "category": "planning",
       "label": "Planning",
       "agentProfile": null,
       "instructions": "",
-      "stages": {}
+      "prompt": { "mode": "append", "instructions": "" },
+      "env": {},
+      "stageOrder": ["planning"],
+      "stages": {
+        "planning": {
+          "label": "Planning",
+          "actionLabel": "Start",
+          "category": "planning",
+          "kind": "work",
+          "agentProfile": null,
+          "instructions": "",
+          "prompt": { "mode": "append", "instructions": "" },
+          "runner": { "type": "agent", "agentProfile": null },
+          "env": {},
+          "transitions": { "onComplete": "implementation" },
+          "terminal": false
+        }
+      }
     },
-    "implementation": {
-      "category": "implementation",
-      "label": "Implementation",
+    "doing": {
+      "category": "doing",
+      "label": "Doing",
       "agentProfile": null,
       "instructions": "",
-      "stages": {}
+      "prompt": { "mode": "append", "instructions": "" },
+      "env": {},
+      "stageOrder": ["implementation", "fix_ci"],
+      "stages": {
+        "implementation": {
+          "label": "Implementation",
+          "actionLabel": "Start",
+          "category": "doing",
+          "kind": "work",
+          "agentProfile": null,
+          "instructions": "",
+          "prompt": { "mode": "append", "instructions": "" },
+          "runner": { "type": "agent", "agentProfile": null },
+          "env": {},
+          "transitions": {
+            "onComplete": "local_review",
+            "onCiFailed": "fix_ci",
+            "onReviewComments": "fix_ci"
+          },
+          "terminal": false
+        },
+        "fix_ci": {
+          "label": "Fix CI",
+          "actionLabel": "Fix",
+          "category": "doing",
+          "kind": "work",
+          "agentProfile": null,
+          "instructions": "Inspect failing checks and make only the changes required to get CI green.",
+          "prompt": {
+            "mode": "replace",
+            "instructions": "Fix CI only. Inspect failing checks, patch the smallest issue, rerun relevant checks, commit, and stop."
+          },
+          "runner": { "type": "agent", "agentProfile": null },
+          "env": {},
+          "transitions": { "onComplete": "pr_review" },
+          "terminal": false
+        }
+      }
     },
     "review": {
       "category": "review",
       "label": "Review",
       "agentProfile": null,
       "instructions": "",
+      "prompt": { "mode": "append", "instructions": "" },
+      "env": {},
+      "stageOrder": ["local_review", "pr_review"],
       "stages": {
         "local_review": {
           "label": "Local Review",
+          "actionLabel": "Pass",
+          "category": "review",
+          "kind": "gate",
           "agentProfile": null,
-          "instructions": ""
+          "instructions": "",
+          "prompt": { "mode": "append", "instructions": "" },
+          "gate": { "type": "manual" },
+          "env": {},
+          "transitions": {
+            "onPassed": "pr_review",
+            "onFailed": "implementation",
+            "onChangesRequested": "implementation"
+          },
+          "terminal": false
         },
         "pr_review": {
           "label": "PR Review",
+          "actionLabel": "Pass",
+          "category": "review",
+          "kind": "gate",
           "agentProfile": null,
-          "instructions": ""
+          "instructions": "",
+          "prompt": { "mode": "append", "instructions": "" },
+          "gate": { "type": "manual" },
+          "env": {},
+          "transitions": {
+            "onPassed": "done",
+            "onFailed": "implementation",
+            "onChangesRequested": "implementation",
+            "onCiFailed": "fix_ci",
+            "onReviewComments": "fix_ci"
+          },
+          "terminal": false
+        }
+      }
+    },
+    "done": {
+      "category": "done",
+      "label": "Done",
+      "agentProfile": null,
+      "instructions": "",
+      "prompt": { "mode": "append", "instructions": "" },
+      "env": {},
+      "stageOrder": ["done"],
+      "stages": {
+        "done": {
+          "label": "Done",
+          "actionLabel": null,
+          "category": "done",
+          "kind": "manual",
+          "agentProfile": null,
+          "instructions": "",
+          "prompt": { "mode": "append", "instructions": "" },
+          "env": {},
+          "transitions": {},
+          "terminal": true
         }
       }
     }

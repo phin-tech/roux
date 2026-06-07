@@ -72,6 +72,15 @@ pub(super) async fn handle_work_item_create(req: Request, host: &RuntimeHost) ->
         branch: optional_string_arg(&req.args, &["branch", "worktreeBranch", "worktree_branch"]),
         fetch_first: bool_arg(&req.args, &["fetchFirst", "fetch_first"]),
         start_error: optional_nullable_string_arg(&req.args, &["startError", "start_error"]),
+        workflow_id: optional_nullable_string_arg(&req.args, &["workflowId", "workflow_id"]),
+        workflow_stage_id: optional_nullable_string_arg(
+            &req.args,
+            &["workflowStageId", "workflow_stage_id"],
+        ),
+        workflow_stage_label: optional_nullable_string_arg(
+            &req.args,
+            &["workflowStageLabel", "workflow_stage_label"],
+        ),
         project_id: optional_string_arg(&req.args, &["projectId", "project_id"]),
         parent_id: optional_string_arg(&req.args, &["parentId", "parent_id"]),
         external_ref: None,
@@ -113,6 +122,15 @@ pub(super) async fn handle_work_item_update(req: Request, host: &RuntimeHost) ->
         branch: optional_string_arg(&req.args, &["branch", "worktreeBranch", "worktree_branch"]),
         fetch_first: bool_arg(&req.args, &["fetchFirst", "fetch_first"]),
         start_error: optional_nullable_string_arg(&req.args, &["startError", "start_error"]),
+        workflow_id: optional_nullable_string_arg(&req.args, &["workflowId", "workflow_id"]),
+        workflow_stage_id: optional_nullable_string_arg(
+            &req.args,
+            &["workflowStageId", "workflow_stage_id"],
+        ),
+        workflow_stage_label: optional_nullable_string_arg(
+            &req.args,
+            &["workflowStageLabel", "workflow_stage_label"],
+        ),
         project_id: optional_string_arg(&req.args, &["projectId", "project_id"]),
         parent_id: optional_string_arg(&req.args, &["parentId", "parent_id"]),
         external_ref: None,
@@ -143,6 +161,9 @@ fn work_item_input_presence(args: &serde_json::Value) -> WorkItemInputPresence {
         branch: has_arg(args, &["branch", "worktreeBranch", "worktree_branch"]),
         fetch_first: has_arg(args, &["fetchFirst", "fetch_first"]),
         start_error: has_arg(args, &["startError", "start_error"]),
+        workflow_id: has_arg(args, &["workflowId", "workflow_id"]),
+        workflow_stage_id: has_arg(args, &["workflowStageId", "workflow_stage_id"]),
+        workflow_stage_label: has_arg(args, &["workflowStageLabel", "workflow_stage_label"]),
         project_id: has_arg(args, &["projectId", "project_id"]),
         parent_id: has_arg(args, &["parentId", "parent_id"]),
     }
@@ -348,6 +369,9 @@ fn work_item_project_update_input(
         branch: item.branch.clone(),
         fetch_first: item.fetch_first,
         start_error: item.start_error.clone(),
+        workflow_id: item.workflow_id.clone(),
+        workflow_stage_id: item.workflow_stage_id.clone(),
+        workflow_stage_label: item.workflow_stage_label.clone(),
         project_id: Some(project_id),
         parent_id: item.parent_id.clone(),
         external_ref: None,
@@ -698,8 +722,8 @@ fn request_changes_target_status(
         return Err(Response::err(format!("unknown status: {status}")));
     };
     match status {
-        roux_core::WorkItemStatus::Doing | roux_core::WorkItemStatus::Ready => Ok(status),
-        _ => Err(Response::err("request changes status must be doing or ready")),
+        roux_core::WorkItemStatus::Doing | roux_core::WorkItemStatus::Planning => Ok(status),
+        _ => Err(Response::err("request changes status must be doing or planning")),
     }
 }
 
@@ -1014,7 +1038,7 @@ fn persist_work_item_planning_target(
     let input = roux_core::WorkItemInput {
         title: item.title.clone(),
         body: item.body.clone(),
-        status: Some(roux_core::WorkItemStatus::Ready),
+        status: Some(roux_core::WorkItemStatus::Planning),
         repo_path: Some(repo_path.to_string()),
         agent_profile: Some(profile_id.to_string()),
         base_branch: base_branch.map(str::to_string),
@@ -1022,12 +1046,18 @@ fn persist_work_item_planning_target(
         branch: branch.map(str::to_string),
         fetch_first,
         start_error: None,
+        workflow_id: None,
+        workflow_stage_id: None,
+        workflow_stage_label: None,
         project_id: item.project_id.clone(),
         parent_id: item.parent_id.clone(),
         external_ref: None,
         sort_order: Some(item.sort_order),
         field_presence: roux_core::WorkItemInputPresence {
             start_error: true,
+            workflow_id: false,
+            workflow_stage_id: false,
+            workflow_stage_label: false,
             ..roux_core::WorkItemInputPresence::default()
         },
     };
@@ -2946,9 +2976,7 @@ fn implementation_agent_profile_id(
 ) -> String {
     optional_string_arg(&req.args, &["profile", "agentProfile", "agent_profile"])
         .or_else(|| item.agent_profile.clone())
-        .or_else(|| {
-            settings.kanban.implementation_phase().and_then(|phase| phase.agent_profile.clone())
-        })
+        .or_else(|| settings.kanban.doing_phase().and_then(|phase| phase.agent_profile.clone()))
         .unwrap_or_else(|| settings.default_agent_profile.clone())
 }
 
@@ -3121,6 +3149,15 @@ pub(super) async fn handle_work_item_import(req: Request, host: &RuntimeHost) ->
             branch: optional_string_arg(item_val, &["branch", "worktreeBranch", "worktree_branch"]),
             fetch_first: bool_arg(item_val, &["fetchFirst", "fetch_first"]),
             start_error: optional_nullable_string_arg(item_val, &["startError", "start_error"]),
+            workflow_id: optional_nullable_string_arg(item_val, &["workflowId", "workflow_id"]),
+            workflow_stage_id: optional_nullable_string_arg(
+                item_val,
+                &["workflowStageId", "workflow_stage_id"],
+            ),
+            workflow_stage_label: optional_nullable_string_arg(
+                item_val,
+                &["workflowStageLabel", "workflow_stage_label"],
+            ),
             project_id: optional_string_arg(item_val, &["projectId", "project_id"]),
             parent_id: None, // resolved in second pass
             external_ref,
@@ -3176,6 +3213,9 @@ pub(super) async fn handle_work_item_import(req: Request, host: &RuntimeHost) ->
                         branch: existing.branch,
                         fetch_first: existing.fetch_first,
                         start_error: existing.start_error,
+                        workflow_id: existing.workflow_id,
+                        workflow_stage_id: existing.workflow_stage_id,
+                        workflow_stage_label: existing.workflow_stage_label,
                         project_id: existing.project_id,
                         parent_id: Some(parent_id.clone()),
                         external_ref: ext_ref,
@@ -3668,6 +3708,9 @@ mod tests {
             branch: Some("roux/card".into()),
             fetch_first: Some(false),
             start_error: None,
+            workflow_id: None,
+            workflow_stage_id: None,
+            workflow_stage_label: None,
             session_id: Some("sess-1".into()),
             provider: None,
             external_id: None,
@@ -3745,7 +3788,7 @@ mod tests {
             parent_id: None,
             title: "Fix tests".into(),
             body: Some("Original card notes".into()),
-            status: roux_core::WorkItemStatus::Ready,
+            status: roux_core::WorkItemStatus::Planning,
             review_stage_id: None,
             repo_path: Some("/repo/main".into()),
             agent_profile: Some("claude".into()),
@@ -3754,6 +3797,9 @@ mod tests {
             branch: Some("roux/card".into()),
             fetch_first: Some(false),
             start_error: None,
+            workflow_id: None,
+            workflow_stage_id: None,
+            workflow_stage_label: None,
             session_id: Some("sess-1".into()),
             provider: None,
             external_id: None,
@@ -3797,7 +3843,7 @@ mod tests {
             project_id: None,
             title: "Fix tests".into(),
             body: None,
-            status: roux_core::WorkItemStatus::Ready,
+            status: roux_core::WorkItemStatus::Planning,
             review_stage_id: None,
             parent_id: None,
             agent_profile: Some("claude".into()),
@@ -3807,6 +3853,9 @@ mod tests {
             branch: None,
             fetch_first: None,
             start_error: None,
+            workflow_id: None,
+            workflow_stage_id: None,
+            workflow_stage_label: None,
             session_id: None,
             provider: None,
             external_id: None,
@@ -3849,6 +3898,9 @@ mod tests {
             branch: None,
             fetch_first: None,
             start_error: None,
+            workflow_id: None,
+            workflow_stage_id: None,
+            workflow_stage_label: None,
             session_id: None,
             provider: None,
             external_id: None,
@@ -3899,6 +3951,9 @@ mod tests {
             branch: Some("feature/card".into()),
             fetch_first: None,
             start_error: None,
+            workflow_id: None,
+            workflow_stage_id: None,
+            workflow_stage_label: None,
             session_id: None,
             provider: None,
             external_id: None,
@@ -4000,6 +4055,9 @@ mod tests {
             branch: None,
             fetch_first: None,
             start_error: None,
+            workflow_id: None,
+            workflow_stage_id: None,
+            workflow_stage_label: None,
             session_id: None,
             provider: None,
             external_id: None,
@@ -4105,6 +4163,9 @@ mod tests {
             branch: None,
             fetch_first: None,
             start_error: None,
+            workflow_id: None,
+            workflow_stage_id: None,
+            workflow_stage_label: None,
             session_id: None,
             provider: None,
             external_id: None,
@@ -4620,7 +4681,7 @@ mod tests {
             .work_item_handle
             .create(roux_core::WorkItemInput {
                 title: "Needs plan".into(),
-                status: Some(roux_core::WorkItemStatus::Ready),
+                status: Some(roux_core::WorkItemStatus::Planning),
                 ..Default::default()
             })
             .unwrap();
@@ -4646,7 +4707,7 @@ mod tests {
         let message = blocked.error.as_deref().unwrap_or_default();
         assert!(message.contains("attached implementation plan"), "{message}");
         let stored = host.work_item_handle.get(&item_id).unwrap().unwrap();
-        assert_eq!(stored.status, roux_core::WorkItemStatus::Ready);
+        assert_eq!(stored.status, roux_core::WorkItemStatus::Planning);
         assert_eq!(stored.start_error.as_deref(), Some(message));
         assert!(host.work_item_handle.list_runs(Some(&item_id)).unwrap().is_empty());
         assert!(host.session_handle.list().await.unwrap().is_empty());
@@ -4832,7 +4893,7 @@ mod tests {
                 title: "Implement workflow gate".into(),
                 repo_path: Some(repo.to_string_lossy().into_owned()),
                 agent_profile: Some("claude".into()),
-                status: Some(roux_core::WorkItemStatus::Ready),
+                status: Some(roux_core::WorkItemStatus::Planning),
                 field_presence: roux_core::WorkItemInputPresence {
                     repo_path: true,
                     agent_profile: true,
@@ -5286,7 +5347,7 @@ mod tests {
         let session_id = resp.run.session_id.clone().expect("planning run session id");
         assert_eq!(resp.run.kind, roux_core::WorkItemRunKind::Planning);
         assert_eq!(resp.run.status, roux_core::WorkItemRunStatus::Running);
-        assert_eq!(resp.item.status, roux_core::WorkItemStatus::Ready);
+        assert_eq!(resp.item.status, roux_core::WorkItemStatus::Planning);
         assert!(resp.item.session_id.is_none());
         assert_eq!(resp.item.branch.as_deref(), resp.run.branch.as_deref());
         assert_eq!(resp.item.worktree_path.as_deref(), resp.run.worktree_path.as_deref());
@@ -5298,7 +5359,7 @@ mod tests {
         assert_eq!(resp.session.name, "Clarify card");
 
         let item = host.work_item_handle.get(&item_id).unwrap().unwrap();
-        assert_eq!(item.status, roux_core::WorkItemStatus::Ready);
+        assert_eq!(item.status, roux_core::WorkItemStatus::Planning);
         assert!(item.session_id.is_none());
         assert_eq!(item.branch.as_deref(), resp.run.branch.as_deref());
         assert_eq!(item.worktree_path.as_deref(), resp.run.worktree_path.as_deref());
@@ -5676,7 +5737,7 @@ mod tests {
         assert_eq!(document.content, "Please add retry coverage.");
 
         let item = host.work_item_handle.get(&item.id).unwrap().unwrap();
-        assert_eq!(item.status, roux_core::WorkItemStatus::Ready);
+        assert_eq!(item.status, roux_core::WorkItemStatus::Planning);
         assert_eq!(item.review_stage_id.as_deref(), Some("local_review"));
         assert!(item.session_id.is_none());
         assert!(!host.work_item_handle.has_active_run(&item.id).unwrap());
