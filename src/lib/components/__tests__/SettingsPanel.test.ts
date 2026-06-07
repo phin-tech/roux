@@ -154,7 +154,7 @@ import { commands } from "$lib/bindings";
 import { open } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import SettingsPanel from "../SettingsPanel.svelte";
-import { settings } from "$lib/stores/settings";
+import { cancelPendingSettingsPersist, settings } from "$lib/stores/settings";
 import { settingsFocus } from "$lib/stores/settingsFocus";
 import {
   createKanbanWorkflowExample,
@@ -166,6 +166,7 @@ import {
 
 describe("SettingsPanel Kanban tab", () => {
   beforeEach(() => {
+    cancelPendingSettingsPersist();
     settings.set({ ...DEFAULT_SETTINGS });
     settingsFocus.set(null);
     vi.mocked(updateSettings).mockClear();
@@ -284,6 +285,23 @@ describe("SettingsPanel Kanban tab", () => {
     expect(
       (screen.getByLabelText("Workflow JSON file") as HTMLInputElement).value,
     ).toBe("kanban-workflow.json");
+  });
+
+  it("cancels stale debounced path saves before validated workflow actions", async () => {
+    render(SettingsPanel, { visible: true, onclose: vi.fn() });
+
+    await fireEvent.click(screen.getByRole("button", { name: "Kanban" }));
+    await fireEvent.input(screen.getByLabelText("Workflow JSON file"), {
+      target: { value: "draft-workflow.json" },
+    });
+    await fireEvent.click(screen.getByRole("button", { name: "Copy example" }));
+
+    await waitFor(() => {
+      expect(validateKanbanWorkflow).toHaveBeenCalled();
+    });
+    await new Promise((resolve) => setTimeout(resolve, 600));
+
+    expect(updateSettings).not.toHaveBeenCalled();
   });
 
   it("reveals the Kanban workflow config directory", async () => {

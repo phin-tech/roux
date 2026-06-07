@@ -60,6 +60,12 @@ export function updateSettingsDraft(
   });
 }
 
+export function cancelPendingSettingsPersist(): void {
+  if (!debounceTimer) return;
+  clearTimeout(debounceTimer);
+  debounceTimer = null;
+}
+
 export function setDefaultAgentProfile(profileId: string): void {
   updateSettingsDraft((s) => ({
     ...s,
@@ -85,7 +91,7 @@ export function setStartupTarget(target: StartupTarget): void {
 
 function scheduleSettingsPersist(updated: RouxSettings): void {
   // Debounced save to backend
-  if (debounceTimer) clearTimeout(debounceTimer);
+  cancelPendingSettingsPersist();
   debounceTimer = setTimeout(() => {
     void updateSettingsApi(updated).then(() => {
       // Changes to the wt binary override invalidate the cached

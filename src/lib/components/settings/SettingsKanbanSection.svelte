@@ -10,7 +10,11 @@
     KanbanReviewStageSettings,
   } from "$lib/bindings";
   import { profileList, type SpawnProfile } from "$lib/panes/profiles";
-  import { settings, updateSetting } from "$lib/stores/settings";
+  import {
+    cancelPendingSettingsPersist,
+    settings,
+    updateSetting,
+  } from "$lib/stores/settings";
   import {
     createKanbanWorkflowExample,
     kanbanWorkflowConfigDir,
@@ -93,7 +97,9 @@
   async function applyValidatedKanban(
     next: RequiredKanbanSettings,
   ): Promise<RequiredKanbanSettings> {
+    cancelPendingSettingsPersist();
     const updated = await validateKanbanWorkflow(settingsWithKanban(next));
+    cancelPendingSettingsPersist();
     settings.set(updated);
     return normalizeKanbanSettings(updated.kanban);
   }
