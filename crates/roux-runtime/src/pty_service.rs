@@ -34,6 +34,8 @@ pub struct PtyEnvRequest {
     pub cli_bin_dir: Option<String>,
     pub cli_path: Option<String>,
     pub pane_alias: Option<String>,
+    pub work_item_id: Option<String>,
+    pub work_item_run_id: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -699,6 +701,8 @@ fn roux_env_for_request(request: &PtySpawnRequest) -> Vec<(String, String)> {
         pane_alias: request.env.pane_alias.as_deref(),
         project_id: request.project_id.as_deref(),
         worktree_path: request.worktree_path.as_deref(),
+        work_item_id: request.env.work_item_id.as_deref(),
+        work_item_run_id: request.env.work_item_run_id.as_deref(),
         notes: request.notes.as_ref(),
     })
 }
@@ -983,7 +987,7 @@ mod tests {
 
         let record = handle
             .spawn_task(
-                "printf '%s|%s|%s|%s|%s|%s|%s' \"$ROUX_SESSION_ID\" \"$ROUX_PANE_ID\" \"$ROUX_PROJECT_ID\" \"$ROUX_WORKTREE_PATH\" \"$ROUX_SOCKET\" \"$ROUX_CLI\" \"$ROUX_NOTES_ROOT\"".to_string(),
+                "printf '%s|%s|%s|%s|%s|%s|%s|%s|%s' \"$ROUX_SESSION_ID\" \"$ROUX_PANE_ID\" \"$ROUX_PROJECT_ID\" \"$ROUX_WORKTREE_PATH\" \"$ROUX_SOCKET\" \"$ROUX_CLI\" \"$ROUX_NOTES_ROOT\" \"$ROUX_WORK_ITEM_ID\" \"$ROUX_WORK_ITEM_RUN_ID\"".to_string(),
                 PtySpawnRequest {
                     id: Some("pty-env".to_string()),
                     working_dir: Some(dir.path().to_path_buf()),
@@ -1003,6 +1007,8 @@ mod tests {
                         cli_bin_dir: Some("/opt/roux/bin".to_string()),
                         cli_path: Some("/opt/roux/bin/roux".to_string()),
                         pane_alias: None,
+                        work_item_id: Some("wi-1".to_string()),
+                        work_item_run_id: Some("run-1".to_string()),
                     },
                     ..PtySpawnRequest::default()
                 },
@@ -1022,7 +1028,7 @@ mod tests {
 
         let output = snapshot.expect("PTY should exit").output;
         let expected =
-            "session-a|pane-a|project-a|/worktrees/session-a|/tmp/roux.sock|/opt/roux/bin/roux|/vault";
+            "session-a|pane-a|project-a|/worktrees/session-a|/tmp/roux.sock|/opt/roux/bin/roux|/vault|wi-1|run-1";
         assert!(
             output.ends_with(expected),
             "expected output to end with {expected:?}, got {output:?}"

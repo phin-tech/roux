@@ -1,8 +1,8 @@
-use clap::{ArgGroup, Args, Parser, Subcommand};
-use serde_json::Value;
+use clap::{ArgGroup, Args, Parser, Subcommand, ValueEnum};
+use serde_json::{json, Value};
 use std::fs;
 use std::io::{BufRead, BufReader, Read};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 mod attach;
@@ -28,6 +28,11 @@ enum Commands {
     Hook {
         #[command(subcommand)]
         action: HookAction,
+    },
+    /// Install Roux integrations into external agent tools
+    Install {
+        #[command(subcommand)]
+        action: InstallAction,
     },
     /// Show current session statuses
     Status,
@@ -1014,6 +1019,24 @@ enum HookAction {
     Run(Box<HookRunArgs>),
 }
 
+#[derive(Subcommand)]
+enum InstallAction {
+    /// Install Roux hooks into an agent config
+    Hooks(InstallHooksArgs),
+}
+
+#[derive(Args)]
+struct InstallHooksArgs {
+    /// Agent whose hooks should be installed
+    #[arg(long, value_enum)]
+    agent: InstallHooksAgent,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum InstallHooksAgent {
+    Claude,
+}
+
 #[derive(Args)]
 struct HookShowArgs {
     /// Repo path whose project hooks should be included
@@ -1153,6 +1176,245 @@ enum NotesScopeVerb {
 
 fn status_dir() -> PathBuf {
     platform::status_dir()
+}
+
+fn claude_settings_path() -> Result<PathBuf, String> {
+    let home = dirs::home_dir().ok_or("Could not determine home directory")?;
+    Ok(home.join(".claude").join("settings.json"))
+}
+
+fn current_roux_cli_path() -> Result<PathBuf, String> {
+    std::env::current_exe()
+        .map_err(|e| format!("Could not determine current roux executable: {e}"))
+        .map(|path| path.canonicalize().unwrap_or(path))
+}
+
+fn hook_command(cli_path: &Path, status: &str) -> String {
+    platform::command_string(cli_path, &["hook", status])
+}
+
+fn roux_claude_hooks_config(cli_path: &Path) -> Value {
+    json!({
+        "hooks": {
+            "UserPromptSubmit": [
+                {
+                    "hooks": [
+                        { "type": "command", "command": hook_command(cli_path, "working") }
+                    ]
+                }
+            ],
+            "Stop": [
+                {
+                    "hooks": [
+                        { "type": "command", "command": hook_command(cli_path, "idle") }
+                    ]
+                }
+            ],
+            "PermissionRequest": [
+                {
+                    "hooks": [
+                        { "type": "command", "command": hook_command(cli_path, "attention") }
+                    ]
+                }
+            ],
+            "PreToolUse": [
+                {
+                    "matcher": "AskUserQuestion",
+                    "hooks": [
+                        { "type": "command", "command": hook_command(cli_path, "attention") }
+                    ]
+                }
+            ],
+            "PostToolUse": [
+                {
+                    "hooks": [
+                        { "type": "command", "command": hook_command(cli_path, "working") }
+                    ]
+                }
+            ],
+            "StopFailure": [
+                {
+                    "hooks": [
+                        { "type": "command", "command": hook_command(cli_path, "error") }
+                    ]
+                }
+            ],
+            "SessionEnd": [
+                {
+                    "hooks": [
+                        { "type": "command", "command": hook_command(cli_path, "idle") }
+                    ]
+                }
+            ],
+            "Notification": [
+                {
+                    "matcher": "permission_prompt|elicitation_dialog|elicitation_response",
+                    "hooks": [
+                        { "type": "command", "command": hook_command(cli_path, "attention") }
+                    ]
+                },
+                {
+                    "matcher": "elicitation_complete|idle_prompt",
+                    "hooks": [
+                        { "type": "command", "command": hook_command(cli_path, "idle") }
+                    ]
+                }
+            ],
+            "Elicitation": [
+                {
+                    "hooks": [
+                        { "type": "command", "command": hook_command(cli_path, "attention") }
+                    ]
+                }
+            ],
+            "ElicitationResult": [
+                {
+                    "hooks": [
+                        { "type": "command", "command": hook_command(cli_path, "idle") }
+                    ]
+                }
+            ]
+        }
+    })
+}
+
+fn split_command_program(command: &str) -> Option<(&str, &str)> {
+    let trimmed = command.trim_start();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    if let Some(rest) = trimmed.strip_prefix('"') {
+        let quote = rest.find('"')?;
+        let (program, remainder) = rest.split_at(quote);
+        return Some((program, remainder[1..].trim_start()));
+    }
+
+    let mut parts = trimmed.splitn(2, char::is_whitespace);
+    let program = parts.next()?;
+    Some((program, parts.next().unwrap_or("").trim_start()))
+}
+
+fn command_program_is_roux_cli(program: &str) -> bool {
+    let file_name = program.rsplit(['/', '\\']).next().unwrap_or(program);
+    matches!(
+        file_name.to_ascii_lowercase().as_str(),
+        "roux" | "roux.exe" | "roux-cli" | "roux-cli.exe"
+    )
+}
+
+fn args_start_with_roux_hook_status(args: &str) -> bool {
+    let mut args = args.split_whitespace();
+    let Some(hook) = args.next() else {
+        return false;
+    };
+    if hook != "hook" {
+        return false;
+    }
+
+    matches!(args.next(), Some("working" | "idle" | "attention" | "error" | "disconnected"))
+}
+
+fn is_roux_hook_command(command: &str) -> bool {
+    let Some((program, args)) = split_command_program(command) else {
+        return false;
+    };
+    command_program_is_roux_cli(program) && args_start_with_roux_hook_status(args)
+}
+
+fn is_roux_hook(hook_obj: &Value) -> bool {
+    hook_obj.get("command").and_then(|c| c.as_str()).map(is_roux_hook_command).unwrap_or(false)
+}
+
+fn is_roux_hook_entry(entry: &Value) -> bool {
+    entry
+        .get("hooks")
+        .and_then(|h| h.as_array())
+        .map(|hooks| hooks.iter().any(is_roux_hook))
+        .unwrap_or(false)
+}
+
+fn merge_roux_claude_hooks(settings: &mut Value, cli_path: &Path) -> Result<(), String> {
+    let roux = roux_claude_hooks_config(cli_path);
+    let roux_hooks = roux.get("hooks").and_then(|hooks| hooks.as_object()).unwrap();
+
+    if settings.get("hooks").is_none() || !settings["hooks"].is_object() {
+        settings["hooks"] = json!({});
+    }
+
+    for (event_name, roux_entries) in roux_hooks {
+        let roux_entries = roux_entries.as_array().unwrap();
+        let existing = settings["hooks"]
+            .get(event_name)
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+        let mut filtered: Vec<Value> = existing
+            .into_iter()
+            .filter(|entry| !is_roux_hook_entry(entry))
+            .filter(|entry| {
+                !entry
+                    .get("hooks")
+                    .and_then(|h| h.as_array())
+                    .map(|hooks| {
+                        hooks.iter().any(|h| {
+                            h.get("command")
+                                .and_then(|c| c.as_str())
+                                .map(|c| c.contains("roux/hook-handler.sh"))
+                                .unwrap_or(false)
+                        })
+                    })
+                    .unwrap_or(false)
+            })
+            .collect();
+        filtered.extend(roux_entries.iter().cloned());
+        settings["hooks"][event_name] = Value::Array(filtered);
+    }
+
+    Ok(())
+}
+
+fn install_claude_hooks() -> Result<PathBuf, String> {
+    fs::create_dir_all(status_dir()).map_err(|e| format!("Failed to create status dir: {e}"))?;
+    let cli_path = current_roux_cli_path()?;
+    let settings_path = claude_settings_path()?;
+
+    let mut settings: Value = if settings_path.exists() {
+        let content = fs::read_to_string(&settings_path)
+            .map_err(|e| format!("Failed to read {}: {e}", settings_path.display()))?;
+        serde_json::from_str(&content)
+            .map_err(|e| format!("Failed to parse {}: {e}", settings_path.display()))?
+    } else {
+        if let Some(parent) = settings_path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|e| format!("Failed to create {}: {e}", parent.display()))?;
+        }
+        json!({})
+    };
+
+    merge_roux_claude_hooks(&mut settings, &cli_path)?;
+    let output = serde_json::to_string_pretty(&settings)
+        .map_err(|e| format!("Failed to serialize hooks: {e}"))?;
+    fs::write(&settings_path, output)
+        .map_err(|e| format!("Failed to write {}: {e}", settings_path.display()))?;
+    Ok(settings_path)
+}
+
+fn handle_install_action(action: InstallAction) {
+    let result = match action {
+        InstallAction::Hooks(args) => match args.agent {
+            InstallHooksAgent::Claude => install_claude_hooks()
+                .map(|path| format!("Installed Claude hooks to {}", path.display())),
+        },
+    };
+
+    match result {
+        Ok(message) => println!("{message}"),
+        Err(error) => {
+            eprintln!("Error: {error}");
+            std::process::exit(1);
+        }
+    }
 }
 
 /// Build the shared `args` map for receive-side mailbox commands
@@ -2368,6 +2630,7 @@ fn main() {
     let cli = Cli::parse();
     match cli.command {
         Commands::Hook { action } => handle_hook_action(action),
+        Commands::Install { action } => handle_install_action(action),
         Commands::Status => show_status(),
         Commands::Clear => clear_status(),
         Commands::Mcp => {
@@ -4267,6 +4530,62 @@ mod tests {
             Commands::Mcp => {}
             _ => panic!("expected Mcp"),
         }
+    }
+
+    #[test]
+    fn cli_parses_install_claude_hooks_command() {
+        let cli = Cli::try_parse_from(["roux", "install", "hooks", "--agent", "claude"]).unwrap();
+        match cli.command {
+            Commands::Install {
+                action: InstallAction::Hooks(InstallHooksArgs { agent: InstallHooksAgent::Claude }),
+            } => {}
+            _ => panic!("expected Install::Hooks"),
+        }
+    }
+
+    #[test]
+    fn merge_roux_claude_hooks_replaces_roux_entries_and_preserves_user_hooks() {
+        let cli_path = Path::new("/opt/roux/bin/roux");
+        let mut settings = json!({
+            "hooks": {
+                "PreToolUse": [
+                    {
+                        "matcher": "AskUserQuestion",
+                        "hooks": [
+                            { "type": "command", "command": "/old/roux hook attention" }
+                        ]
+                    },
+                    {
+                        "matcher": "Bash",
+                        "hooks": [
+                            { "type": "command", "command": "echo keep-me" }
+                        ]
+                    }
+                ]
+            }
+        });
+
+        merge_roux_claude_hooks(&mut settings, cli_path).unwrap();
+
+        let entries = settings["hooks"]["PreToolUse"].as_array().unwrap();
+        assert!(entries.iter().any(|entry| {
+            entry.get("matcher").and_then(|matcher| matcher.as_str()) == Some("AskUserQuestion")
+                && entry.get("hooks").and_then(|hooks| hooks.as_array()).unwrap().iter().any(
+                    |hook| {
+                        hook.get("command").and_then(|command| command.as_str())
+                            == Some("/opt/roux/bin/roux hook attention")
+                    },
+                )
+        }));
+        assert!(entries.iter().any(|entry| {
+            entry.get("matcher").and_then(|matcher| matcher.as_str()) == Some("Bash")
+        }));
+        assert!(!entries.iter().any(|entry| {
+            entry.get("hooks").and_then(|hooks| hooks.as_array()).unwrap().iter().any(|hook| {
+                hook.get("command").and_then(|command| command.as_str())
+                    == Some("/old/roux hook attention")
+            })
+        }));
     }
 
     #[test]

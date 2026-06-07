@@ -1877,6 +1877,16 @@ fn parse_pty_env_request(args: &Value, identity: &DaemonIdentity) -> PtyEnvReque
             .or_else(|| args.get("pane_alias"))
             .and_then(|pane_alias| pane_alias.as_str())
             .map(str::to_string),
+        work_item_id: args
+            .get("workItemId")
+            .or_else(|| args.get("work_item_id"))
+            .and_then(|work_item_id| work_item_id.as_str())
+            .map(str::to_string),
+        work_item_run_id: args
+            .get("workItemRunId")
+            .or_else(|| args.get("work_item_run_id"))
+            .and_then(|work_item_run_id| work_item_run_id.as_str())
+            .map(str::to_string),
     }
 }
 

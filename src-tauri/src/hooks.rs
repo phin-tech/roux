@@ -433,6 +433,17 @@ fn roux_hooks_config(cli_path: &Path) -> Value {
                     ]
                 }
             ],
+            "PreToolUse": [
+                {
+                    "matcher": "AskUserQuestion",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": hook_command(cli_path, "attention")
+                        }
+                    ]
+                }
+            ],
             "PostToolUse": [
                 {
                     "hooks": [
@@ -472,7 +483,7 @@ fn roux_hooks_config(cli_path: &Path) -> Value {
             ],
             "Notification": [
                 {
-                    "matcher": "permission_prompt",
+                    "matcher": "permission_prompt|elicitation_dialog|elicitation_response",
                     "hooks": [
                         {
                             "type": "command",
@@ -481,7 +492,27 @@ fn roux_hooks_config(cli_path: &Path) -> Value {
                     ]
                 },
                 {
-                    "matcher": "idle_prompt",
+                    "matcher": "elicitation_complete|idle_prompt",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": hook_command(cli_path, "idle")
+                        }
+                    ]
+                }
+            ],
+            "Elicitation": [
+                {
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": hook_command(cli_path, "attention")
+                        }
+                    ]
+                }
+            ],
+            "ElicitationResult": [
+                {
                     "hooks": [
                         {
                             "type": "command",
@@ -872,6 +903,25 @@ mod tests {
         assert!(hook_entry_contains_command(
             &entries[0],
             "/Applications/Roux.app/Contents/MacOS/roux hook working"
+        ));
+    }
+
+    #[test]
+    fn hook_config_marks_permission_and_elicitation_notifications_as_attention() {
+        let cli_path = Path::new("/Applications/Roux.app/Contents/MacOS/roux");
+        let settings = roux_hooks_config(cli_path);
+        let entries = settings["hooks"]["Notification"].as_array().unwrap();
+        let attention = entries
+            .iter()
+            .find(|entry| {
+                entry.get("matcher").and_then(|matcher| matcher.as_str())
+                    == Some("permission_prompt|elicitation_dialog|elicitation_response")
+            })
+            .expect("attention notification matcher should be installed");
+
+        assert!(hook_entry_contains_command(
+            attention,
+            "/Applications/Roux.app/Contents/MacOS/roux hook attention"
         ));
     }
 

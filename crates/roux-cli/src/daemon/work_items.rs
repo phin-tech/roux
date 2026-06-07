@@ -3162,7 +3162,10 @@ async fn run_dispatched_profile_with_task_prompt(
     }
 
     let working_dir = profile_working_dir(&profile, &session);
-    let env_args = serde_json::Value::Null;
+    let env_args = serde_json::json!({
+        "workItemId": item.id,
+        "workItemRunId": run_id,
+    });
     match host
         .pty_handle
         .spawn_task(
@@ -3293,8 +3296,10 @@ fn render_work_item_planning_prompt(
     prompt.push_str(if item_id.is_empty() { "<work-item-id>" } else { &item_id });
     prompt.push_str(
         " --title \"Plan\" --text \"...\"`.\n\
-	         - If you need a human decision, ask in this session and wait for the answer here.\n\
-	         - For structured decisions that must be tracked on the card, the Roux CLI is still available: `<Roux CLI path> work-item decision create <Roux run id> \"Question?\" --option yes=Yes --option no=No`.",
+	         - If you need a human decision before continuing, create a structured Roux work item decision instead of asking only in terminal prose.\n\
+	         - Prefer: `<Roux CLI path> work-item decision create <Roux run id> \"Question?\" --option yes=Yes --option no=No`.\n\
+	         - Fallback if the CLI command is unavailable: print one newline-delimited JSON object shaped like {\"type\":\"decision\",\"question\":\"Question?\",\"options\":[{\"value\":\"yes\",\"label\":\"Yes\"},{\"value\":\"no\",\"label\":\"No\"}]}.\n\
+	         - After creating or printing the decision, stop and wait for the user's answer before continuing.",
     );
     append_custom_prompt_section(
         &mut prompt,
@@ -3571,8 +3576,10 @@ fn render_work_item_task_prompt(
 	         - Make the necessary code and documentation changes.\n\
          - Commit changes unless the repository or user instructions clearly say not to.\n\
          - Run the relevant tests/checks and report what passed, failed, or was not run.\n\
-         - If you need a human decision, ask in this session and wait for the answer here.\n\
-         - For structured decisions that must be tracked on the card, the Roux CLI is still available: `<Roux CLI path> work-item decision create <Roux run id> \"Question?\" --option yes=Yes --option no=No`.\n\
+         - If you need a human decision before continuing, create a structured Roux work item decision instead of asking only in terminal prose.\n\
+         - Prefer: `<Roux CLI path> work-item decision create <Roux run id> \"Question?\" --option yes=Yes --option no=No`.\n\
+         - Fallback if the CLI command is unavailable: print one newline-delimited JSON object shaped like {\"type\":\"decision\",\"question\":\"Question?\",\"options\":[{\"value\":\"yes\",\"label\":\"Yes\"},{\"value\":\"no\",\"label\":\"No\"}]}.\n\
+         - After creating or printing the decision, stop and wait for the user's answer before continuing.\n\
          - When the work is complete, run `",
     );
     prompt.push_str(&roux_cli_path);
@@ -4399,9 +4406,10 @@ mod tests {
         assert!(prompt.contains("Roux session id: sess-1"));
         assert!(prompt.contains("Roux CLI path:"));
         assert!(prompt.contains("Roux CLI help:"));
-        assert!(prompt.contains("ask in this session"));
+        assert!(prompt.contains("create a structured Roux work item decision"));
         assert!(prompt.contains("work-item decision create"));
-        assert!(!prompt.contains("\"type\":\"decision\""));
+        assert!(prompt.contains("\"type\":\"decision\""));
+        assert!(prompt.contains("stop and wait for the user's answer"));
         assert!(prompt.contains("Run the relevant tests/checks"));
         assert!(prompt.contains("work-item review request run-1"));
         assert!(prompt.contains("--summary"));
@@ -4725,12 +4733,13 @@ mod tests {
             plan_prompt.contains("Additional planning instructions:\nAsk about release timing.")
         );
         assert!(plan_prompt.contains("Roux CLI path:"));
-        assert!(plan_prompt.contains("ask in this session"));
+        assert!(plan_prompt.contains("create a structured Roux work item decision"));
         assert!(plan_prompt.contains("work-item decision create"));
         assert!(plan_prompt.contains("roux document list --work-item wi-1"));
         assert!(plan_prompt.contains("roux document get <document-id>"));
         assert!(plan_prompt.contains("roux document attach --work-item wi-1"));
-        assert!(!plan_prompt.contains("\"type\":\"decision\""));
+        assert!(plan_prompt.contains("\"type\":\"decision\""));
+        assert!(plan_prompt.contains("stop and wait for the user's answer"));
 
         let task_prompt = render_work_item_task_prompt(
             &item,
