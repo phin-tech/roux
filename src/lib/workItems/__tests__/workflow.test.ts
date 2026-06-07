@@ -38,4 +38,22 @@ describe("workflow defaults", () => {
     expect(kanban.workflowPath).toBe("./workflow.json");
     expect(kanban.workflowLoadError).toBe("failed");
   });
+
+  it("preserves explicit null stage action labels", () => {
+    const kanban = normalizeKanbanSettings({
+      workflow: {
+        phases: {
+          done: {
+            stages: {
+              done: {
+                actionLabel: null,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    expect(kanban.workflow.phases.done.stages.done.actionLabel).toBeNull();
+  });
 });

@@ -348,11 +348,12 @@
 </div>
 
 {#each orderedPhaseIds as phaseId (phaseId)}
-  {@const phaseInfo =
-    workflowPhases.find((candidate) => candidate.id === phaseId) ?? {
-      id: phaseId,
-      title: phaseId,
-    }}
+  {@const phaseInfo = workflowPhases.find(
+    (candidate) => candidate.id === phaseId,
+  ) ?? {
+    id: phaseId,
+    title: phaseId,
+  }}
   {@const phase = kanban.workflow.phases[phaseInfo.id]}
   <div class="mt-3 rounded border border-border-subtle bg-bg-surface/35 p-3">
     <div class="flex flex-wrap items-start justify-between gap-3">
@@ -436,11 +437,11 @@
                   <input
                     aria-label={`${stageId} action label`}
                     class="w-32 rounded border border-border bg-bg-deep px-2 py-1 text-xs text-text-primary outline-none focus:border-accent-dim"
-                    value={stage.actionLabel}
+                    value={stage.actionLabel ?? ""}
                     disabled={workflowJsonBacked}
                     oninput={(e) =>
                       updateStage(phaseInfo.id, stageId, {
-                        actionLabel: e.currentTarget.value,
+                        actionLabel: e.currentTarget.value.trim() || null,
                       })}
                   />
                 </label>

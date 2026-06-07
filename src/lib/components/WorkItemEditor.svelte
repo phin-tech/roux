@@ -71,7 +71,7 @@
   const workflowStageName = $derived(
     item
       ? (item.workflowStageLabel ??
-        workflowStageLabel(item.workflowStageId, $settings.kanban))
+          workflowStageLabel(item.workflowStageId, $settings.kanban))
       : null,
   );
   const workflowStageLabelText = $derived("Workflow stage");

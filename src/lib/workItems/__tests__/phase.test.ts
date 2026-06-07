@@ -69,7 +69,10 @@ describe("workItemPhase", () => {
 
   it("planning with an active planning session offers Open planning", () => {
     const phase = workItemPhase(
-      input({ status: "planning", activePlanningRun: planningRun("sess-plan") }),
+      input({
+        status: "planning",
+        activePlanningRun: planningRun("sess-plan"),
+      }),
     );
     expect(phase.action).toEqual({
       kind: "open-planning",
@@ -158,7 +161,9 @@ describe("workItemPhase", () => {
   });
 
   it("offers force-start only for a startable, plan-less planning item", () => {
-    expect(workItemPhase(input({ status: "planning" })).canForceStart).toBe(true);
+    expect(workItemPhase(input({ status: "planning" })).canForceStart).toBe(
+      true,
+    );
     expect(
       workItemPhase(input({ status: "planning", hasAttachedPlan: true }))
         .canForceStart,

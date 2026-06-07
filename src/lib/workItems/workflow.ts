@@ -36,7 +36,12 @@ export const DEFAULT_REVIEW_STAGE_ID: ReviewStageId = "local_review";
 export type RequiredStageSettings = Required<
   Pick<
     KanbanWorkflowStageSettings,
-    "label" | "actionLabel" | "category" | "kind" | "agentProfile" | "instructions"
+    | "label"
+    | "actionLabel"
+    | "category"
+    | "kind"
+    | "agentProfile"
+    | "instructions"
   >
 > & {
   prompt: KanbanWorkflowPromptSettings;
@@ -198,7 +203,10 @@ function normalizeStages(
 ): Record<string, RequiredStageSettings> {
   const fallbackPhase = DEFAULT_PHASES[phaseId];
   const normalized: Record<string, RequiredStageSettings> = {};
-  const ids = new Set([...fallbackPhase.stageOrder, ...Object.keys(stages ?? {})]);
+  const ids = new Set([
+    ...fallbackPhase.stageOrder,
+    ...Object.keys(stages ?? {}),
+  ]);
   for (const id of ids) {
     const fallback = fallbackPhase.stages[id];
     const stage = stages?.[id];
@@ -221,10 +229,11 @@ function normalizeStage(
 ): RequiredStageSettings {
   return {
     label: nonEmpty(stage?.label) ?? fallback?.label ?? "Stage",
-    actionLabel: nonEmpty(stage?.actionLabel) ?? fallback?.actionLabel ?? "Run",
+    actionLabel: normalizeActionLabel(stage, fallback),
     category: stage?.category ?? fallback?.category ?? category,
     kind: stage?.kind ?? fallback?.kind ?? kind,
-    agentProfile: nonEmpty(stage?.agentProfile) ?? fallback?.agentProfile ?? null,
+    agentProfile:
+      nonEmpty(stage?.agentProfile) ?? fallback?.agentProfile ?? null,
     instructions: stage?.instructions?.trim() ?? fallback?.instructions ?? "",
     prompt: normalizePrompt(stage?.prompt ?? fallback?.prompt),
     runner: stage?.runner ?? fallback?.runner ?? null,
@@ -233,6 +242,17 @@ function normalizeStage(
     transitions: stage?.transitions ?? fallback?.transitions ?? {},
     terminal: stage?.terminal ?? fallback?.terminal ?? false,
   };
+}
+
+function normalizeActionLabel(
+  stage: KanbanWorkflowStageSettings | undefined,
+  fallback: RequiredStageSettings | undefined,
+): string | null {
+  if (stage?.actionLabel !== undefined) {
+    return nonEmpty(stage.actionLabel) ?? null;
+  }
+  if (fallback) return fallback.actionLabel;
+  return "Run";
 }
 
 function normalizeOrder<T extends string>(

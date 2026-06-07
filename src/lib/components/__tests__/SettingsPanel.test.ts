@@ -142,7 +142,9 @@ vi.mock("$lib/tauri", () => ({
     path: "/tmp/roux/kanban-workflow.json",
     workflowPath: "kanban-workflow.json",
   }),
-  saveKanbanWorkflowJson: vi.fn().mockResolvedValue("/tmp/roux/kanban-workflow.json"),
+  saveKanbanWorkflowJson: vi
+    .fn()
+    .mockResolvedValue("/tmp/roux/kanban-workflow.json"),
   onSettingsChanged: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock("$lib/stores/updater", () => ({
@@ -185,7 +187,9 @@ describe("SettingsPanel Kanban tab", () => {
       path: "/tmp/roux/kanban-workflow.json",
       workflowPath: "kanban-workflow.json",
     });
-    vi.mocked(saveKanbanWorkflowJson).mockResolvedValue("/tmp/roux/kanban-workflow.json");
+    vi.mocked(saveKanbanWorkflowJson).mockResolvedValue(
+      "/tmp/roux/kanban-workflow.json",
+    );
     vi.mocked(open).mockReset();
     vi.mocked(revealItemInDir).mockReset();
   });

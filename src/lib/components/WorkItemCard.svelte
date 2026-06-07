@@ -128,7 +128,9 @@
   const attentionSessionId = $derived(
     phase.attentionSessionId ?? attachedAttentionSessionId,
   );
-  const hasPendingQuestion = $derived(!!pendingDecision || !!attentionSessionId);
+  const hasPendingQuestion = $derived(
+    !!pendingDecision || !!attentionSessionId,
+  );
   const primaryOpenSessionId = $derived(
     phase.action.kind === "open-session" ? phase.action.sessionId : null,
   );
@@ -849,6 +851,7 @@
     <div class="flex items-center gap-1.5 pt-0.5">
       {#if canRunWorkflowStage}
         <button
+          type="button"
           class={accentActionClass}
           onclick={handleRunStage}
           aria-label="Run workflow stage"
@@ -862,6 +865,7 @@
         </button>
       {:else if phase.action.kind === "plan" && onPlan}
         <button
+          type="button"
           class={amberActionClass}
           onclick={() => onPlan?.(item.id, item)}
           aria-label="Plan work item"
@@ -873,6 +877,7 @@
         </button>
       {:else if phase.action.kind === "accept-review" && onAcceptReview}
         <button
+          type="button"
           class={doneActionClass}
           onclick={() => onAcceptReview?.(item.id, item)}
           aria-label="Accept work item review"

@@ -39,7 +39,11 @@ import type { Attachment, WorkItemRun } from "$lib/types/workItems";
 import { notifications } from "$lib/stores/notifications";
 import { projects } from "$lib/stores/projects";
 import { createSessionShell, openPathInFinder } from "$lib/tauri";
-import { addSession, sessionList, setActiveSession } from "$lib/stores/sessions";
+import {
+  addSession,
+  sessionList,
+  setActiveSession,
+} from "$lib/stores/sessions";
 import { settings } from "$lib/stores/settings";
 import {
   _resetWorktreeMetadataForTests,
