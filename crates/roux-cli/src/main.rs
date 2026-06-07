@@ -1328,11 +1328,11 @@ fn is_roux_hook(hook_obj: &Value) -> bool {
     hook_obj.get("command").and_then(|c| c.as_str()).map(is_roux_hook_command).unwrap_or(false)
 }
 
-fn is_roux_hook_entry(entry: &Value) -> bool {
-    entry
-        .get("hooks")
-        .and_then(|h| h.as_array())
-        .map(|hooks| hooks.iter().any(is_roux_hook))
+fn is_legacy_roux_hook(hook_obj: &Value) -> bool {
+    hook_obj
+        .get("command")
+        .and_then(|c| c.as_str())
+        .map(|c| c.contains("roux/hook-handler.sh"))
         .unwrap_or(false)
 }
 
@@ -1353,20 +1353,14 @@ fn merge_roux_claude_hooks(settings: &mut Value, cli_path: &Path) -> Result<(), 
             .unwrap_or_default();
         let mut filtered: Vec<Value> = existing
             .into_iter()
-            .filter(|entry| !is_roux_hook_entry(entry))
-            .filter(|entry| {
-                !entry
-                    .get("hooks")
-                    .and_then(|h| h.as_array())
-                    .map(|hooks| {
-                        hooks.iter().any(|h| {
-                            h.get("command")
-                                .and_then(|c| c.as_str())
-                                .map(|c| c.contains("roux/hook-handler.sh"))
-                                .unwrap_or(false)
-                        })
-                    })
-                    .unwrap_or(false)
+            .filter_map(|mut entry| {
+                let hooks = entry.get_mut("hooks")?.as_array_mut()?;
+                hooks.retain(|hook| !is_roux_hook(hook) && !is_legacy_roux_hook(hook));
+                if hooks.is_empty() {
+                    None
+                } else {
+                    Some(entry)
+                }
             })
             .collect();
         filtered.extend(roux_entries.iter().cloned());
@@ -1715,9 +1709,12 @@ fn wait_for_daemon_owner_lock_release(timeout: Duration) -> Result<(), String> {
     let lock_path = platform::daemon_owner_lock_path();
     let started = Instant::now();
     let poll_interval = Duration::from_millis(100);
-    while started.elapsed() < timeout {
+    loop {
         if !daemon_owner_lock_is_held(&lock_path)? {
             return Ok(());
+        }
+        if started.elapsed() >= timeout {
+            break;
         }
         std::thread::sleep(poll_interval);
     }
@@ -1775,10 +1772,18 @@ fn clear_stale_daemon_state() -> Result<(), String> {
     }
 
     let lock_path = platform::daemon_owner_lock_path();
-    let lock_holders = daemon_lock_holder_pids(&lock_path);
-    for pid in &lock_holders {
-        println!("Terminating stale daemon lock holder pid={pid}");
-        terminate_process(*pid)?;
+    if daemon_owner_lock_is_held(&lock_path)? {
+        let lock_holders = daemon_lock_holder_pids(&lock_path);
+        if lock_holders.is_empty() {
+            return Err(format!(
+                "daemon owner lock {} is held, but no roux daemon owner process was found",
+                lock_path.display()
+            ));
+        }
+        for pid in &lock_holders {
+            println!("Terminating stale daemon lock holder pid={pid}");
+            terminate_process(*pid)?;
+        }
     }
 
     let mut removed = Vec::new();
@@ -1816,11 +1821,16 @@ fn daemon_lock_holder_pids(lock_path: &Path) -> Vec<u32> {
             return Vec::new();
         }
         let current = std::process::id();
-        return String::from_utf8_lossy(&output.stdout)
+        String::from_utf8_lossy(&output.stdout)
             .lines()
             .filter_map(|line| line.trim().parse::<u32>().ok())
             .filter(|pid| *pid != current)
-            .collect();
+            .filter(|pid| {
+                process_command(*pid)
+                    .map(|cmd| command_looks_like_roux_daemon(&cmd))
+                    .unwrap_or(false)
+            })
+            .collect()
     }
 
     #[cfg(not(unix))]
@@ -1828,6 +1838,25 @@ fn daemon_lock_holder_pids(lock_path: &Path) -> Vec<u32> {
         let _ = lock_path;
         Vec::new()
     }
+}
+
+fn process_command(pid: u32) -> Option<String> {
+    let output = std::process::Command::new("ps")
+        .args(["-p", &pid.to_string(), "-o", "command="])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let command = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    (!command.is_empty()).then_some(command)
+}
+
+fn command_looks_like_roux_daemon(command: &str) -> bool {
+    let Some((program, args)) = split_command_program(command) else {
+        return false;
+    };
+    command_program_is_roux_cli(program) && args.split_whitespace().any(|arg| arg == "daemon")
 }
 
 fn terminate_process(pid: u32) -> Result<(), String> {
@@ -4751,7 +4780,8 @@ mod tests {
                     {
                         "matcher": "AskUserQuestion",
                         "hooks": [
-                            { "type": "command", "command": "/old/roux hook attention" }
+                            { "type": "command", "command": "/old/roux hook attention" },
+                            { "type": "command", "command": "echo keep-same-entry" }
                         ]
                     },
                     {
@@ -4779,12 +4809,29 @@ mod tests {
         assert!(entries.iter().any(|entry| {
             entry.get("matcher").and_then(|matcher| matcher.as_str()) == Some("Bash")
         }));
+        assert!(entries.iter().any(|entry| {
+            entry.get("matcher").and_then(|matcher| matcher.as_str()) == Some("AskUserQuestion")
+                && entry.get("hooks").and_then(|hooks| hooks.as_array()).unwrap().iter().any(
+                    |hook| {
+                        hook.get("command").and_then(|command| command.as_str())
+                            == Some("echo keep-same-entry")
+                    },
+                )
+        }));
         assert!(!entries.iter().any(|entry| {
             entry.get("hooks").and_then(|hooks| hooks.as_array()).unwrap().iter().any(|hook| {
                 hook.get("command").and_then(|command| command.as_str())
                     == Some("/old/roux hook attention")
             })
         }));
+    }
+
+    #[test]
+    fn command_looks_like_roux_daemon_only_matches_roux_daemon_commands() {
+        assert!(command_looks_like_roux_daemon("/opt/roux/bin/roux daemon"));
+        assert!(command_looks_like_roux_daemon("\"/opt/Roux App/roux\" daemon restart"));
+        assert!(!command_looks_like_roux_daemon("/opt/roux/bin/roux hook attention"));
+        assert!(!command_looks_like_roux_daemon("node /opt/roux daemon"));
     }
 
     #[test]

@@ -56,4 +56,29 @@ describe("workflow defaults", () => {
 
     expect(kanban.workflow.phases.done.stages.done.actionLabel).toBeNull();
   });
+
+  it("drops unknown ids from phase and stage order", () => {
+    const kanban = normalizeKanbanSettings({
+      workflow: {
+        phaseOrder: ["doing", "missing", "review"],
+        phases: {
+          doing: {
+            stageOrder: ["fix_ci", "missing_stage", "implementation"],
+          },
+        },
+      },
+    });
+
+    expect(kanban.workflow.phaseOrder).toEqual([
+      "doing",
+      "review",
+      "todo",
+      "planning",
+      "done",
+    ]);
+    expect(kanban.workflow.phases.doing.stageOrder).toEqual([
+      "fix_ci",
+      "implementation",
+    ]);
+  });
 });

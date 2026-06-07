@@ -187,6 +187,7 @@ describe("SettingsPanel Kanban tab", () => {
       path: "/tmp/roux/kanban-workflow.json",
       workflowPath: "kanban-workflow.json",
     });
+    vi.mocked(saveKanbanWorkflowJson).mockReset();
     vi.mocked(saveKanbanWorkflowJson).mockResolvedValue(
       "/tmp/roux/kanban-workflow.json",
     );

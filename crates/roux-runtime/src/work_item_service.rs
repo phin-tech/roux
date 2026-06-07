@@ -165,39 +165,17 @@ impl WorkItemHandle {
         stage_id: &str,
         stage_label: &str,
     ) -> Result<Option<WorkItem>, String> {
-        let Some(existing) = self.get(id)? else {
-            return Ok(None);
-        };
-        let input = WorkItemInput {
-            title: existing.title,
-            body: existing.body,
-            status: Some(status),
-            repo_path: existing.repo_path,
-            agent_profile: existing.agent_profile,
-            base_branch: existing.base_branch,
-            worktree_path: existing.worktree_path,
-            branch: existing.branch,
-            fetch_first: existing.fetch_first,
-            start_error: existing.start_error,
-            workflow_id: Some(workflow_id.to_string()),
-            workflow_stage_id: Some(stage_id.to_string()),
-            workflow_stage_label: Some(stage_label.to_string()),
-            project_id: existing.project_id,
-            parent_id: existing.parent_id,
-            external_ref: existing.provider.as_ref().map(|provider| roux_core::ExternalRef {
-                provider: provider.clone(),
-                external_id: existing.external_id.clone().unwrap_or_default(),
-                url: existing.external_url.clone(),
-            }),
-            sort_order: Some(existing.sort_order),
-            field_presence: roux_core::WorkItemInputPresence {
-                workflow_id: true,
-                workflow_stage_id: true,
-                workflow_stage_label: true,
-                ..roux_core::WorkItemInputPresence::default()
-            },
-        };
-        self.update(id, input)
+        let now = now_secs();
+        let item = self
+            .inner
+            .lock()
+            .unwrap()
+            .move_to_workflow_stage(id, status, workflow_id, stage_id, stage_label, now)
+            .map_err(|e| format!("work-item workflow-stage move: {e}"))?;
+        if let Some(ref item) = item {
+            self.broadcast(WorkItemEvent::Updated { item: item.clone() });
+        }
+        Ok(item)
     }
 
     pub fn delete(&self, id: &str) -> Result<bool, String> {

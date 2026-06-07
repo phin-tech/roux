@@ -190,7 +190,7 @@ pub async fn run() -> Result<(), String> {
                     "Daemon service task {index} did not stop within 500ms; aborting"
                 ));
                 join.abort();
-                let _ = join.await;
+                let _ = tokio::time::timeout(std::time::Duration::from_millis(500), join).await;
             }
         }
     }

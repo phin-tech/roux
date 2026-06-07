@@ -1854,7 +1854,10 @@ mod tests {
             KanbanWorkflowPhaseCategory::Planning
         );
         assert_eq!(parsed.kanban.workflow.phases["planning"].label, "Planning");
-        assert_eq!(parsed.kanban.workflow.phases["implementation"].label, "Implementation");
+        assert_eq!(
+            parsed.kanban.workflow.phases["doing"].stages["implementation"].label,
+            "Implementation"
+        );
         assert_eq!(parsed.kanban.workflow.phases["review"].label, "Review");
         assert_eq!(
             parsed.kanban.workflow.phases["review"].stages["local_review"].label,

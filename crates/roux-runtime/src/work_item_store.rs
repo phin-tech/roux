@@ -606,6 +606,43 @@ impl WorkItemStore {
         self.get(id)
     }
 
+    pub fn move_to_workflow_stage(
+        &mut self,
+        id: &str,
+        status: WorkItemStatus,
+        workflow_id: &str,
+        stage_id: &str,
+        stage_label: &str,
+        now: u64,
+    ) -> SqlResult<Option<WorkItem>> {
+        self.conn.execute(
+            "UPDATE work_items
+             SET status = ?2,
+                 review_stage_id = CASE
+                     WHEN ?2 = ?7 THEN COALESCE(review_stage_id, ?8)
+                     WHEN ?2 = ?9 THEN NULL
+                     ELSE review_stage_id
+                 END,
+                 workflow_id = ?3,
+                 workflow_stage_id = ?4,
+                 workflow_stage_label = ?5,
+                 updated_at = ?6
+             WHERE id = ?1",
+            params![
+                id,
+                status.as_str(),
+                workflow_id,
+                stage_id,
+                stage_label,
+                now as i64,
+                WorkItemStatus::Review.as_str(),
+                roux_core::FIRST_REVIEW_STAGE_ID,
+                WorkItemStatus::Done.as_str(),
+            ],
+        )?;
+        self.get(id)
+    }
+
     pub fn delete(&mut self, id: &str) -> SqlResult<bool> {
         let changed = self.conn.execute("DELETE FROM work_items WHERE id = ?1", params![id])?;
         Ok(changed > 0)

@@ -121,7 +121,10 @@ export function normalizeWorkflow(
     id: nonEmpty(workflow?.id) ?? DEFAULT_KANBAN_SETTINGS.workflow.id,
     label: nonEmpty(workflow?.label) ?? DEFAULT_KANBAN_SETTINGS.workflow.label,
     env: normalizeEnv(workflow?.env),
-    phaseOrder: normalizeOrder(workflow?.phaseOrder, WORKFLOW_PHASE_IDS),
+    phaseOrder: normalizeOrder(workflow?.phaseOrder, WORKFLOW_PHASE_IDS).filter(
+      (id): id is WorkflowPhaseId =>
+        WORKFLOW_PHASE_IDS.includes(id as WorkflowPhaseId),
+    ),
     phases,
   };
 }
@@ -185,6 +188,7 @@ function normalizePhase(
   phase: KanbanWorkflowPhaseSettings | null | undefined,
 ): RequiredPhaseSettings {
   const fallback = DEFAULT_PHASES[id];
+  const stages = normalizeStages(id, phase?.stages);
   return {
     category: fallback.category,
     label: nonEmpty(phase?.label) ?? fallback.label,
@@ -192,8 +196,10 @@ function normalizePhase(
     instructions: phase?.instructions?.trim() ?? "",
     prompt: normalizePrompt(phase?.prompt ?? fallback.prompt),
     env: normalizeEnv(phase?.env),
-    stageOrder: normalizeOrder(phase?.stageOrder, fallback.stageOrder),
-    stages: normalizeStages(id, phase?.stages),
+    stageOrder: normalizeOrder(phase?.stageOrder, fallback.stageOrder).filter(
+      (stageId) => stages[stageId],
+    ),
+    stages,
   };
 }
 

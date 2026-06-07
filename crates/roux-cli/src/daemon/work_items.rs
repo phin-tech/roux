@@ -1056,9 +1056,9 @@ fn persist_work_item_planning_target(
         sort_order: Some(item.sort_order),
         field_presence: roux_core::WorkItemInputPresence {
             start_error: true,
-            workflow_id: false,
-            workflow_stage_id: false,
-            workflow_stage_label: false,
+            workflow_id: true,
+            workflow_stage_id: true,
+            workflow_stage_label: true,
             ..roux_core::WorkItemInputPresence::default()
         },
     };
@@ -1149,7 +1149,7 @@ fn stage_agent_profile<'a>(
     stage
         .agent_profile
         .as_deref()
-        .or_else(|| match &stage.runner {
+        .or(match &stage.runner {
             Some(roux_core::KanbanWorkflowRunnerSettings::Agent { agent_profile }) => {
                 agent_profile.as_deref()
             }
@@ -2124,6 +2124,16 @@ async fn run_work_item_stage(
         });
     }
 
+    match stage.kind {
+        roux_core::KanbanWorkflowStageKind::Gate if stage.gate.is_none() => {
+            return Err(Response::err(format!("workflow gate stage {stage_id:?} has no gate")));
+        }
+        roux_core::KanbanWorkflowStageKind::Work if stage.runner.is_none() => {
+            return Err(Response::err(format!("workflow work stage {stage_id:?} has no runner")));
+        }
+        _ => {}
+    }
+
     let run = host
         .work_item_handle
         .create_starting_run(
@@ -2224,6 +2234,7 @@ async fn run_work_item_stage(
 
     let status = match outcome {
         WorkflowStageOutcome::Failed => roux_core::WorkItemRunStatus::Failed,
+        WorkflowStageOutcome::ChangesRequested => roux_core::WorkItemRunStatus::ChangesRequested,
         _ => roux_core::WorkItemRunStatus::Done,
     };
     let run = host
@@ -5267,6 +5278,43 @@ mod tests {
         shutdown_host(host, joins).await;
     }
 
+    #[tokio::test]
+    async fn daemon_work_item_run_stage_marks_changes_requested_run_status() {
+        let dir = tempfile::tempdir().unwrap();
+        let (host, identity, joins) = make_host_and_identity(&dir).await;
+        let item = host
+            .work_item_handle
+            .create(roux_core::WorkItemInput {
+                title: "Manual changes".into(),
+                workflow_stage_id: Some(roux_core::KANBAN_STAGE_TODO.into()),
+                workflow_stage_label: Some("Todo".into()),
+                field_presence: roux_core::WorkItemInputPresence {
+                    workflow_stage_id: true,
+                    workflow_stage_label: true,
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+            .unwrap();
+
+        let resp = handle_request(
+            req(
+                "work-item-run-stage",
+                serde_json::json!({ "id": item.id.clone(), "outcome": "changes_requested" }),
+            ),
+            &host,
+            &identity,
+        )
+        .await;
+
+        assert!(resp.ok, "run stage failed: {:?}", resp.error);
+        let runs = host.work_item_handle.list_runs(Some(&item.id)).unwrap();
+        assert_eq!(runs.len(), 1);
+        assert_eq!(runs[0].status, roux_core::WorkItemRunStatus::ChangesRequested);
+
+        shutdown_host(host, joins).await;
+    }
+
     #[cfg(not(windows))]
     #[tokio::test]
     async fn workflow_command_timeout_finishes_as_failed_outcome() {
@@ -5295,7 +5343,7 @@ mod tests {
             phase,
             &stage,
             "sh",
-            &["-c".to_string(), "(sleep 2) &".to_string()],
+            &["-c".to_string(), "sleep 2".to_string()],
             roux_core::KanbanWorkflowCommandCwd::None,
             Some(1),
             &run.id,

@@ -194,6 +194,10 @@
 
   async function handleRunStage(id: string, item: WorkItem) {
     if (runningStageItemIds[id]) return;
+    if (!item.workflowStageId) {
+      startErrors = { ...startErrors, [id]: "No workflow stage assigned." };
+      return;
+    }
     runningStageItemIds = { ...runningStageItemIds, [id]: true };
     startErrors = withoutKey(startErrors, id);
     try {
