@@ -6,13 +6,16 @@ import {
   workItemRunEvents,
   workItemDecisions,
   workItemAttachments,
+  workItemPendingQuestions,
   attachmentsByWorkItem,
   itemsByColumn,
   latestRunByItem,
   pendingDecisionByItem,
+  pendingQuestionByItem,
   runsByItem,
   hydrateWorkItems,
   applyWorkItemEvent,
+  applyWorkItemHookStatus,
   moveWorkItem,
   acceptWorkItemReview,
   requestWorkItemChanges,
@@ -184,6 +187,7 @@ describe("workItems store", () => {
     workItemRunEvents.set([]);
     workItemDecisions.set([]);
     workItemAttachments.set([]);
+    workItemPendingQuestions.set([]);
     vi.clearAllMocks();
     vi.mocked(tauriDocumentList).mockResolvedValue([]);
     vi.mocked(tauriWorkItemRunEvents).mockResolvedValue([]);
@@ -856,6 +860,67 @@ describe("workItems store", () => {
       for (const col of WORK_ITEM_COLUMNS) {
         expect(cols.has(col)).toBe(true);
       }
+    });
+  });
+
+  describe("pending hook questions", () => {
+    it("marks a work item as having a pending hook question", () => {
+      applyWorkItemHookStatus({
+        status: "attention",
+        cwd: "/repo",
+        providerSessionId: "claude-provider-1",
+        provider: "claude",
+        rouxSessionId: "sess-1",
+        rouxPaneId: "pane-1",
+        rouxWorkItemId: "wi-1",
+        rouxWorkItemRunId: "run-1",
+        toolName: "AskUserQuestion",
+        toolInput: null,
+        message: null,
+        query: null,
+        response: null,
+      });
+
+      expect(get(pendingQuestionByItem).get("wi-1")).toMatchObject({
+        workItemId: "wi-1",
+        runId: "run-1",
+        sessionId: "sess-1",
+        paneId: "pane-1",
+        providerSessionId: "claude-provider-1",
+        toolName: "AskUserQuestion",
+      });
+    });
+
+    it("clears a pending hook question when the same run resumes", () => {
+      workItemPendingQuestions.set([
+        {
+          workItemId: "wi-1",
+          runId: "run-1",
+          sessionId: "sess-1",
+          paneId: "pane-1",
+          providerSessionId: "claude-provider-1",
+          toolName: "AskUserQuestion",
+          updatedAt: 1,
+        },
+      ]);
+
+      applyWorkItemHookStatus({
+        status: "generating",
+        cwd: "/repo",
+        providerSessionId: "claude-provider-1",
+        provider: "claude",
+        rouxSessionId: "sess-1",
+        rouxPaneId: "pane-1",
+        rouxWorkItemId: "wi-1",
+        rouxWorkItemRunId: "run-1",
+        toolName: null,
+        toolInput: null,
+        message: null,
+        query: null,
+        response: null,
+      });
+
+      expect(get(pendingQuestionByItem).has("wi-1")).toBe(false);
     });
   });
 });

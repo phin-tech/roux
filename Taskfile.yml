@@ -133,9 +133,20 @@ tasks:
       # Rust ROUX_BASE_PATH override and would leak into normal Roux state.
       ROUX_BASE_PATH: '{{.ROUX_BASE_PATH | default (printf "%s/.config/roux-dev" (.HOME | default .USERPROFILE))}}'
     cmds:
+      - task: daemon:clean
       - cmd: target/debug/roux daemon restart
         platforms: [darwin, linux]
       - cmd: target/debug/roux.exe daemon restart
+        platforms: [windows]
+
+  daemon:clean:
+    desc: "Clear stale Roux daemon lock/socket state when the daemon is unreachable"
+    env:
+      ROUX_BASE_PATH: '{{.ROUX_BASE_PATH | default (printf "%s/.config/roux-dev" (.HOME | default .USERPROFILE))}}'
+    cmds:
+      - cmd: target/debug/roux daemon clear
+        platforms: [darwin, linux]
+      - cmd: target/debug/roux.exe daemon clear
         platforms: [windows]
 
   dev:install:

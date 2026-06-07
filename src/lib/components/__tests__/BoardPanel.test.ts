@@ -12,6 +12,7 @@ import {
   stopWorkItemRun,
   activePlanningRunByItem,
   attachmentsByWorkItem,
+  pendingQuestionByItem,
   runsByItem,
   workItemRunEvents,
 } from "$lib/stores/workItems";
@@ -60,6 +61,7 @@ vi.mock("$lib/stores/workItems", async () => {
     },
     itemsByColumn: writable(new Map()),
     pendingDecisionByItem: writable(new Map()),
+    pendingQuestionByItem: writable(new Map()),
     activePlanningRunByItem: writable(new Map()),
     attachmentsByWorkItem: writable(new Map()),
     runsByItem: writable(new Map()),
@@ -256,6 +258,11 @@ describe("BoardPanel", () => {
     seedColumns([]);
     (
       activePlanningRunByItem as ReturnType<
+        typeof import("svelte/store").writable
+      >
+    ).set(new Map());
+    (
+      pendingQuestionByItem as ReturnType<
         typeof import("svelte/store").writable
       >
     ).set(new Map());

@@ -317,6 +317,8 @@ enum DaemonAction {
     Stop,
     /// Stop the daemon if running, then start it in the background
     Restart,
+    /// Clear stale daemon coordination files when the daemon is unreachable
+    Clear,
     /// Query the daemon-only status endpoint
     Status,
     /// Show daemon runtime logs
@@ -1461,6 +1463,14 @@ fn get_pane_id() -> Option<String> {
     std::env::var("ROUX_PANE_ID").ok()
 }
 
+fn get_work_item_id() -> Option<String> {
+    std::env::var("ROUX_WORK_ITEM_ID").ok()
+}
+
+fn get_work_item_run_id() -> Option<String> {
+    std::env::var("ROUX_WORK_ITEM_RUN_ID").ok()
+}
+
 /// Pick the session_id and pane_id to send over the wire, given explicit CLI
 /// flags and the current env. The invariant is that `$ROUX_PANE_ID` is only
 /// meaningful inside its own `$ROUX_SESSION_ID`, so when the caller redirects
@@ -1623,6 +1633,15 @@ fn is_not_running_error(error: &str) -> bool {
     error == "Roux is not running"
 }
 
+fn daemon_timeout_from_env(key: &str, default: Duration) -> Duration {
+    std::env::var(key)
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|millis| *millis > 0)
+        .map(Duration::from_millis)
+        .unwrap_or(default)
+}
+
 fn start_daemon_background() -> Result<(), String> {
     match daemon_status_data() {
         Ok(status) => {
@@ -1635,7 +1654,7 @@ fn start_daemon_background() -> Result<(), String> {
 
     let pid = spawn_detached_daemon()?;
     let started = Instant::now();
-    let timeout = Duration::from_secs(3);
+    let timeout = daemon_timeout_from_env("ROUX_DAEMON_START_TIMEOUT_MS", Duration::from_secs(15));
     let poll_interval = Duration::from_millis(100);
 
     loop {
@@ -1670,7 +1689,7 @@ fn stop_daemon_background(ignore_not_running: bool) -> Result<(), String> {
     };
 
     let _ = socket_command_data(serde_json::json!({ "command": "daemon-stop" }))?;
-    let timeout = Duration::from_secs(3);
+    let timeout = daemon_timeout_from_env("ROUX_DAEMON_STOP_TIMEOUT_MS", Duration::from_secs(5));
     let poll_interval = Duration::from_millis(100);
     let started = Instant::now();
 
@@ -1684,10 +1703,178 @@ fn stop_daemon_background(ignore_not_running: bool) -> Result<(), String> {
                 ));
             }
             Err(_) => {
+                wait_for_daemon_owner_lock_release(timeout.saturating_sub(started.elapsed()))?;
                 print_daemon_lifecycle_line("Stopped roux daemon", &status);
                 return Ok(());
             }
         }
+    }
+}
+
+fn wait_for_daemon_owner_lock_release(timeout: Duration) -> Result<(), String> {
+    let lock_path = platform::daemon_owner_lock_path();
+    let started = Instant::now();
+    let poll_interval = Duration::from_millis(100);
+    while started.elapsed() < timeout {
+        if !daemon_owner_lock_is_held(&lock_path)? {
+            return Ok(());
+        }
+        std::thread::sleep(poll_interval);
+    }
+    Err(format!(
+        "daemon socket stopped responding, but owner lock {} was still held after {}ms",
+        lock_path.display(),
+        timeout.as_millis()
+    ))
+}
+
+fn daemon_owner_lock_is_held(lock_path: &Path) -> Result<bool, String> {
+    #[cfg(unix)]
+    {
+        use std::os::fd::AsRawFd;
+
+        if let Some(parent) = lock_path.parent() {
+            std::fs::create_dir_all(parent).map_err(|err| {
+                format!("create daemon owner lock directory {}: {err}", parent.display())
+            })?;
+        }
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .read(true)
+            .write(true)
+            .open(lock_path)
+            .map_err(|err| format!("open daemon owner lock {}: {err}", lock_path.display()))?;
+        let result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+        if result == -1 {
+            let err = std::io::Error::last_os_error();
+            if err.kind() == std::io::ErrorKind::WouldBlock {
+                return Ok(true);
+            }
+            return Err(format!("lock daemon owner lock {}: {err}", lock_path.display()));
+        }
+        let _ = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_UN) };
+        Ok(false)
+    }
+
+    #[cfg(not(unix))]
+    {
+        let _ = lock_path;
+        Ok(false)
+    }
+}
+
+fn clear_stale_daemon_state() -> Result<(), String> {
+    match daemon_status_data() {
+        Ok(status) => {
+            print_daemon_lifecycle_line("Roux daemon is running; not clearing", &status);
+            return Ok(());
+        }
+        Err(error) if is_not_running_error(&error) => {}
+        Err(error) => return Err(error),
+    }
+
+    let lock_path = platform::daemon_owner_lock_path();
+    let lock_holders = daemon_lock_holder_pids(&lock_path);
+    for pid in &lock_holders {
+        println!("Terminating stale daemon lock holder pid={pid}");
+        terminate_process(*pid)?;
+    }
+
+    let mut removed = Vec::new();
+    for path in [
+        platform::socket_path(),
+        platform::socket_addr_file_path(),
+        platform::socket_auth_token_file_path(),
+        lock_path,
+    ] {
+        match std::fs::remove_file(&path) {
+            Ok(()) => removed.push(path),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => return Err(format!("remove stale daemon file {}: {err}", path.display())),
+        }
+    }
+
+    if removed.is_empty() {
+        println!("No stale daemon files found");
+    } else {
+        for path in removed {
+            println!("Removed {}", path.display());
+        }
+    }
+    Ok(())
+}
+
+fn daemon_lock_holder_pids(lock_path: &Path) -> Vec<u32> {
+    #[cfg(unix)]
+    {
+        let Ok(output) = std::process::Command::new("lsof").arg("-t").arg(lock_path).output()
+        else {
+            return Vec::new();
+        };
+        if !output.status.success() {
+            return Vec::new();
+        }
+        let current = std::process::id();
+        return String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .filter_map(|line| line.trim().parse::<u32>().ok())
+            .filter(|pid| *pid != current)
+            .collect();
+    }
+
+    #[cfg(not(unix))]
+    {
+        let _ = lock_path;
+        Vec::new()
+    }
+}
+
+fn terminate_process(pid: u32) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        unsafe {
+            if libc::kill(pid as libc::pid_t, libc::SIGTERM) == -1 {
+                let err = std::io::Error::last_os_error();
+                if err.kind() != std::io::ErrorKind::NotFound {
+                    return Err(format!("terminate stale daemon pid={pid}: {err}"));
+                }
+            }
+        }
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while process_exists(pid) && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        if process_exists(pid) {
+            unsafe {
+                if libc::kill(pid as libc::pid_t, libc::SIGKILL) == -1 {
+                    let err = std::io::Error::last_os_error();
+                    if err.kind() != std::io::ErrorKind::NotFound {
+                        return Err(format!("kill stale daemon pid={pid}: {err}"));
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[cfg(not(unix))]
+    {
+        let _ = pid;
+        Err("daemon clear cannot terminate lock holders on this platform".to_string())
+    }
+}
+
+fn process_exists(pid: u32) -> bool {
+    #[cfg(unix)]
+    unsafe {
+        libc::kill(pid as libc::pid_t, 0) == 0
+    }
+
+    #[cfg(not(unix))]
+    {
+        let _ = pid;
+        false
     }
 }
 
@@ -2462,6 +2649,12 @@ fn handle_hook(status: &str) {
     if let Some(pane) = get_pane_id() {
         out["roux_pane_id"] = Value::String(pane);
     }
+    if let Some(work_item_id) = get_work_item_id() {
+        out["roux_work_item_id"] = Value::String(work_item_id);
+    }
+    if let Some(run_id) = get_work_item_run_id() {
+        out["roux_work_item_run_id"] = Value::String(run_id);
+    }
 
     if status == "attention" {
         if let Some(tn) = data.get("tool_name") {
@@ -2683,6 +2876,12 @@ fn main() {
                     std::process::exit(1);
                 }
                 if let Err(e) = start_daemon_background() {
+                    eprintln!("Error: {e}");
+                    std::process::exit(1);
+                }
+            }
+            Some(DaemonAction::Clear) => {
+                if let Err(e) = clear_stale_daemon_state() {
                     eprintln!("Error: {e}");
                     std::process::exit(1);
                 }
@@ -4589,6 +4788,23 @@ mod tests {
     }
 
     #[test]
+    fn daemon_timeout_from_env_uses_positive_milliseconds() {
+        static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::set_var("ROUX_TEST_TIMEOUT_MS", "2500");
+        assert_eq!(
+            daemon_timeout_from_env("ROUX_TEST_TIMEOUT_MS", Duration::from_secs(1)),
+            Duration::from_millis(2500)
+        );
+        std::env::set_var("ROUX_TEST_TIMEOUT_MS", "0");
+        assert_eq!(
+            daemon_timeout_from_env("ROUX_TEST_TIMEOUT_MS", Duration::from_secs(1)),
+            Duration::from_secs(1)
+        );
+        std::env::remove_var("ROUX_TEST_TIMEOUT_MS");
+    }
+
+    #[test]
     fn cli_parses_daemon_command() {
         let cli = Cli::try_parse_from(["roux", "daemon"]).unwrap();
         match cli.command {
@@ -4619,6 +4835,9 @@ mod tests {
             restart.command,
             Commands::Daemon { action: Some(DaemonAction::Restart) }
         ));
+
+        let clear = Cli::try_parse_from(["roux", "daemon", "clear"]).unwrap();
+        assert!(matches!(clear.command, Commands::Daemon { action: Some(DaemonAction::Clear) }));
     }
 
     #[test]

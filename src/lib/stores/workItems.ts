@@ -36,6 +36,7 @@ import {
   documentAttach as tauriDocumentAttach,
   documentList as tauriDocumentList,
   documentGet as tauriDocumentGet,
+  type StatusUpdate,
 } from "$lib/tauri";
 import { splitArchivedWorkItems } from "$lib/workItems/archive";
 
@@ -74,6 +75,17 @@ export const workItemRuns = writable<WorkItemRun[]>([]);
 export const workItemRunEvents = writable<WorkItemRunEvent[]>([]);
 export const workItemDecisions = writable<WorkItemDecision[]>([]);
 export const workItemAttachments = writable<Attachment[]>([]);
+export interface WorkItemPendingQuestion {
+  workItemId: string;
+  runId: string | null;
+  sessionId: string | null;
+  paneId: string | null;
+  providerSessionId: string | null;
+  toolName: string | null;
+  updatedAt: number;
+}
+
+export const workItemPendingQuestions = writable<WorkItemPendingQuestion[]>([]);
 const TERMINAL_RUN_STATUSES = new Set<WorkItemRun["status"]>([
   "review",
   "changesRequested",
@@ -173,6 +185,71 @@ export const pendingDecisionByItem = derived(
   },
 );
 
+export const pendingQuestionByItem = derived(
+  workItemPendingQuestions,
+  ($questions) => {
+    const map = new Map<string, WorkItemPendingQuestion>();
+    for (const question of $questions) {
+      const previous = map.get(question.workItemId);
+      if (!previous || previous.updatedAt <= question.updatedAt) {
+        map.set(question.workItemId, question);
+      }
+    }
+    return map;
+  },
+);
+
+function clearPendingQuestionForRun(run: WorkItemRun): void {
+  workItemPendingQuestions.update((questions) =>
+    questions.filter(
+      (question) =>
+        question.workItemId !== run.workItemId ||
+        (question.runId !== null && question.runId !== run.id),
+    ),
+  );
+}
+
+function clearPendingQuestionForItem(workItemId: string): void {
+  workItemPendingQuestions.update((questions) =>
+    questions.filter((question) => question.workItemId !== workItemId),
+  );
+}
+
+export function applyWorkItemHookStatus(update: StatusUpdate): void {
+  const workItemId = update.rouxWorkItemId;
+  if (!workItemId) return;
+
+  const runId = update.rouxWorkItemRunId ?? null;
+  if (update.status !== "attention") {
+    workItemPendingQuestions.update((questions) =>
+      questions.filter((question) => {
+        if (question.workItemId !== workItemId) return true;
+        if (runId && question.runId && question.runId !== runId) return true;
+        return false;
+      }),
+    );
+    return;
+  }
+
+  const next: WorkItemPendingQuestion = {
+    workItemId,
+    runId,
+    sessionId: update.rouxSessionId ?? null,
+    paneId: update.rouxPaneId ?? null,
+    providerSessionId: update.providerSessionId ?? null,
+    toolName: update.toolName ?? null,
+    updatedAt: Date.now(),
+  };
+  workItemPendingQuestions.update((questions) => {
+    const filtered = questions.filter(
+      (question) =>
+        question.workItemId !== workItemId ||
+        (runId !== null && question.runId !== null && question.runId !== runId),
+    );
+    return [...filtered, next];
+  });
+}
+
 function bindSessionToWorkItem(id: string, sessionId: string): void {
   workItems.update((list) =>
     list.map((i) => (i.id === id ? { ...i, sessionId } : i)),
@@ -230,6 +307,7 @@ export function applyWorkItemEvent(event: WorkItemEvent): void {
       break;
     case "archived":
       upsertItem(event.item);
+      clearPendingQuestionForItem(event.item.id);
       break;
     case "restored":
       upsertItem(event.item);
@@ -245,6 +323,7 @@ export function applyWorkItemEvent(event: WorkItemEvent): void {
       break;
     case "deleted":
       workItems.update((list) => list.filter((i) => i.id !== event.id));
+      clearPendingQuestionForItem(event.id);
       break;
     case "imported":
       void hydrateWorkItems().catch((err) => {
@@ -265,6 +344,9 @@ export function applyWorkItemEvent(event: WorkItemEvent): void {
       break;
     case "runUpdated":
       upsertRun(event.run);
+      if (TERMINAL_RUN_STATUSES.has(event.run.status)) {
+        clearPendingQuestionForRun(event.run);
+      }
       break;
     case "runEventAppended":
       workItemRunEvents.update((events) => [...events, event.event]);

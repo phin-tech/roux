@@ -12,6 +12,7 @@ import {
   activePlanningRunByItem,
   attachmentsByWorkItem,
   pendingDecisionByItem,
+  pendingQuestionByItem,
   runsByItem,
   workItemRunEvents,
   archivedWorkItems,
@@ -80,6 +81,7 @@ vi.mock("$lib/stores/workItems", async () => {
     },
     itemsByColumn: writable(new Map()),
     pendingDecisionByItem: writable(new Map()),
+    pendingQuestionByItem: writable(new Map()),
     activePlanningRunByItem: writable(new Map()),
     attachmentsByWorkItem: writable(new Map()),
     runsByItem: writable(new Map()),
@@ -338,6 +340,11 @@ describe("BoardMainView", () => {
     ).set(new Map());
     (
       pendingDecisionByItem as ReturnType<
+        typeof import("svelte/store").writable
+      >
+    ).set(new Map());
+    (
+      pendingQuestionByItem as ReturnType<
         typeof import("svelte/store").writable
       >
     ).set(new Map());
@@ -695,6 +702,43 @@ describe("BoardMainView", () => {
     await fireEvent.click(badge);
 
     expect(openSessionById).toHaveBeenCalledWith("plan-sess-1");
+    await vi.waitFor(() => expect(closeMainView).toHaveBeenCalled());
+  });
+
+  it("shows a question badge from a pending hook question and opens that session", async () => {
+    seedColumns([
+      workItem({
+        id: "wi-question",
+        title: "Needs answer",
+        status: "planning",
+      }),
+    ]);
+    (
+      pendingQuestionByItem as ReturnType<
+        typeof import("svelte/store").writable
+      >
+    ).set(
+      new Map([
+        [
+          "wi-question",
+          {
+            workItemId: "wi-question",
+            runId: "run-1",
+            sessionId: "sess-question",
+            paneId: "pane-question",
+            providerSessionId: "claude-provider-1",
+            toolName: "AskUserQuestion",
+            updatedAt: 1,
+          },
+        ],
+      ]),
+    );
+    render(BoardMainView);
+
+    expect(screen.getByText("Question")).toBeTruthy();
+    await fireEvent.click(screen.getByLabelText("Open pending question"));
+
+    expect(openSessionById).toHaveBeenCalledWith("sess-question");
     await vi.waitFor(() => expect(closeMainView).toHaveBeenCalled());
   });
 

@@ -11,6 +11,7 @@
     acceptWorkItemReview,
     requestWorkItemChanges,
     pendingDecisionByItem,
+    pendingQuestionByItem,
     activePlanningRunByItem,
     attachmentsByWorkItem,
     runsByItem,
@@ -391,6 +392,8 @@
                 : null}
               {@const pendingDecision =
                 $pendingDecisionByItem.get(item.id) ?? null}
+              {@const pendingQuestion =
+                $pendingQuestionByItem.get(item.id) ?? null}
               {@const planningRun =
                 $activePlanningRunByItem.get(item.id) ?? null}
               {@const itemRuns = $runsByItem.get(item.id) ?? []}
@@ -402,10 +405,12 @@
                 planningRun?.sessionId ?? null,
               )}
               {@const attentionSessionId =
+                pendingQuestion?.sessionId ??
                 attachedSessionIds.find(
                   (sessionId) =>
                     $sessionStatusMap.get(sessionId) === "attention",
-                ) ?? null}
+                ) ??
+                null}
               {@const phase = workItemPhase({
                 status: item.status,
                 sessionId: item.sessionId,

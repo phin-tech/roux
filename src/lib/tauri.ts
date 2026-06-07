@@ -1345,6 +1345,10 @@ export interface StatusUpdate {
   rouxSessionId: string | null;
   /** Roux pane id captured from `ROUX_PANE_ID` at hook time. Tier-1 routing key. */
   rouxPaneId: string | null;
+  /** Roux work item id captured from `ROUX_WORK_ITEM_ID` at hook time. */
+  rouxWorkItemId: string | null;
+  /** Roux work item run id captured from `ROUX_WORK_ITEM_RUN_ID` at hook time. */
+  rouxWorkItemRunId: string | null;
   toolName: string | null;
   toolInput: Record<string, any> | null;
   message: string | null;

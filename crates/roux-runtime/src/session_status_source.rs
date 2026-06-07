@@ -24,6 +24,8 @@ use roux_core::SessionStatus;
 
 use crate::session_service::SessionHandle;
 
+type StatusLogFn = std::sync::Arc<dyn Fn(String) + Send + Sync + 'static>;
+
 #[derive(Debug, thiserror::Error)]
 pub enum StatusSourceError {
     #[error("failed to create status dir: {0}")]
@@ -40,6 +42,14 @@ pub enum StatusSourceError {
 pub fn start_watching(
     status_dir: PathBuf,
     session_handle: SessionHandle,
+) -> Result<(), StatusSourceError> {
+    start_watching_with_logger(status_dir, session_handle, None)
+}
+
+pub fn start_watching_with_logger(
+    status_dir: PathBuf,
+    session_handle: SessionHandle,
+    log: Option<StatusLogFn>,
 ) -> Result<(), StatusSourceError> {
     fs::create_dir_all(&status_dir).map_err(StatusSourceError::CreateDir)?;
 
@@ -58,6 +68,7 @@ pub fn start_watching(
             if path.extension().and_then(|e| e.to_str()) == Some("json") {
                 if let Ok(content) = fs::read_to_string(&path) {
                     if let Ok(parsed) = serde_json::from_str::<Value>(&content) {
+                        log_status_payload(log.as_ref(), "initial-scan", &path, &parsed);
                         if let Some((session_id, status)) = extract_status(&parsed) {
                             let handle = session_handle.clone();
                             rt.spawn(async move {
@@ -92,6 +103,7 @@ pub fn start_watching(
             for path in changed {
                 if let Ok(content) = fs::read_to_string(&path) {
                     if let Ok(parsed) = serde_json::from_str::<Value>(&content) {
+                        log_status_payload(log.as_ref(), "watch", &path, &parsed);
                         if let Some((session_id, status)) = extract_status(&parsed) {
                             let handle = session_handle.clone();
                             rt.spawn(async move {
@@ -105,6 +117,58 @@ pub fn start_watching(
     });
 
     Ok(())
+}
+
+fn log_status_payload(log: Option<&StatusLogFn>, source: &str, path: &Path, payload: &Value) {
+    let Some(log) = log else {
+        return;
+    };
+    if !should_log_status_payload(payload) {
+        return;
+    }
+    let status = payload.get("status").and_then(|value| value.as_str()).unwrap_or("(missing)");
+    let provider_session_id =
+        payload.get("provider_session_id").and_then(|value| value.as_str()).unwrap_or("(missing)");
+    let roux_session_id =
+        payload.get("roux_session_id").and_then(|value| value.as_str()).unwrap_or("(missing)");
+    let roux_pane_id =
+        payload.get("roux_pane_id").and_then(|value| value.as_str()).unwrap_or("(missing)");
+    let work_item_id =
+        payload.get("roux_work_item_id").and_then(|value| value.as_str()).unwrap_or("(missing)");
+    let run_id = payload
+        .get("roux_work_item_run_id")
+        .and_then(|value| value.as_str())
+        .unwrap_or("(missing)");
+    let tool_name = payload.get("tool_name").and_then(|value| value.as_str()).unwrap_or("(none)");
+    if roux_session_id == "(missing)" {
+        log(format!(
+            "hook-status {source}: ignored unmanaged status file={} status={} providerSession={} tool={}",
+            path.display(),
+            status,
+            provider_session_id,
+            tool_name
+        ));
+        return;
+    }
+    log(format!(
+        "hook-status {source}: file={} status={} providerSession={} rouxSession={} pane={} workItem={} run={} tool={}",
+        path.display(),
+        status,
+        provider_session_id,
+        roux_session_id,
+        roux_pane_id,
+        work_item_id,
+        run_id,
+        tool_name
+    ));
+}
+
+fn should_log_status_payload(payload: &Value) -> bool {
+    let is_attention = payload.get("status").and_then(|value| value.as_str()) == Some("attention");
+    is_attention
+        || payload.get("tool_name").and_then(|value| value.as_str()).is_some()
+        || payload.get("roux_work_item_id").and_then(|value| value.as_str()).is_some()
+        || payload.get("roux_work_item_run_id").and_then(|value| value.as_str()).is_some()
 }
 
 fn collect_changed_json_paths(event: &Event, changed: &mut HashSet<PathBuf>) {
@@ -177,5 +241,55 @@ mod tests {
             let (_, status) = extract_status(&payload).unwrap();
             assert_eq!(status, expected, "raw={raw}");
         }
+    }
+
+    #[test]
+    fn log_status_payload_includes_work_item_routing_fields() {
+        let messages = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let log_messages = messages.clone();
+        let log: StatusLogFn =
+            std::sync::Arc::new(move |message| log_messages.lock().unwrap().push(message));
+        let payload = json!({
+            "status": "attention",
+            "provider_session_id": "claude-1",
+            "roux_session_id": "sess-1",
+            "roux_pane_id": "pane-1",
+            "roux_work_item_id": "wi-1",
+            "roux_work_item_run_id": "run-1",
+            "tool_name": "AskUserQuestion",
+        });
+
+        log_status_payload(Some(&log), "test", Path::new("/tmp/claude-1.json"), &payload);
+
+        let message = messages.lock().unwrap().pop().expect("log line");
+        assert!(message.contains("hook-status test"));
+        assert!(message.contains("status=attention"));
+        assert!(message.contains("providerSession=claude-1"));
+        assert!(message.contains("rouxSession=sess-1"));
+        assert!(message.contains("pane=pane-1"));
+        assert!(message.contains("workItem=wi-1"));
+        assert!(message.contains("run=run-1"));
+        assert!(message.contains("tool=AskUserQuestion"));
+    }
+
+    #[test]
+    fn log_status_payload_marks_unmanaged_payloads_ignored() {
+        let messages = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let log_messages = messages.clone();
+        let log: StatusLogFn =
+            std::sync::Arc::new(move |message| log_messages.lock().unwrap().push(message));
+        let payload = json!({
+            "status": "attention",
+            "provider_session_id": "claude-1",
+            "tool_name": "AskUserQuestion",
+        });
+
+        log_status_payload(Some(&log), "test", Path::new("/tmp/claude-1.json"), &payload);
+
+        let message = messages.lock().unwrap().pop().expect("log line");
+        assert!(message.contains("ignored unmanaged"));
+        assert!(message.contains("status=attention"));
+        assert!(message.contains("providerSession=claude-1"));
+        assert!(message.contains("tool=AskUserQuestion"));
     }
 }

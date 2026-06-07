@@ -38,6 +38,8 @@ pub struct StatusUpdate {
     pub provider: String,
     pub roux_session_id: Option<String>,
     pub roux_pane_id: Option<String>,
+    pub roux_work_item_id: Option<String>,
+    pub roux_work_item_run_id: Option<String>,
     pub tool_name: Option<String>,
     pub tool_input: Option<Value>,
     pub message: Option<String>,
@@ -98,6 +100,16 @@ pub fn parse_status_payload(parsed: &Value) -> Option<StatusUpdate> {
         .and_then(|s| s.as_str())
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string());
+    let roux_work_item_id = parsed
+        .get("roux_work_item_id")
+        .and_then(|s| s.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
+    let roux_work_item_run_id = parsed
+        .get("roux_work_item_run_id")
+        .and_then(|s| s.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
 
     let tool_name = parsed
         .get("tool_name")
@@ -128,6 +140,8 @@ pub fn parse_status_payload(parsed: &Value) -> Option<StatusUpdate> {
         provider,
         roux_session_id,
         roux_pane_id,
+        roux_work_item_id,
+        roux_work_item_run_id,
         tool_name,
         tool_input,
         message,
@@ -304,6 +318,8 @@ mod tests {
             "provider": "claude",
             "roux_session_id": "sess-1",
             "roux_pane_id": "pane-1",
+            "roux_work_item_id": "wi-1",
+            "roux_work_item_run_id": "run-1",
             "query": "please fix it",
             "response": "fixed",
         });
@@ -314,6 +330,8 @@ mod tests {
         assert_eq!(update.provider, "claude");
         assert_eq!(update.roux_session_id.as_deref(), Some("sess-1"));
         assert_eq!(update.roux_pane_id.as_deref(), Some("pane-1"));
+        assert_eq!(update.roux_work_item_id.as_deref(), Some("wi-1"));
+        assert_eq!(update.roux_work_item_run_id.as_deref(), Some("run-1"));
         assert_eq!(update.query.as_deref(), Some("please fix it"));
         assert_eq!(update.response.as_deref(), Some("fixed"));
     }
@@ -362,11 +380,15 @@ mod tests {
             "provider_session_id": "",
             "roux_session_id": "",
             "roux_pane_id": "",
+            "roux_work_item_id": "",
+            "roux_work_item_run_id": "",
         });
         let update = parse_status_payload(&payload).expect("parse ok");
         assert_eq!(update.provider_session_id, None);
         assert_eq!(update.roux_session_id, None);
         assert_eq!(update.roux_pane_id, None);
+        assert_eq!(update.roux_work_item_id, None);
+        assert_eq!(update.roux_work_item_run_id, None);
     }
 
     #[test]
@@ -445,6 +467,8 @@ mod tests {
             provider: String::new(),
             roux_session_id: None,
             roux_pane_id: None,
+            roux_work_item_id: None,
+            roux_work_item_run_id: None,
             tool_name: None,
             tool_input: None,
             message: None,
