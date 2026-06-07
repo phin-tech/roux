@@ -136,6 +136,12 @@ vi.mock("$lib/tauri", () => ({
   }),
   getSettings: vi.fn(),
   updateSettings: vi.fn().mockResolvedValue(undefined),
+  validateKanbanWorkflow: vi.fn(async (settings) => settings),
+  kanbanWorkflowConfigDir: vi.fn().mockResolvedValue("/tmp/roux"),
+  createKanbanWorkflowExample: vi.fn().mockResolvedValue({
+    path: "/tmp/roux/kanban-workflow.json",
+    workflowPath: "kanban-workflow.json",
+  }),
   onSettingsChanged: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock("$lib/stores/updater", () => ({
@@ -145,16 +151,34 @@ vi.mock("$lib/stores/updater", () => ({
 }));
 
 import { commands } from "$lib/bindings";
+import { open } from "@tauri-apps/plugin-dialog";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import SettingsPanel from "../SettingsPanel.svelte";
 import { settings } from "$lib/stores/settings";
 import { settingsFocus } from "$lib/stores/settingsFocus";
-import { getRuntimeStatus, updateSettings } from "$lib/tauri";
+import {
+  createKanbanWorkflowExample,
+  getRuntimeStatus,
+  kanbanWorkflowConfigDir,
+  updateSettings,
+  validateKanbanWorkflow,
+} from "$lib/tauri";
 
 describe("SettingsPanel Kanban tab", () => {
   beforeEach(() => {
     settings.set({ ...DEFAULT_SETTINGS });
     settingsFocus.set(null);
     vi.mocked(updateSettings).mockClear();
+    vi.mocked(validateKanbanWorkflow).mockImplementation(
+      async (settings) => settings,
+    );
+    vi.mocked(kanbanWorkflowConfigDir).mockResolvedValue("/tmp/roux");
+    vi.mocked(createKanbanWorkflowExample).mockResolvedValue({
+      path: "/tmp/roux/kanban-workflow.json",
+      workflowPath: "kanban-workflow.json",
+    });
+    vi.mocked(open).mockReset();
+    vi.mocked(revealItemInDir).mockReset();
   });
 
   it("persists Kanban workflow phase instructions", async () => {
@@ -172,6 +196,61 @@ describe("SettingsPanel Kanban tab", () => {
     expect(lastCall[0].kanban?.workflow?.phases?.planning?.instructions).toBe(
       "Ask for acceptance criteria.",
     );
+  });
+
+  it("browses to a Kanban workflow JSON file and validates it", async () => {
+    vi.mocked(open).mockResolvedValue("/tmp/team-workflow.json");
+    vi.mocked(validateKanbanWorkflow).mockImplementation(async (draft) => ({
+      ...draft,
+      kanban: {
+        ...draft.kanban,
+        workflowPath: "/tmp/team-workflow.json",
+        workflowLoadError: null,
+      },
+    }));
+
+    render(SettingsPanel, { visible: true, onclose: vi.fn() });
+
+    await fireEvent.click(screen.getByRole("button", { name: "Kanban" }));
+    await fireEvent.click(screen.getByRole("button", { name: "Browse" }));
+
+    await waitFor(() => {
+      expect(validateKanbanWorkflow).toHaveBeenCalled();
+    });
+    const validated = vi.mocked(validateKanbanWorkflow).mock.calls.at(-1)![0];
+    expect(validated.kanban?.workflowPath).toBe("/tmp/team-workflow.json");
+    expect(
+      (screen.getByLabelText("Workflow JSON file") as HTMLInputElement).value,
+    ).toBe("/tmp/team-workflow.json");
+  });
+
+  it("copies the example workflow and validates the returned relative path", async () => {
+    render(SettingsPanel, { visible: true, onclose: vi.fn() });
+
+    await fireEvent.click(screen.getByRole("button", { name: "Kanban" }));
+    await fireEvent.click(screen.getByRole("button", { name: "Copy example" }));
+
+    await waitFor(() => {
+      expect(createKanbanWorkflowExample).toHaveBeenCalled();
+      expect(validateKanbanWorkflow).toHaveBeenCalled();
+    });
+    const validated = vi.mocked(validateKanbanWorkflow).mock.calls.at(-1)![0];
+    expect(validated.kanban?.workflowPath).toBe("kanban-workflow.json");
+    expect(
+      (screen.getByLabelText("Workflow JSON file") as HTMLInputElement).value,
+    ).toBe("kanban-workflow.json");
+  });
+
+  it("reveals the Kanban workflow config directory", async () => {
+    render(SettingsPanel, { visible: true, onclose: vi.fn() });
+
+    await fireEvent.click(screen.getByRole("button", { name: "Kanban" }));
+    await fireEvent.click(screen.getByRole("button", { name: "Reveal" }));
+
+    await waitFor(() => {
+      expect(kanbanWorkflowConfigDir).toHaveBeenCalled();
+      expect(revealItemInDir).toHaveBeenCalledWith("/tmp/roux");
+    });
   });
 });
 
