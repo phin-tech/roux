@@ -79,6 +79,8 @@
 
   function updateWorkflowPath(path: string): void {
     const workflowPath = path.trim();
+    workflowActionError = null;
+    workflowActionStatus = null;
     updateKanban({
       ...kanban,
       workflowPath: workflowPath.length > 0 ? workflowPath : null,
@@ -99,8 +101,7 @@
   ): Promise<RequiredKanbanSettings> {
     await settlePendingSettingsPersist();
     const updated = await validateKanbanWorkflow(settingsWithKanban(next));
-    await settlePendingSettingsPersist();
-    settings.set(updated);
+    settings.update((current) => ({ ...current, kanban: updated.kanban }));
     return normalizeKanbanSettings(updated.kanban);
   }
 

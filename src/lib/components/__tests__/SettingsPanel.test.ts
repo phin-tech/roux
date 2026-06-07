@@ -248,6 +248,21 @@ describe("SettingsPanel Kanban tab", () => {
     expect(screen.queryByText("Workflow JSON is valid.")).toBeNull();
   });
 
+  it("clears workflow action status when the JSON path changes", async () => {
+    render(SettingsPanel, { visible: true, onclose: vi.fn() });
+
+    await fireEvent.click(screen.getByRole("button", { name: "Kanban" }));
+    await fireEvent.click(screen.getByRole("button", { name: "Validate" }));
+
+    expect(await screen.findByText("Workflow JSON is valid.")).toBeTruthy();
+
+    await fireEvent.input(screen.getByLabelText("Workflow JSON file"), {
+      target: { value: "changed-workflow.json" },
+    });
+
+    expect(screen.queryByText("Workflow JSON is valid.")).toBeNull();
+  });
+
   it("makes inline workflow fields read-only when JSON owns the workflow", async () => {
     settings.set({
       ...DEFAULT_SETTINGS,
@@ -290,6 +305,46 @@ describe("SettingsPanel Kanban tab", () => {
         (screen.getByLabelText("Workflow JSON file") as HTMLInputElement).value,
       ).toBe("kanban-workflow.json");
     });
+  });
+
+  it("merges validated Kanban settings without replacing newer local settings", async () => {
+    let resolveValidation = () => {};
+    vi.mocked(validateKanbanWorkflow).mockImplementation(
+      (draft) =>
+        new Promise((resolve) => {
+          resolveValidation = () =>
+            resolve({
+              ...draft,
+              kanban: {
+                ...draft.kanban,
+                workflowPath: "kanban-workflow.json",
+                workflowLoadError: null,
+              },
+            });
+        }),
+    );
+
+    render(SettingsPanel, { visible: true, onclose: vi.fn() });
+
+    await fireEvent.click(screen.getByRole("button", { name: "Kanban" }));
+    const click = fireEvent.click(
+      screen.getByRole("button", { name: "Copy example" }),
+    );
+    await waitFor(() => {
+      expect(validateKanbanWorkflow).toHaveBeenCalled();
+    });
+    settings.update((current) => ({
+      ...current,
+      defaultAgentProfile: "codex",
+    }));
+
+    resolveValidation();
+    await click;
+
+    await waitFor(() => {
+      expect(get(settings).kanban?.workflowPath).toBe("kanban-workflow.json");
+    });
+    expect(get(settings).defaultAgentProfile).toBe("codex");
   });
 
   it("cancels stale debounced path saves before validated workflow actions", async () => {
