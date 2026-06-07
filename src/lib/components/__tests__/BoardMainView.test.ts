@@ -27,13 +27,23 @@ import { closeMainView } from "$lib/stores/mainView";
 import { openSessionById } from "$lib/panes/openSession";
 import { WORK_ITEM_DRAG_MIME } from "$lib/board/drag";
 import type { WorkItem } from "$lib/bindings";
-import { DEFAULT_SETTINGS, type Notification, type Project } from "$lib/types";
+import {
+  DEFAULT_SETTINGS,
+  type Notification,
+  type Project,
+  type Worktree,
+  type WorktrunkMetadata,
+} from "$lib/types";
 import type { Attachment, WorkItemRun } from "$lib/types/workItems";
 import { notifications } from "$lib/stores/notifications";
 import { projects } from "$lib/stores/projects";
 import { createSessionShell, openPathInFinder } from "$lib/tauri";
 import { addSession, setActiveSession } from "$lib/stores/sessions";
 import { settings } from "$lib/stores/settings";
+import {
+  _resetWorktreeMetadataForTests,
+  upsertWorktreeMetadata,
+} from "$lib/stores/worktreeMetadata";
 import { initSessionWithProfile } from "$lib/panes/actions";
 import { connectPaneTerminal } from "$lib/panes/terminals";
 import { runProfileInPane } from "$lib/panes/profileRunner";
@@ -257,6 +267,38 @@ function project(overrides: Partial<Project> = {}): Project {
   };
 }
 
+function worktrunkMetadata(
+  overrides: Partial<WorktrunkMetadata> = {},
+): WorktrunkMetadata {
+  return {
+    dirty: false,
+    ahead: 0,
+    behind: 0,
+    locked: false,
+    lockReason: null,
+    prunable: false,
+    prunableReason: null,
+    isCurrent: false,
+    isPrevious: false,
+    devServerUrl: null,
+    mainState: null,
+    ciStatus: null,
+    ciUrl: null,
+    ciStale: false,
+    ...overrides,
+  };
+}
+
+function seedWorktreeMetadata(path: string, metadata: WorktrunkMetadata): void {
+  const worktree: Worktree = {
+    path,
+    branch: "feature/review-card",
+    isMain: false,
+    worktrunk: metadata,
+  };
+  upsertWorktreeMetadata([worktree]);
+}
+
 function seedColumns(items: WorkItem[]) {
   const map = new Map<string, WorkItem[]>();
   for (const col of ["todo", "ready", "doing", "review", "done"])
@@ -312,6 +354,7 @@ describe("BoardMainView", () => {
     projects.set([project()]);
     notifications.set([]);
     settings.set({ ...DEFAULT_SETTINGS });
+    _resetWorktreeMetadataForTests();
   });
 
   it("renders one section per column with labels", () => {
@@ -420,7 +463,7 @@ describe("BoardMainView", () => {
 
     await fireEvent.click(screen.getByLabelText("Approve and start work item"));
 
-    expect(startWorkItem).toHaveBeenCalledWith("wi-1");
+    expect(startWorkItem).toHaveBeenCalledWith("wi-1", {});
     expect(moveWorkItem).not.toHaveBeenCalled();
   });
 
@@ -443,7 +486,7 @@ describe("BoardMainView", () => {
 
     await fireEvent.click(screen.getByLabelText("Approve and start work item"));
 
-    expect(startWorkItem).toHaveBeenCalledWith("wi-1");
+    expect(startWorkItem).toHaveBeenCalledWith("wi-1", {});
     await vi.waitFor(() =>
       expect(screen.getByRole("alert").textContent).toContain(
         "The assigned project no longer exists.",
@@ -523,7 +566,7 @@ describe("BoardMainView", () => {
     await fireEvent.click(screen.getByLabelText("Approve and start work item"));
 
     expect(stopWorkItemRun).toHaveBeenCalledWith("run-plan");
-    expect(startWorkItem).toHaveBeenCalledWith("wi-plan");
+    expect(startWorkItem).toHaveBeenCalledWith("wi-plan", {});
   });
 
   it("offers a force start action for planning cards without attached plans", async () => {
@@ -707,6 +750,24 @@ describe("BoardMainView", () => {
     );
   });
 
+  it("starts a PR review card in fix CI mode", async () => {
+    seedColumns([
+      workItem({
+        id: "wi-review",
+        title: "Fix checks",
+        status: "review",
+        reviewStageId: "pr_review",
+        projectId: "proj-1",
+        pinnedPrUrl: "https://github.com/phin-tech/roux/pull/90",
+      }),
+    ]);
+    render(BoardMainView);
+
+    await fireEvent.click(screen.getByRole("button", { name: "Fix CI" }));
+
+    expect(startWorkItem).toHaveBeenCalledWith("wi-review", { fixCi: true });
+  });
+
   it("shows review package details and requests changes with a note", async () => {
     settings.set({
       ...DEFAULT_SETTINGS,
@@ -846,6 +907,45 @@ describe("BoardMainView", () => {
       "wi-review",
       "Add retry coverage.",
     );
+  });
+
+  it("shows CI status for a PR review card", () => {
+    seedColumns([
+      workItem({
+        id: "wi-review",
+        title: "Review me",
+        status: "review",
+        reviewStageId: "pr_review",
+        pinnedPrUrl: "https://github.com/phin-tech/roux/pull/90",
+      }),
+    ]);
+    (runsByItem as ReturnType<typeof import("svelte/store").writable>).set(
+      new Map([
+        [
+          "wi-review",
+          [
+            workItemRun({
+              id: "run-review",
+              workItemId: "wi-review",
+              status: "review",
+              sessionId: "sess-review",
+              worktreePath: "/repo/.worktrees/review-card",
+              branch: "feature/review-card",
+            }),
+          ],
+        ],
+      ]),
+    );
+    seedWorktreeMetadata(
+      "/repo/.worktrees/review-card",
+      worktrunkMetadata({ ciStatus: "failed" }),
+    );
+
+    render(BoardMainView);
+
+    const reviewPackage = screen.getByTestId("work-item-review-package");
+    expect(within(reviewPackage).getByText("CI")).toBeTruthy();
+    expect(within(reviewPackage).getByLabelText("CI failed")).toBeTruthy();
   });
 
   it("keeps request-changes note open when the request fails", async () => {

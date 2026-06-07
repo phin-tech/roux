@@ -6,6 +6,20 @@ use roux_core::{
     WorkItemRun, WorkItemRunEvent, WorkItemStartResult, WorkItemStatus,
 };
 
+#[derive(Debug, Default, Clone, serde::Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WorkItemStartCommandOptions {
+    profile: Option<String>,
+    repo_path: Option<String>,
+    name: Option<String>,
+    worktree_path: Option<String>,
+    branch: Option<String>,
+    base: Option<String>,
+    fetch_first: Option<bool>,
+    force_start: Option<bool>,
+    fix_ci: Option<bool>,
+}
+
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn work_item_list(
@@ -161,33 +175,45 @@ pub(crate) async fn work_item_detach_session(
 #[specta::specta]
 pub(crate) async fn work_item_start(
     id: String,
-    profile: Option<String>,
-    repo_path: Option<String>,
-    name: Option<String>,
-    worktree_path: Option<String>,
-    branch: Option<String>,
-    base: Option<String>,
-    fetch_first: Option<bool>,
-    force_start: Option<bool>,
+    options: Option<WorkItemStartCommandOptions>,
     state: tauri::State<'_, AppState>,
 ) -> Result<WorkItemStartResult, String> {
+    let options = options.unwrap_or_default();
     if let Some(client) = state.daemon_client.clone().filter(|c| c.supports("work-item-start")) {
+        validate_fix_ci_start_capability(
+            options.fix_ci,
+            client.supports("work-item-start-fix-ci"),
+        )?;
         return client
             .work_item_start(
                 id,
-                profile,
-                repo_path,
-                name,
-                worktree_path,
-                branch,
-                base,
-                fetch_first,
-                force_start,
+                options.profile,
+                options.repo_path,
+                options.name,
+                options.worktree_path,
+                options.branch,
+                options.base,
+                options.fetch_first,
+                options.force_start,
+                options.fix_ci,
             )
             .await
             .map_err(String::from);
     }
     Err("Starting a work item requires a running daemon.".to_string())
+}
+
+fn validate_fix_ci_start_capability(
+    fix_ci: Option<bool>,
+    supports_fix_ci: bool,
+) -> Result<(), String> {
+    if fix_ci.unwrap_or(false) && !supports_fix_ci {
+        return Err(
+            "Fix CI work item starts require daemon capability work-item-start-fix-ci. Restart the Roux daemon."
+                .to_string(),
+        );
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -422,5 +448,25 @@ async fn validate_document_target(
                 Err("work item not found".to_string())
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fix_ci_start_requires_granular_daemon_capability() {
+        let err = validate_fix_ci_start_capability(Some(true), false).unwrap_err();
+
+        assert!(err.contains("work-item-start-fix-ci"));
+        assert!(err.contains("Restart the Roux daemon"));
+    }
+
+    #[test]
+    fn normal_start_does_not_require_fix_ci_capability() {
+        assert!(validate_fix_ci_start_capability(None, false).is_ok());
+        assert!(validate_fix_ci_start_capability(Some(false), false).is_ok());
+        assert!(validate_fix_ci_start_capability(Some(true), true).is_ok());
     }
 }

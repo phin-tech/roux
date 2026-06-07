@@ -16,6 +16,7 @@
     workItemRunEvents,
     type WorkItemStatus,
     type WorkItemRun,
+    type WorkItemStartActionOptions,
   } from "$lib/stores/workItems";
   import { sessionList } from "$lib/stores/sessions";
   import type { SessionStatus } from "$lib/types";
@@ -107,7 +108,13 @@
     return [...ids];
   }
 
-  async function handleStart(id: string, item: WorkItem, forceStart = false) {
+  async function handleStart(
+    id: string,
+    item: WorkItem,
+    options: WorkItemStartActionOptions = {},
+  ) {
+    const forceStart = !!options.forceStart;
+    const fixCi = !!options.fixCi;
     const planningRun = get(activePlanningRunByItem).get(id);
     const attachments = get(attachmentsByWorkItem).get(id) ?? [];
     if (
@@ -128,6 +135,7 @@
         itemId: item.id,
         title: item.title,
         ...(forceStart ? { forceStart: true } : {}),
+        ...(fixCi ? { fixCi: true } : {}),
       });
       return;
     }
@@ -140,8 +148,10 @@
       if (item.status === "ready" && planningRun) {
         await stopWorkItemRun(planningRun.id);
       }
-      if (forceStart) await startWorkItem(id, { forceStart: true });
-      else await startWorkItem(id);
+      await startWorkItem(id, {
+        ...(forceStart ? { forceStart: true } : {}),
+        ...(fixCi ? { fixCi: true } : {}),
+      });
     } catch (err) {
       startErrors = { ...startErrors, [id]: formatWorkItemStartError(err) };
       console.error("Failed to start work item", err);

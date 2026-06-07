@@ -277,7 +277,7 @@ describe("BoardPanel", () => {
 
     await fireEvent.click(screen.getByLabelText("Approve and start work item"));
 
-    expect(startWorkItem).toHaveBeenCalledWith("wi-1");
+    expect(startWorkItem).toHaveBeenCalledWith("wi-1", {});
     expect(moveWorkItem).not.toHaveBeenCalled();
   });
 
@@ -308,7 +308,7 @@ describe("BoardPanel", () => {
 
     await fireEvent.click(screen.getByLabelText("Approve and start work item"));
 
-    expect(startWorkItem).toHaveBeenCalledWith("wi-1");
+    expect(startWorkItem).toHaveBeenCalledWith("wi-1", {});
     await vi.waitFor(() =>
       expect(screen.getByRole("alert").textContent).toContain(
         "The assigned project no longer exists.",
@@ -469,6 +469,23 @@ describe("BoardPanel", () => {
       "done",
       expect.any(Number),
     );
+  });
+
+  it("starts a PR review card in fix CI mode", async () => {
+    const item = workItem({
+      id: "wi-review",
+      title: "Fix checks",
+      status: "review",
+      reviewStageId: "pr_review",
+      projectId: "proj-1",
+      pinnedPrUrl: "https://github.com/phin-tech/roux/pull/90",
+    });
+    seedColumns([item]);
+    render(BoardPanel, { visible: true, onclose: vi.fn() });
+
+    await fireEvent.click(screen.getByRole("button", { name: "Fix CI" }));
+
+    expect(startWorkItem).toHaveBeenCalledWith("wi-review", { fixCi: true });
   });
 
   it("requests changes from a review card with a human note", async () => {

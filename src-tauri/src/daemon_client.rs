@@ -304,6 +304,7 @@ impl DaemonClient {
         base: Option<String>,
         fetch_first: Option<bool>,
         force_start: Option<bool>,
+        fix_ci: Option<bool>,
     ) -> DaemonClientResult<roux_core::WorkItemStartResult> {
         self.sdk
             .work_item_start(
@@ -316,6 +317,7 @@ impl DaemonClient {
                 base,
                 fetch_first,
                 force_start,
+                fix_ci,
             )
             .await
             .map_err(DaemonClientError::from)

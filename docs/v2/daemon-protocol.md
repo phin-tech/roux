@@ -757,9 +757,14 @@ Planning profile resolution is request `profile`, then
 `work-item-start`
 
 Daemon-owned autonomous Start action. Requires `args.id`. Optional args:
-`repoPath`, `profile`, `name`, `worktreePath`, `branch`, `base`, and
-`fetchFirst`. `forceStart: true` records that implementation was started
-without an attached approved plan.
+`repoPath`, `profile`, `name`, `worktreePath`, `branch`, `base`,
+`fetchFirst`, and `fixCi`. `forceStart: true` records that implementation was
+started without an attached approved plan. `fixCi: true` keeps the normal
+implementation run lifecycle but renders the dispatched prompt in CI-repair
+mode, focused on the card's pinned PR and failing checks. Clients must only
+send `fixCi: true` when `daemon-status.capabilities` includes
+`work-item-start-fix-ci`; otherwise they should reject locally instead of
+silently downgrading to a normal start.
 
 The daemon rejects archived cards, cards that already have an active run, and
 cards without a repo path or project repo to derive from. Restore archived cards
@@ -792,6 +797,10 @@ The review handoff prompt includes the active review stage's instructions from
 `settings.kanban.workflow.phases.review.stages`; cards with no stored review
 stage use `local_review`. The handoff tells the agent to request review with
 `roux work-item review request <run-id>`.
+When `fixCi: true`, the prompt additionally includes the card's `pinnedPrUrl`
+when present and instructs the agent to inspect failing PR checks, keep the
+change scoped to making CI green, and rerun failing checks locally when
+possible.
 
 If the card already has a bound implementation `sessionId`, Start reuses that
 session and creates an additional implementation run/PTY in it instead of

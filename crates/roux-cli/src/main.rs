@@ -709,6 +709,9 @@ struct WorkItemStartArgs {
     /// Start without an attached plan
     #[arg(long)]
     force_start: bool,
+    /// Focus the dispatched implementation run on fixing failing CI for the card's PR
+    #[arg(long)]
+    fix_ci: bool,
 }
 
 #[derive(Args)]
@@ -1319,6 +1322,41 @@ fn daemon_status_data() -> Result<Value, String> {
         .ok_or_else(|| "daemon-status returned no data".to_string())
 }
 
+fn daemon_status_has_capability(status: &Value, capability: &str) -> bool {
+    status
+        .get("capabilities")
+        .and_then(Value::as_array)
+        .is_some_and(|capabilities| capabilities.iter().any(|candidate| candidate == capability))
+}
+
+fn validate_work_item_start_daemon_capabilities(
+    params: &WorkItemStartArgs,
+    status: &Value,
+) -> Result<(), String> {
+    if params.fix_ci && !daemon_status_has_capability(status, "work-item-start-fix-ci") {
+        return Err(
+            "Fix CI work item starts require daemon capability work-item-start-fix-ci. Restart the Roux daemon."
+                .to_string(),
+        );
+    }
+    Ok(())
+}
+
+fn run_work_item_start_command(params: WorkItemStartArgs) {
+    if params.fix_ci {
+        match daemon_status_data()
+            .and_then(|status| validate_work_item_start_daemon_capabilities(&params, &status))
+        {
+            Ok(()) => {}
+            Err(error) => {
+                eprintln!("{error}");
+                std::process::exit(1);
+            }
+        }
+    }
+    run_socket_command(build_work_item_start_request(params));
+}
+
 fn is_not_running_error(error: &str) -> bool {
     error == "Roux is not running"
 }
@@ -1759,6 +1797,9 @@ fn build_work_item_start_request(params: WorkItemStartArgs) -> Value {
     if params.force_start {
         args.insert("forceStart".into(), Value::Bool(true));
     }
+    if params.fix_ci {
+        args.insert("fixCi".into(), Value::Bool(true));
+    }
     serde_json::json!({
         "command": "work-item-start",
         "args": Value::Object(args),
@@ -2030,7 +2071,7 @@ fn handle_work_item(action: WorkItemAction) {
             }));
         }
         WorkItemAction::Plan(params) => run_socket_command(build_work_item_plan_request(params)),
-        WorkItemAction::Start(params) => run_socket_command(build_work_item_start_request(params)),
+        WorkItemAction::Start(params) => run_work_item_start_command(params),
         WorkItemAction::Review { action } => match action {
             WorkItemReviewAction::Request { run_id, summary, tests, changed_files } => {
                 run_socket_command(build_work_item_review_request(WorkItemReviewRequestArgs {
@@ -3542,6 +3583,7 @@ mod tests {
             base: Some("origin/main".into()),
             fetch_first: true,
             force_start: true,
+            fix_ci: true,
         });
 
         assert_eq!(request["command"], "work-item-start");
@@ -3553,6 +3595,51 @@ mod tests {
         assert_eq!(request["args"]["base"], "origin/main");
         assert_eq!(request["args"]["fetchFirst"], true);
         assert_eq!(request["args"]["forceStart"], true);
+        assert_eq!(request["args"]["fixCi"], true);
+    }
+
+    #[test]
+    fn work_item_start_fix_ci_requires_daemon_capability() {
+        let params = WorkItemStartArgs {
+            id: "wi-1".into(),
+            profile: None,
+            repo_path: None,
+            name: None,
+            worktree_path: None,
+            branch: None,
+            base: None,
+            fetch_first: false,
+            force_start: false,
+            fix_ci: true,
+        };
+        let status = serde_json::json!({
+            "capabilities": ["work-item-start"],
+        });
+
+        let err = validate_work_item_start_daemon_capabilities(&params, &status).unwrap_err();
+
+        assert!(err.contains("work-item-start-fix-ci"));
+    }
+
+    #[test]
+    fn work_item_start_fix_ci_accepts_daemon_capability() {
+        let params = WorkItemStartArgs {
+            id: "wi-1".into(),
+            profile: None,
+            repo_path: None,
+            name: None,
+            worktree_path: None,
+            branch: None,
+            base: None,
+            fetch_first: false,
+            force_start: false,
+            fix_ci: true,
+        };
+        let status = serde_json::json!({
+            "capabilities": ["work-item-start", "work-item-start-fix-ci"],
+        });
+
+        assert!(validate_work_item_start_daemon_capabilities(&params, &status).is_ok());
     }
 
     #[test]
@@ -3567,6 +3654,7 @@ mod tests {
             base: None,
             fetch_first: false,
             force_start: false,
+            fix_ci: false,
         });
 
         assert_eq!(request["args"]["repoPath"], resolve_path("."));

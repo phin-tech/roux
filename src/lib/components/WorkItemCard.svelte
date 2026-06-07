@@ -10,6 +10,7 @@
   import Play from "@lucide/svelte/icons/play";
   import Terminal from "@lucide/svelte/icons/terminal";
   import Trash2 from "@lucide/svelte/icons/trash-2";
+  import Wrench from "@lucide/svelte/icons/wrench";
   import type { WorkItem } from "$lib/bindings";
   import type { WorkItemPhase } from "$lib/workItems/phase";
   import type { WorkItemReviewPackage } from "$lib/workItems/reviewPackage";
@@ -20,11 +21,18 @@
   import { projects } from "$lib/stores/projects";
   import { settings } from "$lib/stores/settings";
   import { reviewStageLabel } from "$lib/workItems/reviewStages";
+  import { worktreeMetadataFor } from "$lib/stores/worktreeMetadata";
+  import { ciChipFor } from "$lib/ciIcon";
+  import type { WorkItemStartActionOptions } from "$lib/stores/workItems";
 
   interface Props {
     item: WorkItem;
     sessionStatus?: SessionStatus | null;
-    onStart?: (id: string, item: WorkItem, forceStart?: boolean) => void;
+    onStart?: (
+      id: string,
+      item: WorkItem,
+      options?: WorkItemStartActionOptions,
+    ) => void;
     /** Start or open a planning run for this work item. */
     onPlan?: (id: string, item: WorkItem, replaceActive?: boolean) => void;
     /** Open the card's bound session (by session id). */
@@ -148,6 +156,12 @@
   });
   const branchLabel = $derived(item.branch ?? null);
   const canForceStartPlanning = $derived(phase.canForceStart && !!onStart);
+  const canFixCi = $derived(
+    item.status === "review" &&
+      item.reviewStageId === "pr_review" &&
+      !!item.pinnedPrUrl &&
+      !!onStart,
+  );
   const hasMenuActions = $derived(
     !!onEdit || !!onPlan || !!onDelete || !!onArchive || canForceStartPlanning,
   );
@@ -163,6 +177,17 @@
   );
   const canOpenReviewAgent = $derived(
     !!reviewPackage?.worktreePath && !!onOpenAgent,
+  );
+  const reviewWorktreeMetadata = $derived(
+    reviewPackage?.worktreePath
+      ? worktreeMetadataFor(reviewPackage.worktreePath)
+      : null,
+  );
+  const reviewWorktreeMeta = $derived(
+    reviewWorktreeMetadata ? $reviewWorktreeMetadata : null,
+  );
+  const reviewCiChip = $derived(
+    ciChipFor(reviewWorktreeMeta?.ciStatus ?? null),
   );
   const allAttachedSessionIds = $derived.by(() => {
     const ids = new Set<string>();
@@ -269,7 +294,12 @@
 
   function handleForceStart(): void {
     menuOpen = false;
-    onStart?.(item.id, item, true);
+    onStart?.(item.id, item, { forceStart: true });
+  }
+
+  function handleFixCi(): void {
+    menuOpen = false;
+    onStart?.(item.id, item, { fixCi: true });
   }
 
   function handleDelete(): void {
@@ -571,6 +601,19 @@
           <span class="text-text-subtle">Branch</span>
           <span class="truncate font-mono">{reviewPackage.branch}</span>
         {/if}
+        {#if reviewCiChip}
+          {@const Icon = reviewCiChip.icon}
+          {@const running = reviewWorktreeMeta?.ciStatus === "running"}
+          <span class="text-text-subtle">CI</span>
+          <span
+            class={`inline-flex min-w-0 items-center gap-1 ${reviewCiChip.color} ${reviewWorktreeMeta?.ciStale ? "opacity-60" : ""}`}
+            title={`CI: ${reviewCiChip.label}${reviewWorktreeMeta?.ciStale ? " (stale)" : ""}`}
+            aria-label={`CI ${reviewCiChip.label}`}
+          >
+            <Icon size={11} class={running ? "animate-spin" : ""} />
+            <span class="truncate">{reviewCiChip.label}</span>
+          </span>
+        {/if}
         {#if reviewSessionId && onOpen}
           <span class="text-text-subtle">Session</span>
           <button
@@ -637,6 +680,20 @@
 
   {#if item.status === "review"}
     <div class="flex items-center gap-1.5 pt-0.5">
+      {#if canFixCi}
+        <button
+          type="button"
+          class={reviewChangesActionClass}
+          onclick={handleFixCi}
+          aria-label="Fix CI"
+          aria-busy={startPending}
+          disabled={startPending}
+        >
+          <Wrench size={12} strokeWidth={2.2} />
+          <span class="truncate">{startPending ? "Starting..." : "Fix CI"}</span
+          >
+        </button>
+      {/if}
       {#if canOpenReviewAgent}
         <button
           type="button"

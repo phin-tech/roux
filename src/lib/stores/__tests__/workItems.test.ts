@@ -670,6 +670,24 @@ describe("workItems store", () => {
       });
     });
 
+    it("passes fix CI starts through to the daemon adapter", async () => {
+      const item = makeItem({ id: "wi-1", sessionId: null });
+      workItems.set([item]);
+      vi.mocked(tauriWorkItemStart).mockResolvedValueOnce({
+        item: makeItem({ id: "wi-1", sessionId: "sess-1", status: "doing" }),
+        run: makeRun(),
+        session: {} as never,
+      });
+
+      await expect(startWorkItem("wi-1", { fixCi: true })).resolves.toBe(
+        "sess-1",
+      );
+
+      expect(tauriWorkItemStart).toHaveBeenCalledWith("wi-1", {
+        fixCi: true,
+      });
+    });
+
     it("rejects when the daemon returns a run without a session id", async () => {
       const item = makeItem({ id: "wi-1", sessionId: null, status: "todo" });
       workItems.set([item]);
