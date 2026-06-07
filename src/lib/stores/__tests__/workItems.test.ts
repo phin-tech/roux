@@ -922,5 +922,30 @@ describe("workItems store", () => {
 
       expect(get(pendingQuestionByItem).has("wi-1")).toBe(false);
     });
+
+    it("keeps item-scoped hook questions when a specific run completes", () => {
+      workItemPendingQuestions.set([
+        {
+          workItemId: "wi-1",
+          runId: null,
+          sessionId: "sess-1",
+          paneId: "pane-1",
+          providerSessionId: "claude-provider-1",
+          toolName: "AskUserQuestion",
+          updatedAt: 1,
+        },
+      ]);
+
+      applyWorkItemEvent({
+        type: "runUpdated",
+        run: makeRun({
+          id: "run-1",
+          workItemId: "wi-1",
+          status: "done",
+        }),
+      });
+
+      expect(get(pendingQuestionByItem).get("wi-1")?.runId).toBeNull();
+    });
   });
 });

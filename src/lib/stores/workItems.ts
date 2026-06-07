@@ -204,7 +204,8 @@ function clearPendingQuestionForRun(run: WorkItemRun): void {
     questions.filter(
       (question) =>
         question.workItemId !== run.workItemId ||
-        (question.runId !== null && question.runId !== run.id),
+        question.runId === null ||
+        question.runId !== run.id,
     ),
   );
 }
