@@ -90,12 +90,12 @@ describe("Work item drag data", () => {
   it("accepts Planning as a valid drag source column", () => {
     const transfer = dataTransfer();
 
-    expect(writeWorkItemDragData(transfer, item({ status: "ready" }))).toBe(
+    expect(writeWorkItemDragData(transfer, item({ status: "planning" }))).toBe(
       true,
     );
     expect(readWorkItemDragData(transfer)).toEqual({
       itemId: "wi-1",
-      fromStatus: "ready",
+      fromStatus: "planning",
     });
   });
 

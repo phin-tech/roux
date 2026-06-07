@@ -3,8 +3,8 @@ import { nextWorkItemStatuses } from "../statusFlow";
 
 describe("work item status flow", () => {
   it("exposes only the next workflow status", () => {
-    expect(nextWorkItemStatuses("todo")).toEqual(["ready"]);
-    expect(nextWorkItemStatuses("ready")).toEqual(["doing"]);
+    expect(nextWorkItemStatuses("todo")).toEqual(["planning"]);
+    expect(nextWorkItemStatuses("planning")).toEqual(["doing"]);
     expect(nextWorkItemStatuses("doing")).toEqual(["review"]);
     expect(nextWorkItemStatuses("review")).toEqual(["done"]);
     expect(nextWorkItemStatuses("done")).toEqual([]);

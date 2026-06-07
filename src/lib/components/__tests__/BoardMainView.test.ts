@@ -70,10 +70,10 @@ if (typeof Element !== "undefined" && !Element.prototype.animate) {
 vi.mock("$lib/stores/workItems", async () => {
   const { writable } = await import("svelte/store");
   return {
-    WORK_ITEM_COLUMNS: ["todo", "ready", "doing", "review", "done"],
+    WORK_ITEM_COLUMNS: ["todo", "planning", "doing", "review", "done"],
     COLUMN_LABELS: {
       todo: "To Do",
-      ready: "Planning",
+      planning: "Planning",
       doing: "In Progress",
       review: "Review",
       done: "Done",
@@ -301,7 +301,7 @@ function seedWorktreeMetadata(path: string, metadata: WorktrunkMetadata): void {
 
 function seedColumns(items: WorkItem[]) {
   const map = new Map<string, WorkItem[]>();
-  for (const col of ["todo", "ready", "doing", "review", "done"])
+  for (const col of ["todo", "planning", "doing", "review", "done"])
     map.set(col, []);
   for (const item of items) map.get(item.status)?.push(item);
   (itemsByColumn as ReturnType<typeof import("svelte/store").writable>).set(
@@ -400,14 +400,14 @@ describe("BoardMainView", () => {
     seedColumns([workItem({ id: "wi-1", status: "todo" })]);
     render(BoardMainView);
 
-    const planningColumn = document.querySelector('[data-column="ready"]')!;
+    const planningColumn = document.querySelector('[data-column="planning"]')!;
     await fireEvent.drop(planningColumn, {
       dataTransfer: dragData({ itemId: "wi-1", fromStatus: "todo" }),
     });
 
     expect(moveWorkItem).toHaveBeenCalledWith(
       "wi-1",
-      "ready",
+      "planning",
       expect.any(Number),
     );
   });
@@ -453,7 +453,7 @@ describe("BoardMainView", () => {
     seedColumns([
       workItem({
         id: "wi-1",
-        status: "ready",
+        status: "planning",
         projectId: "proj-1",
         sessionId: null,
       }),
@@ -475,7 +475,7 @@ describe("BoardMainView", () => {
       [
         workItem({
           id: "wi-1",
-          status: "ready",
+          status: "planning",
           projectId: "proj-1",
           sessionId: null,
         }),
@@ -499,7 +499,7 @@ describe("BoardMainView", () => {
     seedColumns([
       workItem({
         id: "wi-plan",
-        status: "ready",
+        status: "planning",
         projectId: "proj-1",
         sessionId: null,
         agentProfile: "claude",
@@ -535,7 +535,7 @@ describe("BoardMainView", () => {
     seedColumns([
       workItem({
         id: "wi-plan",
-        status: "ready",
+        status: "planning",
         projectId: "proj-1",
         sessionId: null,
         agentProfile: "claude",
@@ -573,7 +573,7 @@ describe("BoardMainView", () => {
     seedColumns([
       workItem({
         id: "wi-plan",
-        status: "ready",
+        status: "planning",
         projectId: "proj-1",
         sessionId: null,
         agentProfile: "claude",
@@ -613,7 +613,7 @@ describe("BoardMainView", () => {
     const item = workItem({
       id: "wi-1",
       title: "Wire task start",
-      status: "ready",
+      status: "planning",
       projectId: null,
       sessionId: null,
     });
@@ -632,11 +632,11 @@ describe("BoardMainView", () => {
     expect(moveWorkItem).not.toHaveBeenCalled();
   });
 
-  it("does not open the session prompt for an unprojected Ready card without a plan", async () => {
+  it("does not open the session prompt for an unprojected Planning card without a plan", async () => {
     const item = workItem({
       id: "wi-1",
       title: "Wire task start",
-      status: "ready",
+      status: "planning",
       projectId: null,
       sessionId: null,
     });
@@ -1181,7 +1181,7 @@ describe("BoardMainView", () => {
   it("does not show an add card button on non–To Do columns", () => {
     render(BoardMainView);
 
-    for (const col of ["ready", "doing", "review", "done"]) {
+    for (const col of ["planning", "doing", "review", "done"]) {
       const column = document.querySelector(`[data-column="${col}"]`)!;
       expect(
         column.querySelector('[aria-label="Add card"]'),

@@ -12,11 +12,17 @@ describe("workflow defaults", () => {
     expect(DEFAULT_KANBAN_SETTINGS.workflow).toEqual(defaultWorkflow);
   });
 
-  it("groups review gates inside the review phase", () => {
+  it("groups stages inside hardcoded board phases", () => {
     expect(Object.keys(DEFAULT_WORKFLOW_SETTINGS.phases)).toEqual([
+      "todo",
       "planning",
-      "implementation",
+      "doing",
       "review",
+      "done",
+    ]);
+    expect(DEFAULT_WORKFLOW_SETTINGS.phases.doing.stageOrder).toEqual([
+      "implementation",
+      "fix_ci",
     ]);
     expect(Object.keys(DEFAULT_WORKFLOW_SETTINGS.phases.review.stages)).toEqual(
       ["local_review", "pr_review"],

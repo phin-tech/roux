@@ -21,6 +21,10 @@
   import { projects } from "$lib/stores/projects";
   import { settings } from "$lib/stores/settings";
   import { reviewStageLabel } from "$lib/workItems/reviewStages";
+  import {
+    workflowStageActionLabel,
+    workflowStageLabel,
+  } from "$lib/workItems/workflow";
   import { worktreeMetadataFor } from "$lib/stores/worktreeMetadata";
   import { ciChipFor } from "$lib/ciIcon";
   import type { WorkItemStartActionOptions } from "$lib/stores/workItems";
@@ -35,6 +39,8 @@
     ) => void;
     /** Start or open a planning run for this work item. */
     onPlan?: (id: string, item: WorkItem, replaceActive?: boolean) => void;
+    /** Run the card's current workflow stage. */
+    onRunStage?: (id: string, item: WorkItem) => void | Promise<void>;
     /** Open the card's bound session (by session id). */
     onOpen?: (sessionId: string) => void;
     /** Open the card editor (by work item id). */
@@ -60,6 +66,7 @@
     ) => void | Promise<void>;
     startPending?: boolean;
     planPending?: boolean;
+    stagePending?: boolean;
     acceptPending?: boolean;
     requestChangesPending?: boolean;
     openAgentPending?: boolean;
@@ -78,6 +85,7 @@
     sessionStatus = null,
     onStart,
     onPlan,
+    onRunStage,
     onOpen,
     onEdit,
     onDelete,
@@ -88,6 +96,7 @@
     onOpenAgent,
     startPending = false,
     planPending = false,
+    stagePending = false,
     acceptPending = false,
     requestChangesPending = false,
     openAgentPending = false,
@@ -164,6 +173,18 @@
   );
   const hasMenuActions = $derived(
     !!onEdit || !!onPlan || !!onDelete || !!onArchive || canForceStartPlanning,
+  );
+  const workflowStageName = $derived(
+    item.workflowStageLabel ??
+      workflowStageLabel(item.workflowStageId, $settings.kanban),
+  );
+  const workflowStageActionText = $derived(
+    workflowStageActionLabel(item.workflowStageId, $settings.kanban) ??
+      workflowStageName ??
+      "Run",
+  );
+  const canRunWorkflowStage = $derived(
+    !!onRunStage && !!item.workflowStageId && item.status !== "done",
   );
   const reviewSessionId = $derived(reviewPackage?.sessionId ?? null);
   const reviewStageName = $derived(
@@ -290,6 +311,11 @@
   function handleReplan(): void {
     menuOpen = false;
     onPlan?.(item.id, item, true);
+  }
+
+  function handleRunStage(): void {
+    menuOpen = false;
+    void onRunStage?.(item.id, item);
   }
 
   function handleForceStart(): void {
@@ -484,8 +510,13 @@
     </p>
   {/if}
 
-  {#if hasAttachedPlan || projectLabel || profileLabel || targetLabel || branchLabel}
+  {#if workflowStageName || hasAttachedPlan || projectLabel || profileLabel || targetLabel || branchLabel}
     <div class="flex flex-wrap gap-1.5">
+      {#if workflowStageName}
+        <span class={chipClass}>
+          <span class="truncate">{workflowStageName}</span>
+        </span>
+      {/if}
       {#if hasAttachedPlan}
         {#if onEdit}
           <button
@@ -680,6 +711,21 @@
 
   {#if item.status === "review"}
     <div class="flex items-center gap-1.5 pt-0.5">
+      {#if canRunWorkflowStage}
+        <button
+          type="button"
+          class={accentActionClass}
+          onclick={handleRunStage}
+          aria-label="Run workflow stage"
+          aria-busy={stagePending}
+          disabled={stagePending}
+        >
+          <Play size={10} fill="currentColor" strokeWidth={2.2} />
+          <span class="truncate"
+            >{stagePending ? "Running..." : workflowStageActionText}</span
+          >
+        </button>
+      {/if}
       {#if canFixCi}
         <button
           type="button"
@@ -742,7 +788,20 @@
     </div>
   {:else}
     <div class="flex items-center gap-1.5 pt-0.5">
-      {#if phase.action.kind === "plan" && onPlan}
+      {#if canRunWorkflowStage}
+        <button
+          class={accentActionClass}
+          onclick={handleRunStage}
+          aria-label="Run workflow stage"
+          aria-busy={stagePending}
+          disabled={stagePending}
+        >
+          <Play size={10} fill="currentColor" strokeWidth={2.2} />
+          <span class="truncate"
+            >{stagePending ? "Running..." : workflowStageActionText}</span
+          >
+        </button>
+      {:else if phase.action.kind === "plan" && onPlan}
         <button
           class={amberActionClass}
           onclick={() => onPlan?.(item.id, item)}

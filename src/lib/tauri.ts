@@ -1051,6 +1051,25 @@ export async function workItemPlan(
   return r.data;
 }
 
+export interface WorkItemRunStageOptions {
+  stageId?: string | null;
+  outcome?: string | null;
+}
+
+export async function workItemRunStage(
+  id: string,
+  options: WorkItemRunStageOptions = {},
+): Promise<import("$lib/bindings").WorkItemStageRunResult> {
+  const { commands } = await import("$lib/bindings");
+  const r = await commands.workItemRunStage(
+    id,
+    options.stageId ?? null,
+    options.outcome ?? null,
+  );
+  if (r.status === "error") throw new Error(r.error);
+  return r.data;
+}
+
 export async function workItemReviewAccept(
   id: string,
 ): Promise<import("$lib/bindings").WorkItemReviewAcceptResult> {

@@ -1,5 +1,10 @@
 import { writable, derived, get } from "svelte/store";
-import type { WorkItem, WorkItemInput, WorkItemStatus } from "$lib/bindings";
+import type {
+  WorkItem,
+  WorkItemInput,
+  WorkItemStageRunResult,
+  WorkItemStatus,
+} from "$lib/bindings";
 import type {
   Attachment,
   AttachmentDocument,
@@ -20,6 +25,7 @@ import {
   workItemRestore as tauriWorkItemRestore,
   workItemStart as tauriWorkItemStart,
   workItemPlan as tauriWorkItemPlan,
+  workItemRunStage as tauriWorkItemRunStage,
   workItemReviewAccept as tauriWorkItemReviewAccept,
   workItemReviewRequestChanges as tauriWorkItemReviewRequestChanges,
   workItemRunsList as tauriWorkItemRunsList,
@@ -49,7 +55,7 @@ export {
 
 export const WORK_ITEM_COLUMNS: WorkItemStatus[] = [
   "todo",
-  "ready",
+  "planning",
   "doing",
   "review",
   "done",
@@ -57,7 +63,7 @@ export const WORK_ITEM_COLUMNS: WorkItemStatus[] = [
 
 export const COLUMN_LABELS: Record<WorkItemStatus, string> = {
   todo: "To Do",
-  ready: "Planning",
+  planning: "Planning",
   doing: "In Progress",
   review: "Review",
   done: "Done",
@@ -303,6 +309,15 @@ function upsertAttachment(attachment: Attachment): void {
   );
 }
 
+function upsertRunResult(result: {
+  item: WorkItem;
+  run: WorkItemRun;
+}): WorkItem {
+  upsertItem(result.item);
+  upsertRun(result.run);
+  return result.item;
+}
+
 function replaceWorkItemAttachments(
   targetId: string | null,
   attachments: Attachment[],
@@ -437,17 +452,29 @@ export async function planWorkItem(
   );
 }
 
+export interface WorkItemRunStageOptions {
+  stageId?: string | null;
+  outcome?: string | null;
+}
+
+export async function runWorkItemStage(
+  id: string,
+  options: WorkItemRunStageOptions = {},
+): Promise<WorkItemStageRunResult> {
+  const result = await tauriWorkItemRunStage(id, options);
+  upsertRunResult(result);
+  return result;
+}
+
 export async function acceptWorkItemReview(id: string): Promise<WorkItem> {
   const result = await tauriWorkItemReviewAccept(id);
-  upsertItem(result.item);
-  upsertRun(result.run);
-  return result.item;
+  return upsertRunResult(result);
 }
 
 export async function requestWorkItemChanges(
   id: string,
   note: string,
-  status: "doing" | "ready" | null = null,
+  status: "doing" | "planning" | null = null,
 ): Promise<WorkItem> {
   const result = await tauriWorkItemReviewRequestChanges(id, note, status);
   upsertItem(result.item);

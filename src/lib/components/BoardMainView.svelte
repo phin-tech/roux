@@ -11,6 +11,7 @@
     startWorkItem,
     stopWorkItemRun,
     planWorkItem,
+    runWorkItemStage,
     acceptWorkItemReview,
     requestWorkItemChanges,
     pendingDecisionByItem,
@@ -69,6 +70,7 @@
   let dragOverColumn = $state<WorkItemStatus | null>(null);
   let startingItemIds = $state<Record<string, boolean>>({});
   let planningItemIds = $state<Record<string, boolean>>({});
+  let runningStageItemIds = $state<Record<string, boolean>>({});
   let acceptingItemIds = $state<Record<string, boolean>>({});
   let requestingChangesItemIds = $state<Record<string, boolean>>({});
   let openingAgentItemIds = $state<Record<string, boolean>>({});
@@ -121,7 +123,7 @@
     const planningRun = get(activePlanningRunByItem).get(id);
     const attachments = get(attachmentsByWorkItem).get(id) ?? [];
     if (
-      item.status === "ready" &&
+      item.status === "planning" &&
       !canStartImplementationFromPlanning(attachments, forceStart)
     ) {
       if (planningRun?.sessionId) await handleOpen(planningRun.sessionId);
@@ -148,7 +150,7 @@
 
     // Start creates the session/worktree and moves the card after prompt dispatch.
     try {
-      if (item.status === "ready" && planningRun) {
+      if (item.status === "planning" && planningRun) {
         await stopWorkItemRun(planningRun.id);
       }
       await startWorkItem(id, {
@@ -186,6 +188,26 @@
       console.error("Failed to plan work item", err);
     } finally {
       planningItemIds = withoutKey(planningItemIds, id);
+    }
+  }
+
+  async function handleRunStage(id: string, item: WorkItem) {
+    if (runningStageItemIds[id]) return;
+    runningStageItemIds = { ...runningStageItemIds, [id]: true };
+    startErrors = withoutKey(startErrors, id);
+    try {
+      const result = await runWorkItemStage(id, {
+        stageId: item.workflowStageId,
+      });
+      if (result.run.sessionId) await handleOpen(result.run.sessionId);
+    } catch (err) {
+      startErrors = {
+        ...startErrors,
+        [id]: err instanceof Error ? err.message : "Failed to run stage.",
+      };
+      console.error("Failed to run work item stage", err);
+    } finally {
+      runningStageItemIds = withoutKey(runningStageItemIds, id);
     }
   }
 
@@ -454,6 +476,7 @@
                 draggable
                 onStart={handleStart}
                 onPlan={handlePlan}
+                onRunStage={handleRunStage}
                 onOpen={handleOpen}
                 onEdit={openWorkItemEditor}
                 onDelete={handleDelete}
@@ -464,6 +487,7 @@
                 onOpenAgent={handleOpenAgent}
                 startPending={!!startingItemIds[item.id]}
                 planPending={!!planningItemIds[item.id]}
+                stagePending={!!runningStageItemIds[item.id]}
                 acceptPending={!!acceptingItemIds[item.id]}
                 requestChangesPending={!!requestingChangesItemIds[item.id]}
                 openAgentPending={!!openingAgentItemIds[item.id]}

@@ -1,8 +1,8 @@
 import type { WorkItemStatus } from "$lib/bindings";
 
 const NEXT_STATUS: Partial<Record<WorkItemStatus, WorkItemStatus>> = {
-  todo: "ready",
-  ready: "doing",
+  todo: "planning",
+  planning: "doing",
   doing: "review",
   review: "done",
 };

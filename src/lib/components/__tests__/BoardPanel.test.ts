@@ -49,10 +49,10 @@ if (typeof Element !== "undefined" && !Element.prototype.animate) {
 vi.mock("$lib/stores/workItems", async () => {
   const { writable } = await import("svelte/store");
   return {
-    WORK_ITEM_COLUMNS: ["todo", "ready", "doing", "review", "done"],
+    WORK_ITEM_COLUMNS: ["todo", "planning", "doing", "review", "done"],
     COLUMN_LABELS: {
       todo: "To Do",
-      ready: "Planning",
+      planning: "Planning",
       doing: "In Progress",
       review: "Review",
       done: "Done",
@@ -229,7 +229,7 @@ function project(overrides: Partial<Project> = {}): Project {
 
 function seedColumns(items: WorkItem[]) {
   const map = new Map<string, WorkItem[]>();
-  for (const col of ["todo", "ready", "doing", "review", "done"])
+  for (const col of ["todo", "planning", "doing", "review", "done"])
     map.set(col, []);
   for (const item of items) map.get(item.status)?.push(item);
   (itemsByColumn as ReturnType<typeof import("svelte/store").writable>).set(
@@ -267,7 +267,7 @@ describe("BoardPanel", () => {
     seedColumns([
       workItem({
         id: "wi-1",
-        status: "ready",
+        status: "planning",
         projectId: "proj-1",
         sessionId: null,
       }),
@@ -297,7 +297,7 @@ describe("BoardPanel", () => {
       [
         workItem({
           id: "wi-1",
-          status: "ready",
+          status: "planning",
           projectId: "proj-1",
           sessionId: null,
         }),
@@ -321,7 +321,7 @@ describe("BoardPanel", () => {
     seedColumns([
       workItem({
         id: "wi-plan",
-        status: "ready",
+        status: "planning",
         projectId: "proj-1",
         sessionId: null,
         agentProfile: "claude",
@@ -356,7 +356,7 @@ describe("BoardPanel", () => {
     seedColumns([
       workItem({
         id: "wi-plan",
-        status: "ready",
+        status: "planning",
         projectId: "proj-1",
         sessionId: null,
         agentProfile: "claude",
@@ -396,7 +396,7 @@ describe("BoardPanel", () => {
     const item = workItem({
       id: "wi-1",
       title: "Wire task start",
-      status: "ready",
+      status: "planning",
       projectId: null,
       sessionId: null,
     });
@@ -415,11 +415,11 @@ describe("BoardPanel", () => {
     expect(moveWorkItem).not.toHaveBeenCalled();
   });
 
-  it("does not open the session prompt for an unprojected Ready card without a plan", async () => {
+  it("does not open the session prompt for an unprojected Planning card without a plan", async () => {
     const item = workItem({
       id: "wi-1",
       title: "Wire task start",
-      status: "ready",
+      status: "planning",
       projectId: null,
       sessionId: null,
     });

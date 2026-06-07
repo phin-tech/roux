@@ -4,7 +4,7 @@ import type { WorkItem, WorkItemStatus } from "$lib/bindings";
 export const WORK_ITEM_DRAG_MIME = "application/x-roux-work-item";
 const WORK_ITEM_STATUSES = new Set<WorkItemStatus>([
   "todo",
-  "ready",
+  "planning",
   "doing",
   "review",
   "done",

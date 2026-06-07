@@ -58,6 +58,7 @@ vi.mock("$lib/tauri", () => ({
   workItemArchive: vi.fn(),
   workItemRestore: vi.fn(),
   workItemPlan: vi.fn(),
+  workItemRunStage: vi.fn(),
   workItemReviewAccept: vi.fn(),
   workItemReviewRequestChanges: vi.fn(),
   workItemStart: vi.fn(),
@@ -93,6 +94,9 @@ function makeItem(overrides: Partial<WorkItem> = {}): WorkItem {
     sortOrder: 0,
     pinnedPrUrl: null,
     reviewStageId: null,
+    workflowId: "default",
+    workflowStageId: "todo",
+    workflowStageLabel: "To Do",
     archivedAt: null,
     cost: null,
     createdAt: Date.now(),
@@ -832,7 +836,7 @@ describe("workItems store", () => {
       const cols = get(itemsByColumn);
       expect(cols.get("todo")).toHaveLength(2);
       expect(cols.get("doing")).toHaveLength(1);
-      expect(cols.get("ready")).toHaveLength(0);
+      expect(cols.get("planning")).toHaveLength(0);
       expect(cols.get("review")).toHaveLength(0);
       expect(cols.get("done")).toHaveLength(0);
     });
