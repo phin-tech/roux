@@ -15,6 +15,7 @@ import { refreshWorktrunkDetection } from "$lib/stores/worktrunkDetection";
 export const settings = writable<RouxSettings>(DEFAULT_SETTINGS);
 
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+let settingsPersistChain: Promise<void> = Promise.resolve();
 // Track the last persisted override so we only re-probe when it
 // actually changes — otherwise every unrelated setting tweak would
 // force a subprocess spawn.
@@ -60,10 +61,15 @@ export function updateSettingsDraft(
   });
 }
 
-export function cancelPendingSettingsPersist(): void {
+function cancelPendingSettingsPersist(): void {
   if (!debounceTimer) return;
   clearTimeout(debounceTimer);
   debounceTimer = null;
+}
+
+export async function settlePendingSettingsPersist(): Promise<void> {
+  cancelPendingSettingsPersist();
+  await settingsPersistChain;
 }
 
 export function setDefaultAgentProfile(profileId: string): void {
@@ -93,17 +99,27 @@ function scheduleSettingsPersist(updated: RouxSettings): void {
   // Debounced save to backend
   cancelPendingSettingsPersist();
   debounceTimer = setTimeout(() => {
-    void updateSettingsApi(updated).then(() => {
-      // Changes to the wt binary override invalidate the cached
-      // detection state (ActivityRail/WorktrunkPanel/NewSessionDialog
-      // all key off it), so reprobe so UI reflects reality without a
-      // restart.
-      if (updated.worktrunkBinaryPath !== lastWorktrunkBinaryPath) {
-        lastWorktrunkBinaryPath = updated.worktrunkBinaryPath;
-        void refreshWorktrunkDetection();
-      }
-    });
+    debounceTimer = null;
+    settingsPersistChain = settingsPersistChain
+      .catch((error) => {
+        console.error("settings persist failed", error);
+      })
+      .then(() => persistSettingsDraft(updated))
+      .catch((error) => {
+        console.error("settings persist failed", error);
+      });
   }, 500);
+}
+
+async function persistSettingsDraft(updated: RouxSettings): Promise<void> {
+  await updateSettingsApi(updated);
+  // Changes to the wt binary override invalidate the cached detection state
+  // (ActivityRail/WorktrunkPanel/NewSessionDialog all key off it), so reprobe
+  // so UI reflects reality without a restart.
+  if (updated.worktrunkBinaryPath !== lastWorktrunkBinaryPath) {
+    lastWorktrunkBinaryPath = updated.worktrunkBinaryPath;
+    void refreshWorktrunkDetection();
+  }
 }
 
 function kanbanSettings(current: RouxSettings): KanbanSettings {

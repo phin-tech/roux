@@ -154,7 +154,7 @@ import { commands } from "$lib/bindings";
 import { open } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import SettingsPanel from "../SettingsPanel.svelte";
-import { cancelPendingSettingsPersist, settings } from "$lib/stores/settings";
+import { settings, settlePendingSettingsPersist } from "$lib/stores/settings";
 import { settingsFocus } from "$lib/stores/settingsFocus";
 import {
   createKanbanWorkflowExample,
@@ -165,11 +165,12 @@ import {
 } from "$lib/tauri";
 
 describe("SettingsPanel Kanban tab", () => {
-  beforeEach(() => {
-    cancelPendingSettingsPersist();
+  beforeEach(async () => {
+    await settlePendingSettingsPersist();
     settings.set({ ...DEFAULT_SETTINGS });
     settingsFocus.set(null);
     vi.mocked(updateSettings).mockClear();
+    vi.mocked(validateKanbanWorkflow).mockReset();
     vi.mocked(validateKanbanWorkflow).mockImplementation(
       async (settings) => settings,
     );
@@ -220,9 +221,11 @@ describe("SettingsPanel Kanban tab", () => {
     });
     const validated = vi.mocked(validateKanbanWorkflow).mock.calls.at(-1)![0];
     expect(validated.kanban?.workflowPath).toBe("/tmp/team-workflow.json");
-    expect(
-      (screen.getByLabelText("Workflow JSON file") as HTMLInputElement).value,
-    ).toBe("/tmp/team-workflow.json");
+    await waitFor(() => {
+      expect(
+        (screen.getByLabelText("Workflow JSON file") as HTMLInputElement).value,
+      ).toBe("/tmp/team-workflow.json");
+    });
   });
 
   it("shows workflow load errors from browsed JSON files", async () => {
@@ -282,9 +285,11 @@ describe("SettingsPanel Kanban tab", () => {
     });
     const validated = vi.mocked(validateKanbanWorkflow).mock.calls.at(-1)![0];
     expect(validated.kanban?.workflowPath).toBe("kanban-workflow.json");
-    expect(
-      (screen.getByLabelText("Workflow JSON file") as HTMLInputElement).value,
-    ).toBe("kanban-workflow.json");
+    await waitFor(() => {
+      expect(
+        (screen.getByLabelText("Workflow JSON file") as HTMLInputElement).value,
+      ).toBe("kanban-workflow.json");
+    });
   });
 
   it("cancels stale debounced path saves before validated workflow actions", async () => {
@@ -302,6 +307,41 @@ describe("SettingsPanel Kanban tab", () => {
     await new Promise((resolve) => setTimeout(resolve, 600));
 
     expect(updateSettings).not.toHaveBeenCalled();
+  });
+
+  it("waits for in-flight debounced saves before validated workflow actions", async () => {
+    let resolveSave = () => {};
+    vi.mocked(updateSettings).mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveSave = resolve;
+        }),
+    );
+
+    render(SettingsPanel, { visible: true, onclose: vi.fn() });
+
+    await fireEvent.click(screen.getByRole("button", { name: "Kanban" }));
+    await fireEvent.input(screen.getByLabelText("Workflow JSON file"), {
+      target: { value: "draft-workflow.json" },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 550));
+
+    await waitFor(() => {
+      expect(updateSettings).toHaveBeenCalledTimes(1);
+    });
+
+    const click = fireEvent.click(
+      screen.getByRole("button", { name: "Copy example" }),
+    );
+    await Promise.resolve();
+    expect(validateKanbanWorkflow).not.toHaveBeenCalled();
+
+    resolveSave();
+    await click;
+
+    await waitFor(() => {
+      expect(validateKanbanWorkflow).toHaveBeenCalled();
+    });
   });
 
   it("reveals the Kanban workflow config directory", async () => {
