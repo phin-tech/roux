@@ -136,6 +136,12 @@ vi.mock("$lib/tauri", () => ({
   }),
   getSettings: vi.fn(),
   updateSettings: vi.fn().mockResolvedValue(undefined),
+  validateKanbanWorkflow: vi.fn(async (settings) => settings),
+  kanbanWorkflowConfigDir: vi.fn().mockResolvedValue("/tmp/roux"),
+  createKanbanWorkflowExample: vi.fn().mockResolvedValue({
+    path: "/tmp/roux/kanban-workflow.json",
+    workflowPath: "kanban-workflow.json",
+  }),
   onSettingsChanged: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock("$lib/stores/updater", () => ({
@@ -145,16 +151,40 @@ vi.mock("$lib/stores/updater", () => ({
 }));
 
 import { commands } from "$lib/bindings";
+import { open } from "@tauri-apps/plugin-dialog";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import SettingsPanel from "../SettingsPanel.svelte";
-import { settings } from "$lib/stores/settings";
+import {
+  settings,
+  settlePendingSettingsPersist,
+  updateSetting,
+} from "$lib/stores/settings";
 import { settingsFocus } from "$lib/stores/settingsFocus";
-import { getRuntimeStatus, updateSettings } from "$lib/tauri";
+import {
+  createKanbanWorkflowExample,
+  getRuntimeStatus,
+  kanbanWorkflowConfigDir,
+  updateSettings,
+  validateKanbanWorkflow,
+} from "$lib/tauri";
 
 describe("SettingsPanel Kanban tab", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await settlePendingSettingsPersist();
     settings.set({ ...DEFAULT_SETTINGS });
     settingsFocus.set(null);
     vi.mocked(updateSettings).mockClear();
+    vi.mocked(validateKanbanWorkflow).mockReset();
+    vi.mocked(validateKanbanWorkflow).mockImplementation(
+      async (settings) => settings,
+    );
+    vi.mocked(kanbanWorkflowConfigDir).mockResolvedValue("/tmp/roux");
+    vi.mocked(createKanbanWorkflowExample).mockResolvedValue({
+      path: "/tmp/roux/kanban-workflow.json",
+      workflowPath: "kanban-workflow.json",
+    });
+    vi.mocked(open).mockReset();
+    vi.mocked(revealItemInDir).mockReset();
   });
 
   it("persists Kanban workflow phase instructions", async () => {
@@ -172,6 +202,237 @@ describe("SettingsPanel Kanban tab", () => {
     expect(lastCall[0].kanban?.workflow?.phases?.planning?.instructions).toBe(
       "Ask for acceptance criteria.",
     );
+  });
+
+  it("browses to a Kanban workflow JSON file and validates it", async () => {
+    vi.mocked(open).mockResolvedValue("/tmp/team-workflow.json");
+    vi.mocked(validateKanbanWorkflow).mockImplementation(async (draft) => ({
+      ...draft,
+      kanban: {
+        ...draft.kanban,
+        workflowPath: "/tmp/team-workflow.json",
+        workflowLoadError: null,
+      },
+    }));
+
+    render(SettingsPanel, { visible: true, onclose: vi.fn() });
+
+    await fireEvent.click(screen.getByRole("button", { name: "Kanban" }));
+    await fireEvent.click(screen.getByRole("button", { name: "Browse" }));
+
+    await waitFor(() => {
+      expect(validateKanbanWorkflow).toHaveBeenCalled();
+    });
+    const validated = vi.mocked(validateKanbanWorkflow).mock.calls.at(-1)![0];
+    expect(validated.kanban?.workflowPath).toBe("/tmp/team-workflow.json");
+    await waitFor(() => {
+      expect(
+        (screen.getByLabelText("Workflow JSON file") as HTMLInputElement).value,
+      ).toBe("/tmp/team-workflow.json");
+    });
+  });
+
+  it("shows workflow load errors from browsed JSON files", async () => {
+    vi.mocked(open).mockResolvedValue("/tmp/broken-workflow.json");
+    vi.mocked(validateKanbanWorkflow).mockImplementation(async (draft) => ({
+      ...draft,
+      kanban: {
+        ...draft.kanban,
+        workflowPath: "/tmp/broken-workflow.json",
+        workflowLoadError: "Invalid workflow JSON",
+      },
+    }));
+
+    render(SettingsPanel, { visible: true, onclose: vi.fn() });
+
+    await fireEvent.click(screen.getByRole("button", { name: "Kanban" }));
+    await fireEvent.click(screen.getByRole("button", { name: "Browse" }));
+
+    expect(await screen.findByText("Invalid workflow JSON")).toBeTruthy();
+    expect(screen.queryByText("Workflow JSON is valid.")).toBeNull();
+  });
+
+  it("clears workflow action status when the JSON path changes", async () => {
+    render(SettingsPanel, { visible: true, onclose: vi.fn() });
+
+    await fireEvent.click(screen.getByRole("button", { name: "Kanban" }));
+    await fireEvent.click(screen.getByRole("button", { name: "Validate" }));
+
+    expect(await screen.findByText("Workflow JSON is valid.")).toBeTruthy();
+
+    await fireEvent.input(screen.getByLabelText("Workflow JSON file"), {
+      target: { value: "changed-workflow.json" },
+    });
+
+    expect(screen.queryByText("Workflow JSON is valid.")).toBeNull();
+  });
+
+  it("makes inline workflow fields read-only when JSON owns the workflow", async () => {
+    settings.set({
+      ...DEFAULT_SETTINGS,
+      kanban: {
+        ...DEFAULT_SETTINGS.kanban,
+        workflowPath: "kanban-workflow.json",
+      },
+    });
+
+    render(SettingsPanel, { visible: true, onclose: vi.fn() });
+
+    await fireEvent.click(screen.getByRole("button", { name: "Kanban" }));
+
+    expect(
+      (screen.getByLabelText("Workflow label") as HTMLInputElement).disabled,
+    ).toBe(true);
+    expect(
+      (screen.getByLabelText("Planning instructions") as HTMLTextAreaElement)
+        .disabled,
+    ).toBe(true);
+    expect(
+      (screen.getByLabelText("Planning agent") as HTMLSelectElement).disabled,
+    ).toBe(true);
+  });
+
+  it("copies the example workflow and validates the returned relative path", async () => {
+    render(SettingsPanel, { visible: true, onclose: vi.fn() });
+
+    await fireEvent.click(screen.getByRole("button", { name: "Kanban" }));
+    await fireEvent.click(screen.getByRole("button", { name: "Copy example" }));
+
+    await waitFor(() => {
+      expect(createKanbanWorkflowExample).toHaveBeenCalled();
+      expect(validateKanbanWorkflow).toHaveBeenCalled();
+    });
+    const validated = vi.mocked(validateKanbanWorkflow).mock.calls.at(-1)![0];
+    expect(validated.kanban?.workflowPath).toBe("kanban-workflow.json");
+    await waitFor(() => {
+      expect(
+        (screen.getByLabelText("Workflow JSON file") as HTMLInputElement).value,
+      ).toBe("kanban-workflow.json");
+    });
+  });
+
+  it("merges validated Kanban settings without replacing newer local settings", async () => {
+    let resolveValidation = () => {};
+    vi.mocked(validateKanbanWorkflow).mockImplementation(
+      (draft) =>
+        new Promise((resolve) => {
+          resolveValidation = () =>
+            resolve({
+              ...draft,
+              kanban: {
+                ...draft.kanban,
+                workflowPath: "kanban-workflow.json",
+                workflowLoadError: null,
+              },
+            });
+        }),
+    );
+
+    render(SettingsPanel, { visible: true, onclose: vi.fn() });
+
+    await fireEvent.click(screen.getByRole("button", { name: "Kanban" }));
+    const click = fireEvent.click(
+      screen.getByRole("button", { name: "Copy example" }),
+    );
+    await waitFor(() => {
+      expect(validateKanbanWorkflow).toHaveBeenCalled();
+    });
+    updateSetting("defaultAgentProfile", "codex");
+
+    resolveValidation();
+    await click;
+
+    await waitFor(() => {
+      expect(get(settings).kanban?.workflowPath).toBe("kanban-workflow.json");
+    });
+    expect(get(settings).defaultAgentProfile).toBe("codex");
+
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    const lastSave = vi.mocked(updateSettings).mock.calls.at(-1)?.[0];
+    expect(lastSave?.defaultAgentProfile).toBe("codex");
+    expect(lastSave?.kanban?.workflowPath).toBe("kanban-workflow.json");
+    expect(
+      vi
+        .mocked(updateSettings)
+        .mock.calls.some(
+          ([saved]) =>
+            saved.defaultAgentProfile === "codex" &&
+            saved.kanban?.workflowPath !== "kanban-workflow.json",
+        ),
+    ).toBe(false);
+  });
+
+  it("cancels stale debounced path saves before validated workflow actions", async () => {
+    render(SettingsPanel, { visible: true, onclose: vi.fn() });
+
+    await fireEvent.click(screen.getByRole("button", { name: "Kanban" }));
+    await fireEvent.input(screen.getByLabelText("Workflow JSON file"), {
+      target: { value: "draft-workflow.json" },
+    });
+    await fireEvent.click(screen.getByRole("button", { name: "Copy example" }));
+
+    await waitFor(() => {
+      expect(validateKanbanWorkflow).toHaveBeenCalled();
+    });
+    await new Promise((resolve) => setTimeout(resolve, 600));
+
+    const savedWorkflowPaths = vi
+      .mocked(updateSettings)
+      .mock.calls.map(([saved]) => saved.kanban?.workflowPath ?? null);
+    expect(savedWorkflowPaths).not.toContain("draft-workflow.json");
+    expect(savedWorkflowPaths.at(-1)).toBe("kanban-workflow.json");
+  });
+
+  it("waits for in-flight debounced saves before validated workflow actions", async () => {
+    let resolveSave = () => {};
+    vi.mocked(updateSettings).mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveSave = resolve;
+        }),
+    );
+
+    render(SettingsPanel, { visible: true, onclose: vi.fn() });
+
+    await fireEvent.click(screen.getByRole("button", { name: "Kanban" }));
+    await fireEvent.input(screen.getByLabelText("Workflow JSON file"), {
+      target: { value: "draft-workflow.json" },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 550));
+
+    await waitFor(() => {
+      expect(updateSettings).toHaveBeenCalledTimes(1);
+    });
+
+    const click = fireEvent.click(
+      screen.getByRole("button", { name: "Copy example" }),
+    );
+    await Promise.resolve();
+    expect(validateKanbanWorkflow).not.toHaveBeenCalled();
+
+    resolveSave();
+    await click;
+
+    await waitFor(() => {
+      expect(validateKanbanWorkflow).toHaveBeenCalled();
+    });
+    await waitFor(() => {
+      expect(
+        vi.mocked(updateSettings).mock.calls.at(-1)?.[0].kanban?.workflowPath,
+      ).toBe("kanban-workflow.json");
+    });
+  });
+
+  it("reveals the Kanban workflow config directory", async () => {
+    render(SettingsPanel, { visible: true, onclose: vi.fn() });
+
+    await fireEvent.click(screen.getByRole("button", { name: "Kanban" }));
+    await fireEvent.click(screen.getByRole("button", { name: "Reveal" }));
+
+    await waitFor(() => {
+      expect(kanbanWorkflowConfigDir).toHaveBeenCalled();
+      expect(revealItemInDir).toHaveBeenCalledWith("/tmp/roux");
+    });
   });
 });
 

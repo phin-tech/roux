@@ -3,6 +3,7 @@ import defaultWorkflow from "../defaultWorkflow.json";
 import {
   DEFAULT_KANBAN_SETTINGS,
   DEFAULT_WORKFLOW_SETTINGS,
+  normalizeKanbanSettings,
 } from "../workflow";
 
 describe("workflow defaults", () => {
@@ -20,5 +21,15 @@ describe("workflow defaults", () => {
     expect(Object.keys(DEFAULT_WORKFLOW_SETTINGS.phases.review.stages)).toEqual(
       ["local_review", "pr_review"],
     );
+  });
+
+  it("normalizes workflow path and load error metadata", () => {
+    const kanban = normalizeKanbanSettings({
+      workflowPath: " ./workflow.json ",
+      workflowLoadError: " failed ",
+    });
+
+    expect(kanban.workflowPath).toBe("./workflow.json");
+    expect(kanban.workflowLoadError).toBe("failed");
   });
 });

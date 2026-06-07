@@ -46,12 +46,14 @@ pub use project::{Project, ProjectUpdate, SessionBlueprint};
 pub use pty::{PtyInfo, PtyRole, PtyStatus};
 pub use session::{map_hook_status, Session, SessionStatus, SessionStatusEvent};
 pub use settings::{
-    CursorStyle, ExperimentsConfig, ExternalTool, ExternalToolSurface, ExternalToolWebEmbedder,
-    GroupBy, KanbanReviewStageSettings, KanbanSettings, KanbanStartupSidebar,
-    KanbanWorkflowPhaseCategory, KanbanWorkflowPhaseSettings, KanbanWorkflowSettings,
-    LibrarySource, LibrarySourceKind, RouxSettings, SkillSyncMode, SplitProfileBehavior,
-    StartupTarget, StatusBarPosition, TabPosition, TerminalDefaults, UpdateChannel,
-    WorktreeCleanupMode, WorktreeDefaultBase, WorktreeProvider,
+    apply_kanban_workflow_load_result, load_kanban_workflow_for_settings,
+    load_settings_json_with_kanban_workflow, parse_kanban_workflow_json, CursorStyle,
+    ExperimentsConfig, ExternalTool, ExternalToolSurface, ExternalToolWebEmbedder, GroupBy,
+    KanbanReviewStageSettings, KanbanSettings, KanbanStartupSidebar, KanbanWorkflowPhaseCategory,
+    KanbanWorkflowPhaseSettings, KanbanWorkflowSettings, LibrarySource, LibrarySourceKind,
+    RouxSettings, SkillSyncMode, SplitProfileBehavior, StartupTarget, StatusBarPosition,
+    TabPosition, TerminalDefaults, UpdateChannel, WorkflowLoadError, WorktreeCleanupMode,
+    WorktreeDefaultBase, WorktreeProvider,
 };
 pub use subscription::{BusSubscription, BusSubscriptionEvent};
 pub use task::{KeepOpen, TaskDefinition, TaskGroup};

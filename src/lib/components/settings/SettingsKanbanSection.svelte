@@ -1,10 +1,26 @@
 <script lang="ts">
+  import Check from "@lucide/svelte/icons/check";
+  import Copy from "@lucide/svelte/icons/copy";
+  import Folder from "@lucide/svelte/icons/folder";
+  import FolderOpen from "@lucide/svelte/icons/folder-open";
+  import { open } from "@tauri-apps/plugin-dialog";
+  import { revealItemInDir } from "@tauri-apps/plugin-opener";
   import type {
     KanbanWorkflowPhaseSettings,
     KanbanReviewStageSettings,
   } from "$lib/bindings";
   import { profileList, type SpawnProfile } from "$lib/panes/profiles";
-  import { settings, updateSetting } from "$lib/stores/settings";
+  import {
+    persistSettingsImmediately,
+    settings,
+    settlePendingSettingsPersist,
+    updateSetting,
+  } from "$lib/stores/settings";
+  import {
+    createKanbanWorkflowExample,
+    kanbanWorkflowConfigDir,
+    validateKanbanWorkflow,
+  } from "$lib/tauri";
   import {
     REVIEW_STAGE_IDS,
     normalizeKanbanSettings,
@@ -18,6 +34,15 @@
     { id: "implementation", title: "Implementation" },
     { id: "review", title: "Review" },
   ];
+
+  let workflowActionBusy = $state<
+    "browse" | "validate" | "copy" | "reveal" | null
+  >(null);
+  let workflowActionError = $state<string | null>(null);
+  let workflowActionStatus = $state<string | null>(null);
+
+  const workflowActionButton =
+    "inline-flex items-center gap-1 rounded border border-border bg-bg-deep px-2 py-1 text-[11px] text-text-secondary hover:border-accent-dim hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50";
 
   const availableProfiles = $derived.by<SpawnProfile[]>(() => {
     const byId = new Map<string, SpawnProfile>();
@@ -38,6 +63,9 @@
   });
 
   const kanban = $derived(normalizeKanbanSettings($settings.kanban));
+  const isFileBackedWorkflow = $derived(
+    (kanban.workflowPath ?? "").trim().length > 0,
+  );
 
   function updateKanban(next: RequiredKanbanSettings): void {
     updateSetting("kanban", next);
@@ -48,6 +76,120 @@
       ...kanban,
       workflow: { ...kanban.workflow, label },
     });
+  }
+
+  function updateWorkflowPath(path: string): void {
+    const workflowPath = path.trim();
+    workflowActionError = null;
+    workflowActionStatus = null;
+    updateKanban({
+      ...kanban,
+      workflowPath: workflowPath.length > 0 ? workflowPath : null,
+      workflowLoadError: null,
+    });
+  }
+
+  function errorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
+  }
+
+  function settingsWithKanban(next: RequiredKanbanSettings) {
+    return { ...$settings, kanban: next };
+  }
+
+  async function applyValidatedKanban(
+    next: RequiredKanbanSettings,
+  ): Promise<RequiredKanbanSettings> {
+    await settlePendingSettingsPersist();
+    const updated = await validateKanbanWorkflow(settingsWithKanban(next));
+    const validatedKanban = normalizeKanbanSettings(updated.kanban);
+    let merged = settingsWithKanban(validatedKanban);
+    settings.update((current) => {
+      merged = { ...current, kanban: validatedKanban };
+      return merged;
+    });
+    await persistSettingsImmediately(merged);
+    return validatedKanban;
+  }
+
+  async function browseWorkflowJson(): Promise<void> {
+    workflowActionBusy = "browse";
+    workflowActionError = null;
+    workflowActionStatus = null;
+    try {
+      const selected = await open({
+        directory: false,
+        multiple: false,
+        title: "Select Kanban workflow JSON",
+        filters: [{ name: "JSON", extensions: ["json"] }],
+      });
+      if (typeof selected !== "string") return;
+      const next = {
+        ...kanban,
+        workflowPath: selected,
+        workflowLoadError: null,
+      };
+      const validated = await applyValidatedKanban(next);
+      workflowActionStatus = validated.workflowLoadError
+        ? null
+        : "Workflow JSON is valid.";
+    } catch (error) {
+      workflowActionError = errorMessage(error);
+    } finally {
+      workflowActionBusy = null;
+    }
+  }
+
+  async function validateWorkflowJson(): Promise<void> {
+    workflowActionBusy = "validate";
+    workflowActionError = null;
+    workflowActionStatus = null;
+    try {
+      const validated = await applyValidatedKanban(kanban);
+      workflowActionStatus = validated.workflowLoadError
+        ? null
+        : "Workflow JSON is valid.";
+    } catch (error) {
+      workflowActionError = errorMessage(error);
+    } finally {
+      workflowActionBusy = null;
+    }
+  }
+
+  async function copyExampleWorkflow(): Promise<void> {
+    workflowActionBusy = "copy";
+    workflowActionError = null;
+    workflowActionStatus = null;
+    try {
+      const result = await createKanbanWorkflowExample();
+      const next = {
+        ...kanban,
+        workflowPath: result.workflowPath,
+        workflowLoadError: null,
+      };
+      const validated = await applyValidatedKanban(next);
+      workflowActionStatus = validated.workflowLoadError
+        ? null
+        : `Using ${result.workflowPath}.`;
+    } catch (error) {
+      workflowActionError = errorMessage(error);
+    } finally {
+      workflowActionBusy = null;
+    }
+  }
+
+  async function revealWorkflowConfigDir(): Promise<void> {
+    workflowActionBusy = "reveal";
+    workflowActionError = null;
+    workflowActionStatus = null;
+    try {
+      const dir = await kanbanWorkflowConfigDir();
+      await revealItemInDir(dir);
+    } catch (error) {
+      workflowActionError = errorMessage(error);
+    } finally {
+      workflowActionBusy = null;
+    }
   }
 
   function updatePhase(
@@ -95,8 +237,75 @@
     aria-label="Workflow label"
     class="mt-2 w-full rounded border border-border bg-bg-deep px-2 py-1.5 text-xs text-text-primary outline-none focus:border-accent-dim"
     value={kanban.workflow.label}
+    disabled={isFileBackedWorkflow}
     oninput={(e) => updateWorkflowLabel(e.currentTarget.value)}
   />
+  <label
+    for="kanban-workflow-path"
+    class="mt-3 block text-[11px] uppercase tracking-wider text-text-muted"
+    >JSON file</label
+  >
+  <input
+    id="kanban-workflow-path"
+    aria-label="Workflow JSON file"
+    class="mt-1 w-full rounded border border-border bg-bg-deep px-2 py-1.5 text-xs text-text-primary outline-none focus:border-accent-dim"
+    value={kanban.workflowPath ?? ""}
+    placeholder="workflow.json"
+    oninput={(e) => updateWorkflowPath(e.currentTarget.value)}
+  />
+  <div class="mt-2 flex flex-wrap gap-2">
+    <button
+      type="button"
+      class={workflowActionButton}
+      disabled={workflowActionBusy !== null}
+      onclick={() => void browseWorkflowJson()}
+    >
+      <FolderOpen size={12} />
+      Browse
+    </button>
+    <button
+      type="button"
+      class={workflowActionButton}
+      disabled={workflowActionBusy !== null}
+      onclick={() => void validateWorkflowJson()}
+    >
+      <Check size={12} />
+      Validate
+    </button>
+    <button
+      type="button"
+      class={workflowActionButton}
+      disabled={workflowActionBusy !== null}
+      onclick={() => void copyExampleWorkflow()}
+    >
+      <Copy size={12} />
+      Copy example
+    </button>
+    <button
+      type="button"
+      class={workflowActionButton}
+      disabled={workflowActionBusy !== null}
+      onclick={() => void revealWorkflowConfigDir()}
+    >
+      <Folder size={12} />
+      Reveal
+    </button>
+  </div>
+  {#if workflowActionError}
+    <div class="mt-2 text-xs text-red" role="alert">{workflowActionError}</div>
+  {:else if workflowActionStatus}
+    <div class="mt-2 text-xs text-text-muted">{workflowActionStatus}</div>
+  {/if}
+  {#if kanban.workflowLoadError}
+    <div class="mt-2 text-xs text-red" role="alert">
+      {kanban.workflowLoadError}
+    </div>
+  {/if}
+  {#if isFileBackedWorkflow}
+    <div class="mt-2 text-xs text-text-muted">
+      Inline workflow fields are read-only while a JSON file is selected.
+    </div>
+  {/if}
 </div>
 
 {#each workflowPhases as phaseInfo (phaseInfo.id)}
@@ -117,6 +326,7 @@
             aria-label={`${phaseInfo.title} label`}
             class="w-40 rounded border border-border bg-bg-deep px-2 py-1 text-xs text-text-primary outline-none focus:border-accent-dim"
             value={phase.label}
+            disabled={isFileBackedWorkflow}
             oninput={(e) =>
               updatePhase(phaseInfo.id, { label: e.currentTarget.value })}
           />
@@ -130,6 +340,7 @@
           aria-label={`${phaseInfo.title} agent`}
           class="max-w-[14rem] cursor-pointer appearance-none rounded border border-border bg-bg-deep px-2 py-1 pr-6 text-xs text-text-primary outline-none focus:border-accent-dim"
           value={phase.agentProfile ?? ""}
+          disabled={isFileBackedWorkflow}
           onchange={(e) =>
             updatePhase(phaseInfo.id, {
               agentProfile: e.currentTarget.value || null,
@@ -157,6 +368,7 @@
                   aria-label={`${stageId} label`}
                   class="w-40 rounded border border-border bg-bg-deep px-2 py-1 text-xs text-text-primary outline-none focus:border-accent-dim"
                   value={stage.label}
+                  disabled={isFileBackedWorkflow}
                   oninput={(e) =>
                     updateReviewStage(stageId, {
                       label: e.currentTarget.value,
@@ -171,6 +383,7 @@
                   aria-label={`${stage.label || stageId} agent`}
                   class="max-w-[14rem] cursor-pointer appearance-none rounded border border-border bg-bg-deep px-2 py-1 pr-6 text-xs text-text-primary outline-none focus:border-accent-dim"
                   value={stage.agentProfile ?? ""}
+                  disabled={isFileBackedWorkflow}
                   onchange={(e) =>
                     updateReviewStage(stageId, {
                       agentProfile: e.currentTarget.value || null,
@@ -187,6 +400,7 @@
               aria-label={`${stage.label} instructions`}
               class="mt-2 min-h-20 w-full resize-y rounded border border-border bg-bg-deep px-2 py-1.5 text-xs text-text-primary outline-none focus:border-accent-dim"
               value={stage.instructions}
+              disabled={isFileBackedWorkflow}
               oninput={(e) =>
                 updateReviewStage(stageId, {
                   instructions: e.currentTarget.value,
@@ -200,6 +414,7 @@
         aria-label={`${phaseInfo.title} instructions`}
         class="mt-3 min-h-24 w-full resize-y rounded border border-border bg-bg-deep px-2 py-1.5 text-xs text-text-primary outline-none focus:border-accent-dim"
         value={phase.instructions}
+        disabled={isFileBackedWorkflow}
         oninput={(e) =>
           updatePhase(phaseInfo.id, { instructions: e.currentTarget.value })}
       ></textarea>

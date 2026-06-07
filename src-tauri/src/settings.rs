@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 use crate::paths::roux_config_dir;
@@ -29,11 +29,39 @@ pub enum SettingsError {
 
 pub fn load_settings() -> RouxSettings {
     let path = settings_path();
+    load_settings_from_path(&path)
+}
+
+fn load_settings_from_path(path: &Path) -> RouxSettings {
     if path.exists() {
-        let content = fs::read_to_string(&path).unwrap_or_default();
-        serde_json::from_str::<RouxSettings>(&content).unwrap_or_default().normalized()
+        let content = fs::read_to_string(path).unwrap_or_default();
+        roux_core::load_settings_json_with_kanban_workflow(&content, |workflow_path| {
+            let resolved = resolve_workflow_path(path, workflow_path);
+            let content = fs::read_to_string(&resolved)
+                .map_err(|err| roux_core::WorkflowLoadError::read(&resolved, err))?;
+            roux_core::parse_kanban_workflow_json(&content).map_err(|err| err.with_path(&resolved))
+        })
     } else {
         RouxSettings::default()
+    }
+}
+
+pub fn load_kanban_workflow_for_settings(settings: RouxSettings) -> RouxSettings {
+    let path = settings_path();
+    roux_core::load_kanban_workflow_for_settings(settings, |workflow_path| {
+        let resolved = resolve_workflow_path(&path, workflow_path);
+        let content = fs::read_to_string(&resolved)
+            .map_err(|err| roux_core::WorkflowLoadError::read(&resolved, err))?;
+        roux_core::parse_kanban_workflow_json(&content).map_err(|err| err.with_path(&resolved))
+    })
+}
+
+fn resolve_workflow_path(settings_path: &Path, workflow_path: &str) -> PathBuf {
+    let path = PathBuf::from(workflow_path);
+    if path.is_absolute() {
+        path
+    } else {
+        settings_path.parent().unwrap_or_else(|| Path::new(".")).join(path)
     }
 }
 
@@ -101,5 +129,101 @@ mod tests {
         let error = SettingsError::Write { source: io::Error::other("disk full") };
 
         assert_eq!(error.to_string(), "disk full");
+    }
+
+    #[test]
+    fn load_settings_from_path_applies_relative_workflow_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let settings_path = dir.path().join("settings.json");
+        fs::write(
+            dir.path().join("workflow.json"),
+            r#"{
+                "id": "personal",
+                "label": "Personal Flow",
+                "phases": {
+                    "planning": {
+                        "category": "planning",
+                        "label": "Shape",
+                        "agentProfile": null,
+                        "instructions": "Plan from file.",
+                        "stages": {}
+                    },
+                    "implementation": {
+                        "category": "implementation",
+                        "label": "Build",
+                        "agentProfile": "codex",
+                        "instructions": "Implement from file.",
+                        "stages": {}
+                    },
+                    "review": {
+                        "category": "review",
+                        "label": "Review",
+                        "agentProfile": null,
+                        "instructions": "",
+                        "stages": {
+                            "local_review": {
+                                "label": "Local QA",
+                                "agentProfile": null,
+                                "instructions": "Check locally."
+                            },
+                            "pr_review": {
+                                "label": "Team Review",
+                                "agentProfile": null,
+                                "instructions": "Check PR."
+                            }
+                        }
+                    }
+                }
+            }"#,
+        )
+        .unwrap();
+        let mut persisted = RouxSettings::default();
+        persisted.kanban.workflow_path = Some("workflow.json".into());
+        fs::write(&settings_path, serde_json::to_string_pretty(&persisted).unwrap()).unwrap();
+
+        let settings = super::load_settings_from_path(&settings_path);
+
+        assert_eq!(settings.kanban.workflow_path.as_deref(), Some("workflow.json"));
+        assert_eq!(settings.kanban.workflow.id, "personal");
+        assert_eq!(settings.kanban.workflow.label, "Personal Flow");
+        assert_eq!(settings.kanban.planning_instructions(), "Plan from file.");
+        assert!(settings.kanban.workflow_load_error.is_none());
+    }
+
+    #[test]
+    fn load_settings_from_path_preserves_inline_workflow_when_external_load_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        let settings_path = dir.path().join("settings.json");
+        let mut persisted = RouxSettings::default();
+        persisted.kanban.workflow_path = Some("missing.json".into());
+        persisted.kanban.workflow.id = "inline".into();
+        persisted.kanban.workflow.label = "Inline Flow".into();
+        persisted.kanban.workflow.phases.get_mut("planning").unwrap().label = "Plan Inline".into();
+        persisted.kanban.workflow.phases.get_mut("planning").unwrap().instructions =
+            "Inline planning.".into();
+        fs::write(&settings_path, serde_json::to_string_pretty(&persisted).unwrap()).unwrap();
+
+        let settings = super::load_settings_from_path(&settings_path);
+
+        assert_eq!(settings.kanban.workflow.id, "inline");
+        assert_eq!(settings.kanban.planning_instructions(), "Inline planning.");
+        assert!(settings.kanban.workflow_load_error.as_deref().unwrap().contains("missing.json"));
+    }
+
+    #[test]
+    fn load_settings_from_path_reports_external_parse_errors_with_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let settings_path = dir.path().join("settings.json");
+        let workflow_path = dir.path().join("workflow.json");
+        fs::write(&workflow_path, "{ nope").unwrap();
+        let mut persisted = RouxSettings::default();
+        persisted.kanban.workflow_path = Some("workflow.json".into());
+        fs::write(&settings_path, serde_json::to_string_pretty(&persisted).unwrap()).unwrap();
+
+        let settings = super::load_settings_from_path(&settings_path);
+        let error = settings.kanban.workflow_load_error.unwrap();
+
+        assert!(error.contains("workflow.json"));
+        assert!(error.contains("invalid workflow JSON"));
     }
 }

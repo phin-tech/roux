@@ -26,6 +26,19 @@ Settings -> Kanban controls the default autonomous agent profile, optional
 extra instructions appended to planning/implementation/review prompts, and the
 sidebar opened at launch.
 
+Settings -> Kanban can also point at a workflow JSON file. Use the settings
+panel to browse to a JSON file, validate the current path, reveal Roux's config
+directory, or copy a starter `kanban-workflow.json` there. Relative paths
+resolve from Roux's config directory, next to `settings.json`. In v1, custom
+JSON can rename the fixed high-level phases, assign phase/stage agent profiles,
+and provide phase/stage instructions. The runtime still expects the fixed phase
+ids `planning`, `implementation`, and `review`; review gates remain grouped
+under `review.stages.local_review` and `review.stages.pr_review`. While a JSON
+file is selected, the inline workflow fields in Settings are read-only; clear
+the JSON path to edit inline settings again.
+
+See [example Kanban workflow JSON](../examples/kanban-workflow.json).
+
 After a card has an active or previous run, the card shows **Open terminal**
 instead of **Start**. Opening the terminal attaches to the latest linked session;
 it does not create another run by itself. Starting again creates a separate run

@@ -2058,9 +2058,26 @@ fn load_daemon_settings() -> roux_core::RouxSettings {
     let path = platform::settings_path();
     if path.exists() {
         let content = std::fs::read_to_string(&path).unwrap_or_default();
-        serde_json::from_str::<roux_core::RouxSettings>(&content).unwrap_or_default().normalized()
+        roux_core::load_settings_json_with_kanban_workflow(&content, |workflow_path| {
+            let resolved = resolve_settings_relative_path(&path, workflow_path);
+            let content = std::fs::read_to_string(&resolved)
+                .map_err(|err| roux_core::WorkflowLoadError::read(&resolved, err))?;
+            roux_core::parse_kanban_workflow_json(&content).map_err(|err| err.with_path(&resolved))
+        })
     } else {
         roux_core::RouxSettings::default()
+    }
+}
+
+fn resolve_settings_relative_path(
+    settings_path: &std::path::Path,
+    configured_path: &str,
+) -> std::path::PathBuf {
+    let path = std::path::PathBuf::from(configured_path);
+    if path.is_absolute() {
+        path
+    } else {
+        settings_path.parent().unwrap_or_else(|| std::path::Path::new(".")).join(path)
     }
 }
 

@@ -378,6 +378,25 @@ export async function updateSettings(settings: RouxSettings): Promise<void> {
   return invoke("update_settings", { settings });
 }
 
+export interface KanbanWorkflowExampleResult {
+  path: string;
+  workflowPath: string;
+}
+
+export async function validateKanbanWorkflow(
+  settings: RouxSettings,
+): Promise<RouxSettings> {
+  return invoke("cmd_validate_kanban_workflow", { settings });
+}
+
+export async function kanbanWorkflowConfigDir(): Promise<string> {
+  return invoke("cmd_kanban_workflow_config_dir");
+}
+
+export async function createKanbanWorkflowExample(): Promise<KanbanWorkflowExampleResult> {
+  return invoke("cmd_create_kanban_workflow_example");
+}
+
 export async function createWorktree(
   repoPath: string,
   branch: string,
