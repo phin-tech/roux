@@ -342,8 +342,11 @@ fn default_agent_profile() -> String {
     "claude".to_string()
 }
 
+const DEFAULT_KANBAN_WORKFLOW_JSON: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../src/lib/workItems/defaultWorkflow.json"
+));
 const KANBAN_WORKFLOW_DEFAULT_ID: &str = "default";
-const KANBAN_WORKFLOW_DEFAULT_LABEL: &str = "Default";
 const KANBAN_PHASE_PLANNING: &str = "planning";
 const KANBAN_PHASE_IMPLEMENTATION: &str = "implementation";
 const KANBAN_PHASE_REVIEW: &str = "review";
@@ -397,74 +400,116 @@ pub struct KanbanWorkflowSettings {
     pub phases: BTreeMap<String, KanbanWorkflowPhaseSettings>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BundledKanbanWorkflowSettings {
+    id: String,
+    label: String,
+    phases: BTreeMap<String, KanbanWorkflowPhaseSettings>,
+}
+
+impl From<BundledKanbanWorkflowSettings> for KanbanWorkflowSettings {
+    fn from(value: BundledKanbanWorkflowSettings) -> Self {
+        Self { id: value.id, label: value.label, phases: value.phases }
+    }
+}
+
 impl Default for KanbanWorkflowSettings {
     fn default() -> Self {
-        Self {
-            id: KANBAN_WORKFLOW_DEFAULT_ID.to_string(),
-            label: KANBAN_WORKFLOW_DEFAULT_LABEL.to_string(),
-            phases: default_kanban_workflow_phases(),
-        }
+        default_kanban_workflow_from_json()
     }
 }
 
 fn default_kanban_workflow() -> KanbanWorkflowSettings {
-    KanbanWorkflowSettings::default()
+    default_kanban_workflow_from_json()
+}
+
+fn default_kanban_workflow_from_json() -> KanbanWorkflowSettings {
+    let workflow: KanbanWorkflowSettings =
+        serde_json::from_str::<BundledKanbanWorkflowSettings>(DEFAULT_KANBAN_WORKFLOW_JSON)
+            .expect("bundled Kanban workflow JSON must deserialize")
+            .into();
+    validate_default_kanban_workflow(&workflow)
+        .expect("bundled Kanban workflow JSON must satisfy runtime assumptions");
+    workflow
 }
 
 fn default_kanban_workflow_phases() -> BTreeMap<String, KanbanWorkflowPhaseSettings> {
-    BTreeMap::from([
-        (
-            KANBAN_PHASE_PLANNING.to_string(),
-            KanbanWorkflowPhaseSettings {
-                category: KanbanWorkflowPhaseCategory::Planning,
-                label: "Planning".to_string(),
-                agent_profile: None,
-                instructions: String::new(),
-                stages: BTreeMap::new(),
-            },
-        ),
-        (
-            KANBAN_PHASE_IMPLEMENTATION.to_string(),
-            KanbanWorkflowPhaseSettings {
-                category: KanbanWorkflowPhaseCategory::Implementation,
-                label: "Implementation".to_string(),
-                agent_profile: None,
-                instructions: String::new(),
-                stages: BTreeMap::new(),
-            },
-        ),
-        (
-            KANBAN_PHASE_REVIEW.to_string(),
-            KanbanWorkflowPhaseSettings {
-                category: KanbanWorkflowPhaseCategory::Review,
-                label: "Review".to_string(),
-                agent_profile: None,
-                instructions: String::new(),
-                stages: default_kanban_review_stages(),
-            },
-        ),
-    ])
+    default_kanban_workflow_from_json().phases
 }
 
 fn default_kanban_review_stages() -> BTreeMap<String, KanbanReviewStageSettings> {
-    BTreeMap::from([
-        (
-            KANBAN_REVIEW_STAGE_LOCAL.to_string(),
-            KanbanReviewStageSettings {
-                label: "Local Review".to_string(),
-                agent_profile: None,
-                instructions: String::new(),
-            },
-        ),
-        (
-            KANBAN_REVIEW_STAGE_PR.to_string(),
-            KanbanReviewStageSettings {
-                label: "PR Review".to_string(),
-                agent_profile: None,
-                instructions: String::new(),
-            },
-        ),
-    ])
+    default_kanban_workflow_from_json()
+        .phases
+        .remove(KANBAN_PHASE_REVIEW)
+        .map(|phase| phase.stages)
+        .unwrap_or_default()
+}
+
+fn validate_default_kanban_workflow(workflow: &KanbanWorkflowSettings) -> Result<(), String> {
+    if workflow.id.trim() != KANBAN_WORKFLOW_DEFAULT_ID {
+        return Err(format!(
+            "workflow id must be {KANBAN_WORKFLOW_DEFAULT_ID:?}, got {:?}",
+            workflow.id
+        ));
+    }
+    if workflow.label.trim().is_empty() {
+        return Err("workflow label must not be empty".to_string());
+    }
+
+    let required_phases = [
+        (KANBAN_PHASE_PLANNING, KanbanWorkflowPhaseCategory::Planning),
+        (KANBAN_PHASE_IMPLEMENTATION, KanbanWorkflowPhaseCategory::Implementation),
+        (KANBAN_PHASE_REVIEW, KanbanWorkflowPhaseCategory::Review),
+    ];
+    if workflow.phases.len() != required_phases.len() {
+        return Err(
+            "workflow must define exactly planning, implementation, and review phases".to_string()
+        );
+    }
+    for phase_id in workflow.phases.keys() {
+        if !required_phases.iter().any(|(expected_id, _)| phase_id == expected_id) {
+            return Err(format!("unknown workflow phase {phase_id:?}"));
+        }
+    }
+    for (phase_id, category) in required_phases {
+        let Some(phase) = workflow.phases.get(phase_id) else {
+            return Err(format!("missing workflow phase {phase_id:?}"));
+        };
+        if phase.category != category {
+            return Err(format!("workflow phase {phase_id:?} has the wrong category"));
+        }
+        if phase.label.trim().is_empty() {
+            return Err(format!("workflow phase {phase_id:?} label must not be empty"));
+        }
+        if phase_id != KANBAN_PHASE_REVIEW && !phase.stages.is_empty() {
+            return Err(format!("workflow phase {phase_id:?} must not define review stages"));
+        }
+    }
+
+    let review =
+        workflow.phases.get(KANBAN_PHASE_REVIEW).expect("review phase was already validated");
+    let required_stages = [KANBAN_REVIEW_STAGE_LOCAL, KANBAN_REVIEW_STAGE_PR];
+    if review.stages.len() != required_stages.len() {
+        return Err(
+            "review phase must define exactly local_review and pr_review stages".to_string()
+        );
+    }
+    for stage_id in review.stages.keys() {
+        if !required_stages.iter().any(|expected_id| stage_id == expected_id) {
+            return Err(format!("unknown review stage {stage_id:?}"));
+        }
+    }
+    for stage_id in required_stages {
+        let Some(stage) = review.stages.get(stage_id) else {
+            return Err(format!("missing review stage {stage_id:?}"));
+        };
+        if stage.label.trim().is_empty() {
+            return Err(format!("review stage {stage_id:?} label must not be empty"));
+        }
+    }
+
+    Ok(())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
@@ -1483,6 +1528,21 @@ mod tests {
         assert!(value.get("implementationPromptAppend").is_none());
         assert!(value.get("reviewPromptAppend").is_none());
         assert!(value.get("defaultAgentProfile").is_none());
+    }
+
+    #[test]
+    fn default_kanban_workflow_matches_bundled_json() {
+        let from_json = super::default_kanban_workflow_from_json();
+
+        assert_eq!(KanbanWorkflowSettings::default(), from_json);
+    }
+
+    #[test]
+    fn bundled_kanban_workflow_has_required_runtime_categories() {
+        let workflow = super::default_kanban_workflow_from_json();
+
+        super::validate_default_kanban_workflow(&workflow)
+            .expect("bundled Kanban workflow must satisfy runtime assumptions");
     }
 
     #[test]

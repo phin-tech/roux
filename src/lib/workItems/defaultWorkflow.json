@@ -1,0 +1,38 @@
+{
+  "id": "default",
+  "label": "Default",
+  "phases": {
+    "planning": {
+      "category": "planning",
+      "label": "Planning",
+      "agentProfile": null,
+      "instructions": "",
+      "stages": {}
+    },
+    "implementation": {
+      "category": "implementation",
+      "label": "Implementation",
+      "agentProfile": null,
+      "instructions": "",
+      "stages": {}
+    },
+    "review": {
+      "category": "review",
+      "label": "Review",
+      "agentProfile": null,
+      "instructions": "",
+      "stages": {
+        "local_review": {
+          "label": "Local Review",
+          "agentProfile": null,
+          "instructions": ""
+        },
+        "pr_review": {
+          "label": "PR Review",
+          "agentProfile": null,
+          "instructions": ""
+        }
+      }
+    }
+  }
+}

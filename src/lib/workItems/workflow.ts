@@ -4,6 +4,7 @@ import type {
   KanbanWorkflowPhaseSettings,
   KanbanWorkflowSettings,
 } from "$lib/bindings";
+import defaultWorkflow from "./defaultWorkflow.json";
 
 export const WORKFLOW_PHASE_IDS = [
   "planning",
@@ -15,41 +16,6 @@ export type WorkflowPhaseId = (typeof WORKFLOW_PHASE_IDS)[number];
 export const REVIEW_STAGE_IDS = ["local_review", "pr_review"] as const;
 export type ReviewStageId = (typeof REVIEW_STAGE_IDS)[number];
 export const DEFAULT_REVIEW_STAGE_ID: ReviewStageId = "local_review";
-
-const DEFAULT_PHASES: Record<WorkflowPhaseId, RequiredPhaseSettings> = {
-  planning: {
-    category: "planning",
-    label: "Planning",
-    agentProfile: null,
-    instructions: "",
-    stages: {},
-  },
-  implementation: {
-    category: "implementation",
-    label: "Implementation",
-    agentProfile: null,
-    instructions: "",
-    stages: {},
-  },
-  review: {
-    category: "review",
-    label: "Review",
-    agentProfile: null,
-    instructions: "",
-    stages: {
-      local_review: {
-        label: "Local Review",
-        agentProfile: null,
-        instructions: "",
-      },
-      pr_review: {
-        label: "PR Review",
-        agentProfile: null,
-        instructions: "",
-      },
-    },
-  },
-};
 
 export type RequiredReviewStageSettings = Required<
   Pick<KanbanReviewStageSettings, "label" | "agentProfile" | "instructions">
@@ -76,13 +42,18 @@ export type RequiredKanbanSettings = Required<
   workflow: RequiredWorkflowSettings;
 };
 
+const BUNDLED_DEFAULT_WORKFLOW =
+  defaultWorkflow as unknown as RequiredWorkflowSettings;
+
+export const DEFAULT_WORKFLOW_SETTINGS: RequiredWorkflowSettings =
+  cloneWorkflow(BUNDLED_DEFAULT_WORKFLOW);
+
+const DEFAULT_PHASES: Record<WorkflowPhaseId, RequiredPhaseSettings> =
+  clonePhases(DEFAULT_WORKFLOW_SETTINGS.phases);
+
 export const DEFAULT_KANBAN_SETTINGS: RequiredKanbanSettings = {
   startupSidebar: "restore",
-  workflow: {
-    id: "default",
-    label: "Default",
-    phases: clonePhases(DEFAULT_PHASES),
-  },
+  workflow: cloneWorkflow(DEFAULT_WORKFLOW_SETTINGS),
 };
 
 export function normalizeKanbanSettings(
@@ -181,6 +152,16 @@ function clonePhases(
     cloned[phaseId] = { ...phases[phaseId], stages };
   }
   return cloned;
+}
+
+function cloneWorkflow(
+  workflow: RequiredWorkflowSettings,
+): RequiredWorkflowSettings {
+  return {
+    id: workflow.id,
+    label: workflow.label,
+    phases: clonePhases(workflow.phases),
+  };
 }
 
 function nonEmpty(value: string | null | undefined): string | null {
