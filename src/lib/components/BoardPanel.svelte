@@ -401,6 +401,11 @@
                 itemRuns,
                 planningRun?.sessionId ?? null,
               )}
+              {@const attentionSessionId =
+                attachedSessionIds.find(
+                  (sessionId) =>
+                    $sessionStatusMap.get(sessionId) === "attention",
+                ) ?? null}
               {@const phase = workItemPhase({
                 status: item.status,
                 sessionId: item.sessionId,
@@ -421,6 +426,7 @@
                 {phase}
                 {reviewPackage}
                 {attachedSessionIds}
+                {attentionSessionId}
                 onStart={handleStart}
                 onPlan={handlePlan}
                 onRunStage={handleRunStage}

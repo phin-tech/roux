@@ -77,6 +77,7 @@
     phase: WorkItemPhase;
     reviewPackage?: WorkItemReviewPackage | null;
     attachedSessionIds?: string[];
+    attentionSessionId?: string | null;
     /** Opt-in card dragging. The full-screen board enables it; the sidebar leaves it off. */
     draggable?: boolean;
   }
@@ -106,6 +107,7 @@
     phase,
     reviewPackage = null,
     attachedSessionIds = [],
+    attentionSessionId: attachedAttentionSessionId = null,
     draggable = false,
   }: Props = $props();
 
@@ -123,7 +125,10 @@
   const isPlanning = $derived(phase.isPlanning);
   const hasAttachedPlan = $derived(phase.hasAttachedPlan);
   const pendingDecision = $derived(phase.pendingDecision);
-  const attentionSessionId = $derived(phase.attentionSessionId);
+  const attentionSessionId = $derived(
+    phase.attentionSessionId ?? attachedAttentionSessionId,
+  );
+  const hasPendingQuestion = $derived(!!pendingDecision || !!attentionSessionId);
   const primaryOpenSessionId = $derived(
     phase.action.kind === "open-session" ? phase.action.sessionId : null,
   );
@@ -253,10 +258,10 @@
   const attentionButtonRight = $derived(hasMenuActions ? "2rem" : "0.375rem");
   const liveStatusRight = $derived(
     hasMenuActions
-      ? pendingDecision
+      ? hasPendingQuestion
         ? "3.5rem"
         : "2rem"
-      : pendingDecision
+      : hasPendingQuestion
         ? "2rem"
         : "0.5rem",
   );
@@ -404,6 +409,17 @@
     onOpen?.(attentionSessionId);
   }
 
+  function handleQuestionChipClick(event: MouseEvent): void {
+    event.stopPropagation();
+    if (pendingDecision && onEdit) {
+      onEdit(item.id);
+      return;
+    }
+    if (attentionSessionId && onOpen) {
+      onOpen(attentionSessionId);
+    }
+  }
+
   function handleUnreadActivityOpen(event: MouseEvent): void {
     event.stopPropagation();
     if (!unreadActivity.targetSessionId) return;
@@ -436,7 +452,7 @@
   {draggable}
   data-session-bound={hasSession}
   data-error={!!startError}
-  data-blocked={!!pendingDecision}
+  data-blocked={hasPendingQuestion}
   ondragstart={draggable
     ? (e) => writeWorkItemDragData(e.dataTransfer, item)
     : undefined}
@@ -460,13 +476,13 @@
     </span>
   {/if}
 
-  {#if pendingDecision}
+  {#if hasPendingQuestion}
     <button
       type="button"
       class="absolute top-1.5 z-10 flex h-6 w-6 items-center justify-center rounded-md border border-accent-dim/35 bg-accent-dim/15 text-accent shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition-colors hover:bg-accent-dim/25 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/60 disabled:cursor-default disabled:opacity-60"
       style={`right: ${attentionButtonRight};`}
       aria-label="Open session with pending question"
-      title={pendingDecision.question}
+      title={pendingDecision?.question ?? "Session needs attention"}
       onclick={handleAttentionOpen}
       disabled={!attentionSessionId || !onOpen}
     >
@@ -523,8 +539,38 @@
     </p>
   {/if}
 
-  {#if workflowStageName || hasAttachedPlan || projectLabel || profileLabel || targetLabel || branchLabel}
+  {#if hasPendingQuestion || workflowStageName || hasAttachedPlan || projectLabel || profileLabel || targetLabel || branchLabel}
     <div class="flex flex-wrap gap-1.5">
+      {#if hasPendingQuestion}
+        {#if onEdit || (attentionSessionId && onOpen)}
+          <button
+            type="button"
+            class="inline-flex min-w-0 max-w-full items-center gap-1 rounded-md border border-amber/35 bg-amber/12 px-1.5 py-0.5 text-[10px] font-semibold leading-4 text-amber transition-colors hover:bg-amber/18 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-amber/50"
+            title={pendingDecision?.question ?? "Session needs attention"}
+            aria-label="Open pending question"
+            onclick={handleQuestionChipClick}
+          >
+            <MessageSquareWarning
+              size={10}
+              strokeWidth={2.2}
+              class="shrink-0"
+            />
+            <span class="truncate">Question</span>
+          </button>
+        {:else}
+          <span
+            class="inline-flex min-w-0 max-w-full items-center gap-1 rounded-md border border-amber/35 bg-amber/12 px-1.5 py-0.5 text-[10px] font-semibold leading-4 text-amber"
+            title={pendingDecision?.question ?? "Session needs attention"}
+          >
+            <MessageSquareWarning
+              size={10}
+              strokeWidth={2.2}
+              class="shrink-0"
+            />
+            <span class="truncate">Question</span>
+          </span>
+        {/if}
+      {/if}
       {#if workflowStageName}
         <span class={chipClass}>
           <span class="truncate">{workflowStageName}</span>

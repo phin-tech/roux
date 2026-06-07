@@ -319,7 +319,17 @@ export const commands = {
 	workItemReviewAccept: (id: string) => typedError<WorkItemReviewAcceptResult, string>(__TAURI_INVOKE("work_item_review_accept", { id })),
 	workItemReviewRequest: (runId: string) => typedError<WorkItemReviewRequestResult, string>(__TAURI_INVOKE("work_item_review_request", { runId })),
 	workItemReviewRequestChanges: (id: string, note: string, status: string | null) => typedError<WorkItemReviewRequestChangesResult, string>(__TAURI_INVOKE("work_item_review_request_changes", { id, note, status })),
-	workItemStart: (id: string, options: WorkItemStartCommandOptions | null) => typedError<WorkItemStartResult, string>(__TAURI_INVOKE("work_item_start", { id, options })),
+	workItemStart: (id: string, options: {
+	profile: string | null,
+	repoPath: string | null,
+	name: string | null,
+	worktreePath: string | null,
+	branch: string | null,
+	base: string | null,
+	fetchFirst: boolean | null,
+	forceStart: boolean | null,
+	fixCi: boolean | null,
+} | null) => typedError<WorkItemStartResult, string>(__TAURI_INVOKE("work_item_start", { id, options })),
 	notesRead: (target: NotesTarget) => typedError<NotesRead, string>(__TAURI_INVOKE("notes_read", { target })),
 	notesWrite: (target: NotesTarget, content: string, tags: string[]) => typedError<null, string>(__TAURI_INVOKE("notes_write", { target, content, tags })),
 	notesAppend: (target: NotesTarget, content: string, timestamped: boolean, tags: string[]) => typedError<null, string>(__TAURI_INVOKE("notes_append", { target, content, timestamped, tags })),
@@ -638,16 +648,29 @@ export type KanbanSettings = {
 	workflow?: KanbanWorkflowSettings,
 };
 
+export type KanbanStartupSidebar = "restore" | "sessions" | "kanban" | "none";
+
+export type KanbanWorkflowCommandCwd = "worktree" | "project" | "repo" | "none";
+
 export type KanbanWorkflowExampleResult = {
 	path: string,
 	workflowPath: string,
 };
 
-export type KanbanStartupSidebar = "restore" | "sessions" | "kanban" | "none";
+export type KanbanWorkflowGateSettings = { type: "manual" } | { type: "command"; command: string; args?: string[]; cwd?: KanbanWorkflowCommandCwd; timeoutSeconds?: number | null };
 
 export type KanbanWorkflowPhaseCategory = "todo" | "planning" | "doing" | "review" | "done";
 
-export type KanbanWorkflowStageKind = "manual" | "work" | "gate";
+export type KanbanWorkflowPhaseSettings = {
+	category?: KanbanWorkflowPhaseCategory,
+	label?: string,
+	agentProfile?: string | null,
+	instructions?: string,
+	prompt?: KanbanWorkflowPromptSettings,
+	env?: { [key in string]: string },
+	stageOrder?: string[],
+	stages?: { [key in string]: KanbanWorkflowStageSettings },
+};
 
 export type KanbanWorkflowPromptMode = "append" | "replace";
 
@@ -656,11 +679,32 @@ export type KanbanWorkflowPromptSettings = {
 	instructions?: string,
 };
 
-export type KanbanWorkflowCommandCwd = "worktree" | "project" | "repo" | "none";
-
 export type KanbanWorkflowRunnerSettings = { type: "agent"; agentProfile?: string | null } | { type: "command"; command: string; args?: string[]; cwd?: KanbanWorkflowCommandCwd; timeoutSeconds?: number | null };
 
-export type KanbanWorkflowGateSettings = { type: "manual" } | { type: "command"; command: string; args?: string[]; cwd?: KanbanWorkflowCommandCwd; timeoutSeconds?: number | null };
+export type KanbanWorkflowSettings = {
+	id?: string,
+	label?: string,
+	env?: { [key in string]: string },
+	phaseOrder?: string[],
+	phases?: { [key in string]: KanbanWorkflowPhaseSettings },
+};
+
+export type KanbanWorkflowStageKind = "manual" | "work" | "gate";
+
+export type KanbanWorkflowStageSettings = {
+	label?: string,
+	actionLabel?: string | null,
+	category?: KanbanWorkflowPhaseCategory,
+	kind?: KanbanWorkflowStageKind,
+	agentProfile?: string | null,
+	instructions?: string,
+	prompt?: KanbanWorkflowPromptSettings,
+	runner?: KanbanWorkflowRunnerSettings | null,
+	gate?: KanbanWorkflowGateSettings | null,
+	env?: { [key in string]: string },
+	transitions?: KanbanWorkflowTransitions,
+	terminal?: boolean,
+};
 
 export type KanbanWorkflowTransitions = {
 	onComplete?: string | null,
@@ -669,40 +713,6 @@ export type KanbanWorkflowTransitions = {
 	onChangesRequested?: string | null,
 	onCiFailed?: string | null,
 	onReviewComments?: string | null,
-};
-
-export type KanbanWorkflowStageSettings = {
-	label?: string,
-	actionLabel?: string,
-	category?: KanbanWorkflowPhaseCategory,
-	kind?: KanbanWorkflowStageKind,
-	agentProfile?: string | null,
-	instructions?: string,
-	prompt?: KanbanWorkflowPromptSettings | null,
-	runner?: KanbanWorkflowRunnerSettings | null,
-	gate?: KanbanWorkflowGateSettings | null,
-	env?: { [key in string]?: string },
-	transitions?: KanbanWorkflowTransitions | null,
-	terminal?: boolean,
-};
-
-export type KanbanWorkflowPhaseSettings = {
-	category?: KanbanWorkflowPhaseCategory,
-	label?: string,
-	agentProfile?: string | null,
-	instructions?: string,
-	prompt?: KanbanWorkflowPromptSettings | null,
-	env?: { [key in string]?: string },
-	stageOrder?: string[],
-	stages?: { [key in string]?: KanbanWorkflowStageSettings },
-};
-
-export type KanbanWorkflowSettings = {
-	id?: string,
-	label?: string,
-	env?: { [key in string]?: string },
-	phaseOrder?: string[],
-	phases?: { [key in string]?: KanbanWorkflowPhaseSettings },
 };
 
 export type KeepOpen = "always" | "on-error" | "never";
@@ -1656,15 +1666,21 @@ export type WorkItem = {
 	title: string,
 	body: string | null,
 	status: WorkItemStatus,
+	// Workflow that owns this card's precise execution stages.
+	workflowId: string | null,
+	/**
+	 *  Precise workflow stage for execution. `status` is the coarse board
+	 *  category derived from this stage.
+	 */
+	workflowStageId: string | null,
+	// Last resolved stage label for debugging after workflow JSON changes.
+	workflowStageLabel: string | null,
 	/**
 	 *  Stable id of the review gate the card is currently satisfying.
 	 *  Labels are resolved from workflow metadata so display text can change
 	 *  without rewriting stored cards.
 	 */
 	reviewStageId: string | null,
-	workflowId: string | null,
-	workflowStageId: string | null,
-	workflowStageLabel: string | null,
 	/**
 	 *  Repo to use when starting the card. If unset, the daemon derives it from
 	 *  the attached project.
@@ -1725,9 +1741,6 @@ export type WorkItemInputBinding = {
 	title: string,
 	body?: string | null,
 	status?: WorkItemStatus | null,
-	workflowId?: string | null,
-	workflowStageId?: string | null,
-	workflowStageLabel?: string | null,
 	repoPath?: string | null,
 	agentProfile?: string | null,
 	baseBranch?: string | null,
@@ -1735,6 +1748,9 @@ export type WorkItemInputBinding = {
 	branch?: string | null,
 	fetchFirst?: boolean | null,
 	startError?: string | null,
+	workflowId?: string | null,
+	workflowStageId?: string | null,
+	workflowStageLabel?: string | null,
 	projectId?: string | null,
 	parentId?: string | null,
 	externalRef?: ExternalRef | null,
@@ -1745,18 +1761,6 @@ export type WorkItemPlanResult = {
 	item: WorkItem,
 	run: WorkItemRun,
 	session: Session,
-};
-
-export type WorkItemStartCommandOptions = {
-	profile?: string | null,
-	repoPath?: string | null,
-	name?: string | null,
-	worktreePath?: string | null,
-	branch?: string | null,
-	base?: string | null,
-	fetchFirst?: boolean | null,
-	forceStart?: boolean | null,
-	fixCi?: boolean | null,
 };
 
 export type WorkItemReviewAcceptResult = {
@@ -1773,13 +1777,6 @@ export type WorkItemReviewRequestChangesResult = {
 export type WorkItemReviewRequestResult = {
 	item: WorkItem,
 	run: WorkItemRun,
-};
-
-export type WorkItemStageRunResult = {
-	item: WorkItem,
-	run: WorkItemRun,
-	session: Session | null,
-	outcome: string,
 };
 
 export type WorkItemRun = {
@@ -1803,6 +1800,25 @@ export type WorkItemRun = {
 export type WorkItemRunKind = "planning" | "implementation" | "review";
 
 export type WorkItemRunStatus = "queued" | "starting" | "running" | "blocked" | "review" | "changesRequested" | "failed" | "stopped" | "done";
+
+export type WorkItemStageRunResult = {
+	item: WorkItem,
+	run: WorkItemRun,
+	session: Session | null,
+	outcome: string,
+};
+
+export type WorkItemStartCommandOptions = {
+	profile: string | null,
+	repoPath: string | null,
+	name: string | null,
+	worktreePath: string | null,
+	branch: string | null,
+	base: string | null,
+	fetchFirst: boolean | null,
+	forceStart: boolean | null,
+	fixCi: boolean | null,
+};
 
 export type WorkItemStartResult = {
 	item: WorkItem,
@@ -1977,3 +1993,4 @@ async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; dat
         return { status: "error", error: e as any };
     }
 }
+

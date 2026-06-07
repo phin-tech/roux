@@ -38,7 +38,7 @@ import type { Attachment, WorkItemRun } from "$lib/types/workItems";
 import { notifications } from "$lib/stores/notifications";
 import { projects } from "$lib/stores/projects";
 import { createSessionShell, openPathInFinder } from "$lib/tauri";
-import { addSession, setActiveSession } from "$lib/stores/sessions";
+import { addSession, sessionList, setActiveSession } from "$lib/stores/sessions";
 import { settings } from "$lib/stores/settings";
 import {
   _resetWorktreeMetadataForTests,
@@ -352,6 +352,7 @@ describe("BoardMainView", () => {
       workItemRunEvents as ReturnType<typeof import("svelte/store").writable>
     ).set([]);
     projects.set([project()]);
+    (sessionList as ReturnType<typeof import("svelte/store").writable>).set([]);
     notifications.set([]);
     settings.set({ ...DEFAULT_SETTINGS });
     _resetWorktreeMetadataForTests();
@@ -1118,9 +1119,59 @@ describe("BoardMainView", () => {
     render(BoardMainView);
 
     expect(screen.queryByText("What should the report include?")).toBeNull();
+    expect(screen.getByText("Question")).toBeTruthy();
+    await fireEvent.click(screen.getByLabelText("Open pending question"));
+
+    expect(openWorkItemEditor).toHaveBeenCalledWith("wi-plan");
+    expect(openSessionById).not.toHaveBeenCalled();
+
+    vi.clearAllMocks();
     await fireEvent.click(
       screen.getByLabelText("Open session with pending question"),
     );
+
+    expect(openSessionById).toHaveBeenCalledWith("plan-sess-1");
+    await vi.waitFor(() => expect(closeMainView).toHaveBeenCalled());
+  });
+
+  it("shows a question chip for a planning session in attention state", async () => {
+    seedColumns([workItem({ id: "wi-plan", status: "todo", sessionId: null })]);
+    (
+      activePlanningRunByItem as ReturnType<
+        typeof import("svelte/store").writable
+      >
+    ).set(
+      new Map([
+        [
+          "wi-plan",
+          workItemRun({
+            id: "run-plan",
+            workItemId: "wi-plan",
+            kind: "planning",
+            sessionId: "plan-sess-1",
+            status: "running",
+          }),
+        ],
+      ]),
+    );
+    (sessionList as ReturnType<typeof import("svelte/store").writable>).set([
+      {
+        id: "plan-sess-1",
+        name: "Planning",
+        repoRoot: "/repo",
+        worktreePath: "/repo",
+        branch: "main",
+        isWorktree: false,
+        status: "attention",
+        model: null,
+        cost: null,
+        createdAt: 1,
+      },
+    ]);
+    render(BoardMainView);
+
+    expect(screen.getByText("Question")).toBeTruthy();
+    await fireEvent.click(screen.getByLabelText("Open pending question"));
 
     expect(openSessionById).toHaveBeenCalledWith("plan-sess-1");
     await vi.waitFor(() => expect(closeMainView).toHaveBeenCalled());

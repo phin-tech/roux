@@ -39,7 +39,7 @@ export type RequiredStageSettings = Required<
     "label" | "actionLabel" | "category" | "kind" | "agentProfile" | "instructions"
   >
 > & {
-  prompt: KanbanWorkflowPromptSettings | null;
+  prompt: KanbanWorkflowPromptSettings;
   runner: KanbanWorkflowStageSettings["runner"];
   gate: KanbanWorkflowStageSettings["gate"];
   env: Record<string, string>;
@@ -53,7 +53,7 @@ export type RequiredPhaseSettings = Required<
     "category" | "label" | "agentProfile" | "instructions"
   >
 > & {
-  prompt: KanbanWorkflowPromptSettings | null;
+  prompt: KanbanWorkflowPromptSettings;
   env: Record<string, string>;
   stageOrder: string[];
   stages: Record<string, RequiredStageSettings>;
@@ -75,6 +75,10 @@ export type RequiredKanbanSettings = Required<
 
 const BUNDLED_DEFAULT_WORKFLOW =
   defaultWorkflow as unknown as RequiredWorkflowSettings;
+const DEFAULT_PROMPT_SETTINGS: KanbanWorkflowPromptSettings = {
+  mode: "append",
+  instructions: "",
+};
 
 export const DEFAULT_WORKFLOW_SETTINGS: RequiredWorkflowSettings =
   cloneWorkflow(BUNDLED_DEFAULT_WORKFLOW);
@@ -181,7 +185,7 @@ function normalizePhase(
     label: nonEmpty(phase?.label) ?? fallback.label,
     agentProfile: nonEmpty(phase?.agentProfile) ?? null,
     instructions: phase?.instructions?.trim() ?? "",
-    prompt: phase?.prompt ?? null,
+    prompt: normalizePrompt(phase?.prompt ?? fallback.prompt),
     env: normalizeEnv(phase?.env),
     stageOrder: normalizeOrder(phase?.stageOrder, fallback.stageOrder),
     stages: normalizeStages(id, phase?.stages),
@@ -222,7 +226,7 @@ function normalizeStage(
     kind: stage?.kind ?? fallback?.kind ?? kind,
     agentProfile: nonEmpty(stage?.agentProfile) ?? fallback?.agentProfile ?? null,
     instructions: stage?.instructions?.trim() ?? fallback?.instructions ?? "",
-    prompt: stage?.prompt ?? fallback?.prompt ?? null,
+    prompt: normalizePrompt(stage?.prompt ?? fallback?.prompt),
     runner: stage?.runner ?? fallback?.runner ?? null,
     gate: stage?.gate ?? fallback?.gate ?? null,
     env: normalizeEnv(stage?.env ?? fallback?.env),
@@ -261,6 +265,15 @@ function normalizeEnv(
   return normalized;
 }
 
+function normalizePrompt(
+  prompt: KanbanWorkflowPromptSettings | null | undefined,
+): KanbanWorkflowPromptSettings {
+  return {
+    mode: prompt?.mode ?? DEFAULT_PROMPT_SETTINGS.mode,
+    instructions: prompt?.instructions?.trim() ?? "",
+  };
+}
+
 function clonePhases(
   phases: Record<WorkflowPhaseId, RequiredPhaseSettings>,
 ): Record<WorkflowPhaseId, RequiredPhaseSettings> {
@@ -269,7 +282,7 @@ function clonePhases(
     const phase = phases[phaseId];
     cloned[phaseId] = {
       ...phase,
-      prompt: phase.prompt ? { ...phase.prompt } : null,
+      prompt: { ...phase.prompt },
       env: { ...phase.env },
       stageOrder: [...phase.stageOrder],
       stages: cloneStages(phase.stages),
@@ -285,7 +298,7 @@ function cloneStages(
   for (const [id, stage] of Object.entries(stages)) {
     cloned[id] = {
       ...stage,
-      prompt: stage.prompt ? { ...stage.prompt } : null,
+      prompt: { ...stage.prompt },
       env: { ...stage.env },
       transitions: { ...stage.transitions },
     };
