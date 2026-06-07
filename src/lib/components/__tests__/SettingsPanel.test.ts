@@ -224,6 +224,51 @@ describe("SettingsPanel Kanban tab", () => {
     ).toBe("/tmp/team-workflow.json");
   });
 
+  it("shows workflow load errors from browsed JSON files", async () => {
+    vi.mocked(open).mockResolvedValue("/tmp/broken-workflow.json");
+    vi.mocked(validateKanbanWorkflow).mockImplementation(async (draft) => ({
+      ...draft,
+      kanban: {
+        ...draft.kanban,
+        workflowPath: "/tmp/broken-workflow.json",
+        workflowLoadError: "Invalid workflow JSON",
+      },
+    }));
+
+    render(SettingsPanel, { visible: true, onclose: vi.fn() });
+
+    await fireEvent.click(screen.getByRole("button", { name: "Kanban" }));
+    await fireEvent.click(screen.getByRole("button", { name: "Browse" }));
+
+    expect(await screen.findByText("Invalid workflow JSON")).toBeTruthy();
+    expect(screen.queryByText("Workflow JSON is valid.")).toBeNull();
+  });
+
+  it("makes inline workflow fields read-only when JSON owns the workflow", async () => {
+    settings.set({
+      ...DEFAULT_SETTINGS,
+      kanban: {
+        ...DEFAULT_SETTINGS.kanban,
+        workflowPath: "kanban-workflow.json",
+      },
+    });
+
+    render(SettingsPanel, { visible: true, onclose: vi.fn() });
+
+    await fireEvent.click(screen.getByRole("button", { name: "Kanban" }));
+
+    expect(
+      (screen.getByLabelText("Workflow label") as HTMLInputElement).disabled,
+    ).toBe(true);
+    expect(
+      (screen.getByLabelText("Planning instructions") as HTMLTextAreaElement)
+        .disabled,
+    ).toBe(true);
+    expect(
+      (screen.getByLabelText("Planning agent") as HTMLSelectElement).disabled,
+    ).toBe(true);
+  });
+
   it("copies the example workflow and validates the returned relative path", async () => {
     render(SettingsPanel, { visible: true, onclose: vi.fn() });
 

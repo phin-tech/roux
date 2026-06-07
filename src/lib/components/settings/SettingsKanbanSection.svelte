@@ -58,6 +58,9 @@
   });
 
   const kanban = $derived(normalizeKanbanSettings($settings.kanban));
+  const isFileBackedWorkflow = $derived(
+    (kanban.workflowPath ?? "").trim().length > 0,
+  );
 
   function updateKanban(next: RequiredKanbanSettings): void {
     updateSetting("kanban", next);
@@ -112,8 +115,10 @@
         workflowPath: selected,
         workflowLoadError: null,
       };
-      await applyValidatedKanban(next);
-      workflowActionStatus = "Workflow JSON is valid.";
+      const validated = await applyValidatedKanban(next);
+      workflowActionStatus = validated.workflowLoadError
+        ? null
+        : "Workflow JSON is valid.";
     } catch (error) {
       workflowActionError = errorMessage(error);
     } finally {
@@ -218,6 +223,7 @@
     aria-label="Workflow label"
     class="mt-2 w-full rounded border border-border bg-bg-deep px-2 py-1.5 text-xs text-text-primary outline-none focus:border-accent-dim"
     value={kanban.workflow.label}
+    disabled={isFileBackedWorkflow}
     oninput={(e) => updateWorkflowLabel(e.currentTarget.value)}
   />
   <label
@@ -279,6 +285,11 @@
   {#if kanban.workflowLoadError}
     <div class="mt-2 text-xs text-red">{kanban.workflowLoadError}</div>
   {/if}
+  {#if isFileBackedWorkflow}
+    <div class="mt-2 text-xs text-text-muted">
+      Inline workflow fields are read-only while a JSON file is selected.
+    </div>
+  {/if}
 </div>
 
 {#each workflowPhases as phaseInfo (phaseInfo.id)}
@@ -299,6 +310,7 @@
             aria-label={`${phaseInfo.title} label`}
             class="w-40 rounded border border-border bg-bg-deep px-2 py-1 text-xs text-text-primary outline-none focus:border-accent-dim"
             value={phase.label}
+            disabled={isFileBackedWorkflow}
             oninput={(e) =>
               updatePhase(phaseInfo.id, { label: e.currentTarget.value })}
           />
@@ -312,6 +324,7 @@
           aria-label={`${phaseInfo.title} agent`}
           class="max-w-[14rem] cursor-pointer appearance-none rounded border border-border bg-bg-deep px-2 py-1 pr-6 text-xs text-text-primary outline-none focus:border-accent-dim"
           value={phase.agentProfile ?? ""}
+          disabled={isFileBackedWorkflow}
           onchange={(e) =>
             updatePhase(phaseInfo.id, {
               agentProfile: e.currentTarget.value || null,
@@ -339,6 +352,7 @@
                   aria-label={`${stageId} label`}
                   class="w-40 rounded border border-border bg-bg-deep px-2 py-1 text-xs text-text-primary outline-none focus:border-accent-dim"
                   value={stage.label}
+                  disabled={isFileBackedWorkflow}
                   oninput={(e) =>
                     updateReviewStage(stageId, {
                       label: e.currentTarget.value,
@@ -353,6 +367,7 @@
                   aria-label={`${stage.label || stageId} agent`}
                   class="max-w-[14rem] cursor-pointer appearance-none rounded border border-border bg-bg-deep px-2 py-1 pr-6 text-xs text-text-primary outline-none focus:border-accent-dim"
                   value={stage.agentProfile ?? ""}
+                  disabled={isFileBackedWorkflow}
                   onchange={(e) =>
                     updateReviewStage(stageId, {
                       agentProfile: e.currentTarget.value || null,
@@ -369,6 +384,7 @@
               aria-label={`${stage.label} instructions`}
               class="mt-2 min-h-20 w-full resize-y rounded border border-border bg-bg-deep px-2 py-1.5 text-xs text-text-primary outline-none focus:border-accent-dim"
               value={stage.instructions}
+              disabled={isFileBackedWorkflow}
               oninput={(e) =>
                 updateReviewStage(stageId, {
                   instructions: e.currentTarget.value,
@@ -382,6 +398,7 @@
         aria-label={`${phaseInfo.title} instructions`}
         class="mt-3 min-h-24 w-full resize-y rounded border border-border bg-bg-deep px-2 py-1.5 text-xs text-text-primary outline-none focus:border-accent-dim"
         value={phase.instructions}
+        disabled={isFileBackedWorkflow}
         oninput={(e) =>
           updatePhase(phaseInfo.id, { instructions: e.currentTarget.value })}
       ></textarea>

@@ -33,7 +33,9 @@ resolve from Roux's config directory, next to `settings.json`. In v1, custom
 JSON can rename the fixed high-level phases, assign phase/stage agent profiles,
 and provide phase/stage instructions. The runtime still expects the fixed phase
 ids `planning`, `implementation`, and `review`; review gates remain grouped
-under `review.stages.local_review` and `review.stages.pr_review`.
+under `review.stages.local_review` and `review.stages.pr_review`. While a JSON
+file is selected, the inline workflow fields in Settings are read-only; clear
+the JSON path to edit inline settings again.
 
 See [example Kanban workflow JSON](../examples/kanban-workflow.json).
 
