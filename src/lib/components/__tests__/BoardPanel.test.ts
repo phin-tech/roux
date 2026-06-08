@@ -7,10 +7,12 @@ import {
   requestWorkItemChanges,
   moveWorkItem,
   planWorkItem,
+  runWorkItemStage,
   startWorkItem,
   stopWorkItemRun,
   activePlanningRunByItem,
   attachmentsByWorkItem,
+  pendingQuestionByItem,
   runsByItem,
   workItemRunEvents,
 } from "$lib/stores/workItems";
@@ -49,16 +51,17 @@ if (typeof Element !== "undefined" && !Element.prototype.animate) {
 vi.mock("$lib/stores/workItems", async () => {
   const { writable } = await import("svelte/store");
   return {
-    WORK_ITEM_COLUMNS: ["todo", "ready", "doing", "review", "done"],
+    WORK_ITEM_COLUMNS: ["todo", "planning", "doing", "review", "done"],
     COLUMN_LABELS: {
       todo: "To Do",
-      ready: "Planning",
+      planning: "Planning",
       doing: "In Progress",
       review: "Review",
       done: "Done",
     },
     itemsByColumn: writable(new Map()),
     pendingDecisionByItem: writable(new Map()),
+    pendingQuestionByItem: writable(new Map()),
     activePlanningRunByItem: writable(new Map()),
     attachmentsByWorkItem: writable(new Map()),
     runsByItem: writable(new Map()),
@@ -67,6 +70,12 @@ vi.mock("$lib/stores/workItems", async () => {
     requestWorkItemChanges: vi.fn().mockResolvedValue({}),
     moveWorkItem: vi.fn().mockResolvedValue({}),
     planWorkItem: vi.fn().mockResolvedValue("plan-sess-1"),
+    runWorkItemStage: vi.fn().mockResolvedValue({
+      item: {},
+      run: { sessionId: null },
+      session: null,
+      outcome: "complete",
+    }),
     startWorkItem: vi.fn().mockResolvedValue("sess-1"),
     stopWorkItemRun: vi.fn().mockResolvedValue({}),
     createWorkItem: vi.fn().mockResolvedValue({}),
@@ -229,7 +238,7 @@ function project(overrides: Partial<Project> = {}): Project {
 
 function seedColumns(items: WorkItem[]) {
   const map = new Map<string, WorkItem[]>();
-  for (const col of ["todo", "ready", "doing", "review", "done"])
+  for (const col of ["todo", "planning", "doing", "review", "done"])
     map.set(col, []);
   for (const item of items) map.get(item.status)?.push(item);
   (itemsByColumn as ReturnType<typeof import("svelte/store").writable>).set(
@@ -252,6 +261,11 @@ describe("BoardPanel", () => {
         typeof import("svelte/store").writable
       >
     ).set(new Map());
+    (
+      pendingQuestionByItem as ReturnType<
+        typeof import("svelte/store").writable
+      >
+    ).set(new Map());
     seedWorkItemAttachments([]);
     (runsByItem as ReturnType<typeof import("svelte/store").writable>).set(
       new Map(),
@@ -267,7 +281,7 @@ describe("BoardPanel", () => {
     seedColumns([
       workItem({
         id: "wi-1",
-        status: "ready",
+        status: "planning",
         projectId: "proj-1",
         sessionId: null,
       }),
@@ -297,7 +311,7 @@ describe("BoardPanel", () => {
       [
         workItem({
           id: "wi-1",
-          status: "ready",
+          status: "planning",
           projectId: "proj-1",
           sessionId: null,
         }),
@@ -321,7 +335,7 @@ describe("BoardPanel", () => {
     seedColumns([
       workItem({
         id: "wi-plan",
-        status: "ready",
+        status: "planning",
         projectId: "proj-1",
         sessionId: null,
         agentProfile: "claude",
@@ -356,7 +370,7 @@ describe("BoardPanel", () => {
     seedColumns([
       workItem({
         id: "wi-plan",
-        status: "ready",
+        status: "planning",
         projectId: "proj-1",
         sessionId: null,
         agentProfile: "claude",
@@ -396,7 +410,7 @@ describe("BoardPanel", () => {
     const item = workItem({
       id: "wi-1",
       title: "Wire task start",
-      status: "ready",
+      status: "planning",
       projectId: null,
       sessionId: null,
     });
@@ -415,11 +429,11 @@ describe("BoardPanel", () => {
     expect(moveWorkItem).not.toHaveBeenCalled();
   });
 
-  it("does not open the session prompt for an unprojected Ready card without a plan", async () => {
+  it("does not open the session prompt for an unprojected Planning card without a plan", async () => {
     const item = workItem({
       id: "wi-1",
       title: "Wire task start",
-      status: "ready",
+      status: "planning",
       projectId: null,
       sessionId: null,
     });
@@ -486,6 +500,29 @@ describe("BoardPanel", () => {
     await fireEvent.click(screen.getByRole("button", { name: "Fix CI" }));
 
     expect(startWorkItem).toHaveBeenCalledWith("wi-review", { fixCi: true });
+  });
+
+  it("shows manual workflow stage action even when card is not startable", async () => {
+    const item = workItem({
+      id: "wi-manual",
+      title: "Manual task",
+      status: "todo",
+      workflowStageId: "todo",
+      workflowStageLabel: "Todo",
+      repoPath: null,
+      agentProfile: null,
+    });
+    seedColumns([item]);
+    render(BoardPanel, { visible: true, onclose: vi.fn() });
+
+    expect(screen.getByText("Plan")).toBeTruthy();
+    await fireEvent.click(
+      screen.getByRole("button", { name: "Run workflow stage" }),
+    );
+
+    expect(runWorkItemStage).toHaveBeenCalledWith("wi-manual", {
+      stageId: "todo",
+    });
   });
 
   it("requests changes from a review card with a human note", async () => {

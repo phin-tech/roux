@@ -157,6 +157,27 @@ impl WorkItemHandle {
         Ok(item)
     }
 
+    pub fn move_to_workflow_stage(
+        &self,
+        id: &str,
+        status: WorkItemStatus,
+        workflow_id: &str,
+        stage_id: &str,
+        stage_label: &str,
+    ) -> Result<Option<WorkItem>, String> {
+        let now = now_secs();
+        let item = self
+            .inner
+            .lock()
+            .unwrap()
+            .move_to_workflow_stage(id, status, workflow_id, stage_id, stage_label, now)
+            .map_err(|e| format!("work-item workflow-stage move: {e}"))?;
+        if let Some(ref item) = item {
+            self.broadcast(WorkItemEvent::Updated { item: item.clone() });
+        }
+        Ok(item)
+    }
+
     pub fn delete(&self, id: &str) -> Result<bool, String> {
         let deleted =
             self.inner.lock().unwrap().delete(id).map_err(|e| format!("work-item delete: {e}"))?;

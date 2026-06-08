@@ -1,5 +1,10 @@
 import { writable, derived, get } from "svelte/store";
-import type { WorkItem, WorkItemInput, WorkItemStatus } from "$lib/bindings";
+import type {
+  WorkItem,
+  WorkItemInput,
+  WorkItemStageRunResult,
+  WorkItemStatus,
+} from "$lib/bindings";
 import type {
   Attachment,
   AttachmentDocument,
@@ -20,6 +25,7 @@ import {
   workItemRestore as tauriWorkItemRestore,
   workItemStart as tauriWorkItemStart,
   workItemPlan as tauriWorkItemPlan,
+  workItemRunStage as tauriWorkItemRunStage,
   workItemReviewAccept as tauriWorkItemReviewAccept,
   workItemReviewRequestChanges as tauriWorkItemReviewRequestChanges,
   workItemRunsList as tauriWorkItemRunsList,
@@ -30,6 +36,7 @@ import {
   documentAttach as tauriDocumentAttach,
   documentList as tauriDocumentList,
   documentGet as tauriDocumentGet,
+  type StatusUpdate,
 } from "$lib/tauri";
 import { splitArchivedWorkItems } from "$lib/workItems/archive";
 
@@ -49,7 +56,7 @@ export {
 
 export const WORK_ITEM_COLUMNS: WorkItemStatus[] = [
   "todo",
-  "ready",
+  "planning",
   "doing",
   "review",
   "done",
@@ -57,7 +64,7 @@ export const WORK_ITEM_COLUMNS: WorkItemStatus[] = [
 
 export const COLUMN_LABELS: Record<WorkItemStatus, string> = {
   todo: "To Do",
-  ready: "Planning",
+  planning: "Planning",
   doing: "In Progress",
   review: "Review",
   done: "Done",
@@ -68,6 +75,17 @@ export const workItemRuns = writable<WorkItemRun[]>([]);
 export const workItemRunEvents = writable<WorkItemRunEvent[]>([]);
 export const workItemDecisions = writable<WorkItemDecision[]>([]);
 export const workItemAttachments = writable<Attachment[]>([]);
+export interface WorkItemPendingQuestion {
+  workItemId: string;
+  runId: string | null;
+  sessionId: string | null;
+  paneId: string | null;
+  providerSessionId: string | null;
+  toolName: string | null;
+  updatedAt: number;
+}
+
+export const workItemPendingQuestions = writable<WorkItemPendingQuestion[]>([]);
 const TERMINAL_RUN_STATUSES = new Set<WorkItemRun["status"]>([
   "review",
   "changesRequested",
@@ -167,6 +185,72 @@ export const pendingDecisionByItem = derived(
   },
 );
 
+export const pendingQuestionByItem = derived(
+  workItemPendingQuestions,
+  ($questions) => {
+    const map = new Map<string, WorkItemPendingQuestion>();
+    for (const question of $questions) {
+      const previous = map.get(question.workItemId);
+      if (!previous || previous.updatedAt <= question.updatedAt) {
+        map.set(question.workItemId, question);
+      }
+    }
+    return map;
+  },
+);
+
+function clearPendingQuestionForRun(run: WorkItemRun): void {
+  workItemPendingQuestions.update((questions) =>
+    questions.filter(
+      (question) =>
+        question.workItemId !== run.workItemId ||
+        question.runId === null ||
+        question.runId !== run.id,
+    ),
+  );
+}
+
+function clearPendingQuestionForItem(workItemId: string): void {
+  workItemPendingQuestions.update((questions) =>
+    questions.filter((question) => question.workItemId !== workItemId),
+  );
+}
+
+export function applyWorkItemHookStatus(update: StatusUpdate): void {
+  const workItemId = update.rouxWorkItemId;
+  if (!workItemId) return;
+
+  const runId = update.rouxWorkItemRunId ?? null;
+  if (update.status !== "attention") {
+    workItemPendingQuestions.update((questions) =>
+      questions.filter((question) => {
+        if (question.workItemId !== workItemId) return true;
+        if (runId && question.runId && question.runId !== runId) return true;
+        return false;
+      }),
+    );
+    return;
+  }
+
+  const next: WorkItemPendingQuestion = {
+    workItemId,
+    runId,
+    sessionId: update.rouxSessionId ?? null,
+    paneId: update.rouxPaneId ?? null,
+    providerSessionId: update.providerSessionId ?? null,
+    toolName: update.toolName ?? null,
+    updatedAt: Date.now(),
+  };
+  workItemPendingQuestions.update((questions) => {
+    const filtered = questions.filter(
+      (question) =>
+        question.workItemId !== workItemId ||
+        (runId !== null && question.runId !== null && question.runId !== runId),
+    );
+    return [...filtered, next];
+  });
+}
+
 function bindSessionToWorkItem(id: string, sessionId: string): void {
   workItems.update((list) =>
     list.map((i) => (i.id === id ? { ...i, sessionId } : i)),
@@ -224,6 +308,7 @@ export function applyWorkItemEvent(event: WorkItemEvent): void {
       break;
     case "archived":
       upsertItem(event.item);
+      clearPendingQuestionForItem(event.item.id);
       break;
     case "restored":
       upsertItem(event.item);
@@ -239,6 +324,7 @@ export function applyWorkItemEvent(event: WorkItemEvent): void {
       break;
     case "deleted":
       workItems.update((list) => list.filter((i) => i.id !== event.id));
+      clearPendingQuestionForItem(event.id);
       break;
     case "imported":
       void hydrateWorkItems().catch((err) => {
@@ -259,6 +345,9 @@ export function applyWorkItemEvent(event: WorkItemEvent): void {
       break;
     case "runUpdated":
       upsertRun(event.run);
+      if (TERMINAL_RUN_STATUSES.has(event.run.status)) {
+        clearPendingQuestionForRun(event.run);
+      }
       break;
     case "runEventAppended":
       workItemRunEvents.update((events) => [...events, event.event]);
@@ -301,6 +390,15 @@ function upsertAttachment(attachment: Attachment): void {
       ? attachments.map((a) => (a.id === attachment.id ? attachment : a))
       : [...attachments, attachment],
   );
+}
+
+function upsertRunResult(result: {
+  item: WorkItem;
+  run: WorkItemRun;
+}): WorkItem {
+  upsertItem(result.item);
+  upsertRun(result.run);
+  return result.item;
 }
 
 function replaceWorkItemAttachments(
@@ -437,17 +535,29 @@ export async function planWorkItem(
   );
 }
 
+export interface WorkItemRunStageOptions {
+  stageId?: string | null;
+  outcome?: string | null;
+}
+
+export async function runWorkItemStage(
+  id: string,
+  options: WorkItemRunStageOptions = {},
+): Promise<WorkItemStageRunResult> {
+  const result = await tauriWorkItemRunStage(id, options);
+  upsertRunResult(result);
+  return result;
+}
+
 export async function acceptWorkItemReview(id: string): Promise<WorkItem> {
   const result = await tauriWorkItemReviewAccept(id);
-  upsertItem(result.item);
-  upsertRun(result.run);
-  return result.item;
+  return upsertRunResult(result);
 }
 
 export async function requestWorkItemChanges(
   id: string,
   note: string,
-  status: "doing" | "ready" | null = null,
+  status: "doing" | "planning" | null = null,
 ): Promise<WorkItem> {
   const result = await tauriWorkItemReviewRequestChanges(id, note, status);
   upsertItem(result.item);

@@ -397,6 +397,16 @@ export async function createKanbanWorkflowExample(): Promise<KanbanWorkflowExamp
   return invoke("cmd_create_kanban_workflow_example");
 }
 
+export async function saveKanbanWorkflowJson(
+  workflowPath: string,
+  workflow: import("$lib/bindings").KanbanWorkflowSettings,
+): Promise<string> {
+  const { commands } = await import("$lib/bindings");
+  const r = await commands.cmdSaveKanbanWorkflowJson(workflowPath, workflow);
+  if (r.status === "error") throw new Error(r.error);
+  return r.data;
+}
+
 export async function createWorktree(
   repoPath: string,
   branch: string,
@@ -1051,6 +1061,25 @@ export async function workItemPlan(
   return r.data;
 }
 
+export interface WorkItemRunStageOptions {
+  stageId?: string | null;
+  outcome?: string | null;
+}
+
+export async function workItemRunStage(
+  id: string,
+  options: WorkItemRunStageOptions = {},
+): Promise<import("$lib/bindings").WorkItemStageRunResult> {
+  const { commands } = await import("$lib/bindings");
+  const r = await commands.workItemRunStage(
+    id,
+    options.stageId ?? null,
+    options.outcome ?? null,
+  );
+  if (r.status === "error") throw new Error(r.error);
+  return r.data;
+}
+
 export async function workItemReviewAccept(
   id: string,
 ): Promise<import("$lib/bindings").WorkItemReviewAcceptResult> {
@@ -1316,6 +1345,10 @@ export interface StatusUpdate {
   rouxSessionId: string | null;
   /** Roux pane id captured from `ROUX_PANE_ID` at hook time. Tier-1 routing key. */
   rouxPaneId: string | null;
+  /** Roux work item id captured from `ROUX_WORK_ITEM_ID` at hook time. */
+  rouxWorkItemId: string | null;
+  /** Roux work item run id captured from `ROUX_WORK_ITEM_RUN_ID` at hook time. */
+  rouxWorkItemRunId: string | null;
   toolName: string | null;
   toolInput: Record<string, any> | null;
   message: string | null;

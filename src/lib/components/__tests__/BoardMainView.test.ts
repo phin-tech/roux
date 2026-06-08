@@ -12,6 +12,7 @@ import {
   activePlanningRunByItem,
   attachmentsByWorkItem,
   pendingDecisionByItem,
+  pendingQuestionByItem,
   runsByItem,
   workItemRunEvents,
   archivedWorkItems,
@@ -38,7 +39,11 @@ import type { Attachment, WorkItemRun } from "$lib/types/workItems";
 import { notifications } from "$lib/stores/notifications";
 import { projects } from "$lib/stores/projects";
 import { createSessionShell, openPathInFinder } from "$lib/tauri";
-import { addSession, setActiveSession } from "$lib/stores/sessions";
+import {
+  addSession,
+  sessionList,
+  setActiveSession,
+} from "$lib/stores/sessions";
 import { settings } from "$lib/stores/settings";
 import {
   _resetWorktreeMetadataForTests,
@@ -70,16 +75,17 @@ if (typeof Element !== "undefined" && !Element.prototype.animate) {
 vi.mock("$lib/stores/workItems", async () => {
   const { writable } = await import("svelte/store");
   return {
-    WORK_ITEM_COLUMNS: ["todo", "ready", "doing", "review", "done"],
+    WORK_ITEM_COLUMNS: ["todo", "planning", "doing", "review", "done"],
     COLUMN_LABELS: {
       todo: "To Do",
-      ready: "Planning",
+      planning: "Planning",
       doing: "In Progress",
       review: "Review",
       done: "Done",
     },
     itemsByColumn: writable(new Map()),
     pendingDecisionByItem: writable(new Map()),
+    pendingQuestionByItem: writable(new Map()),
     activePlanningRunByItem: writable(new Map()),
     attachmentsByWorkItem: writable(new Map()),
     runsByItem: writable(new Map()),
@@ -301,7 +307,7 @@ function seedWorktreeMetadata(path: string, metadata: WorktrunkMetadata): void {
 
 function seedColumns(items: WorkItem[]) {
   const map = new Map<string, WorkItem[]>();
-  for (const col of ["todo", "ready", "doing", "review", "done"])
+  for (const col of ["todo", "planning", "doing", "review", "done"])
     map.set(col, []);
   for (const item of items) map.get(item.status)?.push(item);
   (itemsByColumn as ReturnType<typeof import("svelte/store").writable>).set(
@@ -341,6 +347,11 @@ describe("BoardMainView", () => {
         typeof import("svelte/store").writable
       >
     ).set(new Map());
+    (
+      pendingQuestionByItem as ReturnType<
+        typeof import("svelte/store").writable
+      >
+    ).set(new Map());
     seedWorkItemAttachments([]);
     (
       archivedWorkItems as ReturnType<typeof import("svelte/store").writable>
@@ -352,6 +363,7 @@ describe("BoardMainView", () => {
       workItemRunEvents as ReturnType<typeof import("svelte/store").writable>
     ).set([]);
     projects.set([project()]);
+    (sessionList as ReturnType<typeof import("svelte/store").writable>).set([]);
     notifications.set([]);
     settings.set({ ...DEFAULT_SETTINGS });
     _resetWorktreeMetadataForTests();
@@ -400,14 +412,14 @@ describe("BoardMainView", () => {
     seedColumns([workItem({ id: "wi-1", status: "todo" })]);
     render(BoardMainView);
 
-    const planningColumn = document.querySelector('[data-column="ready"]')!;
+    const planningColumn = document.querySelector('[data-column="planning"]')!;
     await fireEvent.drop(planningColumn, {
       dataTransfer: dragData({ itemId: "wi-1", fromStatus: "todo" }),
     });
 
     expect(moveWorkItem).toHaveBeenCalledWith(
       "wi-1",
-      "ready",
+      "planning",
       expect.any(Number),
     );
   });
@@ -453,7 +465,7 @@ describe("BoardMainView", () => {
     seedColumns([
       workItem({
         id: "wi-1",
-        status: "ready",
+        status: "planning",
         projectId: "proj-1",
         sessionId: null,
       }),
@@ -475,7 +487,7 @@ describe("BoardMainView", () => {
       [
         workItem({
           id: "wi-1",
-          status: "ready",
+          status: "planning",
           projectId: "proj-1",
           sessionId: null,
         }),
@@ -499,7 +511,7 @@ describe("BoardMainView", () => {
     seedColumns([
       workItem({
         id: "wi-plan",
-        status: "ready",
+        status: "planning",
         projectId: "proj-1",
         sessionId: null,
         agentProfile: "claude",
@@ -535,7 +547,7 @@ describe("BoardMainView", () => {
     seedColumns([
       workItem({
         id: "wi-plan",
-        status: "ready",
+        status: "planning",
         projectId: "proj-1",
         sessionId: null,
         agentProfile: "claude",
@@ -573,7 +585,7 @@ describe("BoardMainView", () => {
     seedColumns([
       workItem({
         id: "wi-plan",
-        status: "ready",
+        status: "planning",
         projectId: "proj-1",
         sessionId: null,
         agentProfile: "claude",
@@ -613,7 +625,7 @@ describe("BoardMainView", () => {
     const item = workItem({
       id: "wi-1",
       title: "Wire task start",
-      status: "ready",
+      status: "planning",
       projectId: null,
       sessionId: null,
     });
@@ -632,11 +644,11 @@ describe("BoardMainView", () => {
     expect(moveWorkItem).not.toHaveBeenCalled();
   });
 
-  it("does not open the session prompt for an unprojected Ready card without a plan", async () => {
+  it("does not open the session prompt for an unprojected Planning card without a plan", async () => {
     const item = workItem({
       id: "wi-1",
       title: "Wire task start",
-      status: "ready",
+      status: "planning",
       projectId: null,
       sessionId: null,
     });
@@ -694,6 +706,43 @@ describe("BoardMainView", () => {
     await fireEvent.click(badge);
 
     expect(openSessionById).toHaveBeenCalledWith("plan-sess-1");
+    await vi.waitFor(() => expect(closeMainView).toHaveBeenCalled());
+  });
+
+  it("shows a question badge from a pending hook question and opens that session", async () => {
+    seedColumns([
+      workItem({
+        id: "wi-question",
+        title: "Needs answer",
+        status: "planning",
+      }),
+    ]);
+    (
+      pendingQuestionByItem as ReturnType<
+        typeof import("svelte/store").writable
+      >
+    ).set(
+      new Map([
+        [
+          "wi-question",
+          {
+            workItemId: "wi-question",
+            runId: "run-1",
+            sessionId: "sess-question",
+            paneId: "pane-question",
+            providerSessionId: "claude-provider-1",
+            toolName: "AskUserQuestion",
+            updatedAt: 1,
+          },
+        ],
+      ]),
+    );
+    render(BoardMainView);
+
+    expect(screen.getByText("Question")).toBeTruthy();
+    await fireEvent.click(screen.getByLabelText("Open pending question"));
+
+    expect(openSessionById).toHaveBeenCalledWith("sess-question");
     await vi.waitFor(() => expect(closeMainView).toHaveBeenCalled());
   });
 
@@ -1118,9 +1167,59 @@ describe("BoardMainView", () => {
     render(BoardMainView);
 
     expect(screen.queryByText("What should the report include?")).toBeNull();
+    expect(screen.getByText("Question")).toBeTruthy();
+    await fireEvent.click(screen.getByLabelText("Open pending question"));
+
+    expect(openWorkItemEditor).toHaveBeenCalledWith("wi-plan");
+    expect(openSessionById).not.toHaveBeenCalled();
+
+    vi.clearAllMocks();
     await fireEvent.click(
       screen.getByLabelText("Open session with pending question"),
     );
+
+    expect(openSessionById).toHaveBeenCalledWith("plan-sess-1");
+    await vi.waitFor(() => expect(closeMainView).toHaveBeenCalled());
+  });
+
+  it("shows a question chip for a planning session in attention state", async () => {
+    seedColumns([workItem({ id: "wi-plan", status: "todo", sessionId: null })]);
+    (
+      activePlanningRunByItem as ReturnType<
+        typeof import("svelte/store").writable
+      >
+    ).set(
+      new Map([
+        [
+          "wi-plan",
+          workItemRun({
+            id: "run-plan",
+            workItemId: "wi-plan",
+            kind: "planning",
+            sessionId: "plan-sess-1",
+            status: "running",
+          }),
+        ],
+      ]),
+    );
+    (sessionList as ReturnType<typeof import("svelte/store").writable>).set([
+      {
+        id: "plan-sess-1",
+        name: "Planning",
+        repoRoot: "/repo",
+        worktreePath: "/repo",
+        branch: "main",
+        isWorktree: false,
+        status: "attention",
+        model: null,
+        cost: null,
+        createdAt: 1,
+      },
+    ]);
+    render(BoardMainView);
+
+    expect(screen.getByText("Question")).toBeTruthy();
+    await fireEvent.click(screen.getByLabelText("Open pending question"));
 
     expect(openSessionById).toHaveBeenCalledWith("plan-sess-1");
     await vi.waitFor(() => expect(closeMainView).toHaveBeenCalled());
@@ -1181,7 +1280,7 @@ describe("BoardMainView", () => {
   it("does not show an add card button on non–To Do columns", () => {
     render(BoardMainView);
 
-    for (const col of ["ready", "doing", "review", "done"]) {
+    for (const col of ["planning", "doing", "review", "done"]) {
       const column = document.querySelector(`[data-column="${col}"]`)!;
       expect(
         column.querySelector('[aria-label="Add card"]'),

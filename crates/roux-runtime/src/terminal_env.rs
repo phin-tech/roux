@@ -22,6 +22,8 @@ pub struct RouxEnvInputs<'a> {
     pub pane_alias: Option<&'a str>,
     pub project_id: Option<&'a str>,
     pub worktree_path: Option<&'a str>,
+    pub work_item_id: Option<&'a str>,
+    pub work_item_run_id: Option<&'a str>,
     pub notes: Option<&'a NotesEnvInputs>,
 }
 
@@ -87,6 +89,12 @@ pub fn roux_env_pairs_with_warnings(inputs: RouxEnvInputs<'_>) -> RouxEnvOutput 
     }
     if let Some(wt) = inputs.worktree_path {
         pairs.push(("ROUX_WORKTREE_PATH".to_string(), wt.to_string()));
+    }
+    if let Some(id) = inputs.work_item_id {
+        pairs.push(("ROUX_WORK_ITEM_ID".to_string(), id.to_string()));
+    }
+    if let Some(id) = inputs.work_item_run_id {
+        pairs.push(("ROUX_WORK_ITEM_RUN_ID".to_string(), id.to_string()));
     }
     let mut warnings = Vec::new();
     if let Some(n) = inputs.notes {
@@ -239,12 +247,16 @@ mod tests {
             pane_alias: Some("agent-a"),
             project_id: Some("project-id"),
             worktree_path: Some("/repo"),
+            work_item_id: Some("wi-1"),
+            work_item_run_id: Some("run-1"),
             notes: Some(&notes),
         });
 
         assert!(pairs.contains(&("ROUX_SOCKET".to_string(), "/tmp/roux.sock".to_string())));
         assert!(pairs.contains(&("ROUX_CLI".to_string(), "/roux/bin/roux".to_string())));
         assert!(pairs.contains(&("ROUX_AGENT_ALIAS".to_string(), "agent-a".to_string())));
+        assert!(pairs.contains(&("ROUX_WORK_ITEM_ID".to_string(), "wi-1".to_string())));
+        assert!(pairs.contains(&("ROUX_WORK_ITEM_RUN_ID".to_string(), "run-1".to_string())));
         assert!(pairs.contains(&("ROUX_PROJECT_PROMPT".to_string(), "Follow the spec".to_string())));
         assert!(pairs.iter().any(|(k, v)| k == "PATH" && v.starts_with("/roux/bin:")));
     }
@@ -274,6 +286,8 @@ mod tests {
             pane_alias: None,
             project_id: None,
             worktree_path: None,
+            work_item_id: None,
+            work_item_run_id: None,
             notes: Some(&notes),
         });
 

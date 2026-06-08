@@ -12,11 +12,17 @@ describe("workflow defaults", () => {
     expect(DEFAULT_KANBAN_SETTINGS.workflow).toEqual(defaultWorkflow);
   });
 
-  it("groups review gates inside the review phase", () => {
+  it("groups stages inside hardcoded board phases", () => {
     expect(Object.keys(DEFAULT_WORKFLOW_SETTINGS.phases)).toEqual([
+      "todo",
       "planning",
-      "implementation",
+      "doing",
       "review",
+      "done",
+    ]);
+    expect(DEFAULT_WORKFLOW_SETTINGS.phases.doing.stageOrder).toEqual([
+      "implementation",
+      "fix_ci",
     ]);
     expect(Object.keys(DEFAULT_WORKFLOW_SETTINGS.phases.review.stages)).toEqual(
       ["local_review", "pr_review"],
@@ -31,5 +37,48 @@ describe("workflow defaults", () => {
 
     expect(kanban.workflowPath).toBe("./workflow.json");
     expect(kanban.workflowLoadError).toBe("failed");
+  });
+
+  it("preserves explicit null stage action labels", () => {
+    const kanban = normalizeKanbanSettings({
+      workflow: {
+        phases: {
+          done: {
+            stages: {
+              done: {
+                actionLabel: null,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    expect(kanban.workflow.phases.done.stages.done.actionLabel).toBeNull();
+  });
+
+  it("drops unknown ids from phase and stage order", () => {
+    const kanban = normalizeKanbanSettings({
+      workflow: {
+        phaseOrder: ["doing", "missing", "review"],
+        phases: {
+          doing: {
+            stageOrder: ["fix_ci", "missing_stage", "implementation"],
+          },
+        },
+      },
+    });
+
+    expect(kanban.workflow.phaseOrder).toEqual([
+      "doing",
+      "review",
+      "todo",
+      "planning",
+      "done",
+    ]);
+    expect(kanban.workflow.phases.doing.stageOrder).toEqual([
+      "fix_ci",
+      "implementation",
+    ]);
   });
 });

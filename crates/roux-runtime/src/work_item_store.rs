@@ -20,7 +20,7 @@ use roux_core::{
     WorkItemRunKind, WorkItemRunStatus, WorkItemStatus,
 };
 
-pub const WORK_ITEM_SCHEMA_VERSION: i64 = 9;
+pub const WORK_ITEM_SCHEMA_VERSION: i64 = 11;
 
 type ReviewRequestStoreResult =
     Option<(WorkItem, WorkItemRun, WorkItemRunEvent, Option<WorkItemRunEvent>)>;
@@ -88,6 +88,9 @@ impl WorkItemStore {
                     body        TEXT,
                     status      TEXT NOT NULL DEFAULT 'todo',
                     review_stage_id TEXT,
+                    workflow_id TEXT,
+                    workflow_stage_id TEXT,
+                    workflow_stage_label TEXT,
                     repo_path   TEXT,
                     agent_profile TEXT,
                     base_branch TEXT,
@@ -248,6 +251,61 @@ impl WorkItemStore {
             conn.execute_batch("PRAGMA user_version = 9;")?;
             version = 9;
         }
+        if version < 10 {
+            add_column_if_missing(&conn, "work_items", "workflow_id", "TEXT")?;
+            add_column_if_missing(&conn, "work_items", "workflow_stage_id", "TEXT")?;
+            add_column_if_missing(&conn, "work_items", "workflow_stage_label", "TEXT")?;
+            conn.execute("UPDATE work_items SET status = 'planning' WHERE status = 'ready'", [])?;
+            conn.execute(
+                "UPDATE work_items
+                 SET workflow_id = ?1
+                 WHERE workflow_id IS NULL",
+                params!["default"],
+            )?;
+            conn.execute(
+                "UPDATE work_items
+                 SET workflow_stage_id = CASE status
+                     WHEN 'todo' THEN 'todo'
+                     WHEN 'planning' THEN 'planning'
+                     WHEN 'doing' THEN 'implementation'
+                     WHEN 'review' THEN COALESCE(review_stage_id, 'local_review')
+                     WHEN 'done' THEN 'done'
+                     ELSE 'todo'
+                 END
+                 WHERE workflow_stage_id IS NULL",
+                [],
+            )?;
+            conn.execute(
+                "UPDATE work_items
+                 SET workflow_stage_label = CASE workflow_stage_id
+                     WHEN 'todo' THEN 'Todo'
+                     WHEN 'planning' THEN 'Planning'
+                     WHEN 'implementation' THEN 'Implementation'
+                     WHEN 'fix_ci' THEN 'Fix CI'
+                     WHEN 'local_review' THEN 'Local Review'
+                     WHEN 'pr_review' THEN 'PR Review'
+                     WHEN 'done' THEN 'Done'
+                     ELSE workflow_stage_id
+                 END
+                 WHERE workflow_stage_label IS NULL",
+                [],
+            )?;
+            conn.execute_batch("PRAGMA user_version = 10;")?;
+            version = 10;
+        }
+        if version < 11 {
+            conn.execute(
+                "UPDATE work_items
+                 SET workflow_stage_id = 'planning',
+                     workflow_stage_label = 'Planning'
+                 WHERE status = 'ready'
+                   AND (workflow_stage_id IS NULL OR workflow_stage_id = 'todo')",
+                [],
+            )?;
+            conn.execute("UPDATE work_items SET status = 'planning' WHERE status = 'ready'", [])?;
+            conn.execute_batch("PRAGMA user_version = 11;")?;
+            version = 11;
+        }
         debug_assert!(version >= WORK_ITEM_SCHEMA_VERSION);
         Ok(WorkItemStore { conn })
     }
@@ -266,7 +324,7 @@ impl WorkItemStore {
         include_archived: bool,
     ) -> SqlResult<Vec<WorkItem>> {
         let sql = if project_id.is_some() && include_archived {
-            "SELECT id, project_id, parent_id, title, body, status, review_stage_id, repo_path,
+            "SELECT id, project_id, parent_id, title, body, status, review_stage_id, workflow_id, workflow_stage_id, workflow_stage_label, repo_path,
                     agent_profile, base_branch, worktree_path, branch, fetch_first,
                     start_error, session_id,
                     provider, external_id, external_url, sort_order, pinned_pr_url,
@@ -275,7 +333,7 @@ impl WorkItemStore {
              WHERE project_id = ?1
              ORDER BY sort_order, created_at"
         } else if project_id.is_some() {
-            "SELECT id, project_id, parent_id, title, body, status, review_stage_id, repo_path,
+            "SELECT id, project_id, parent_id, title, body, status, review_stage_id, workflow_id, workflow_stage_id, workflow_stage_label, repo_path,
                     agent_profile, base_branch, worktree_path, branch, fetch_first,
                     start_error, session_id,
                     provider, external_id, external_url, sort_order, pinned_pr_url,
@@ -284,7 +342,7 @@ impl WorkItemStore {
              WHERE project_id = ?1 AND archived_at IS NULL
              ORDER BY sort_order, created_at"
         } else if include_archived {
-            "SELECT id, project_id, parent_id, title, body, status, review_stage_id, repo_path,
+            "SELECT id, project_id, parent_id, title, body, status, review_stage_id, workflow_id, workflow_stage_id, workflow_stage_label, repo_path,
                     agent_profile, base_branch, worktree_path, branch, fetch_first,
                     start_error, session_id,
                     provider, external_id, external_url, sort_order, pinned_pr_url,
@@ -292,7 +350,7 @@ impl WorkItemStore {
              FROM work_items
              ORDER BY sort_order, created_at"
         } else {
-            "SELECT id, project_id, parent_id, title, body, status, review_stage_id, repo_path,
+            "SELECT id, project_id, parent_id, title, body, status, review_stage_id, workflow_id, workflow_stage_id, workflow_stage_label, repo_path,
                     agent_profile, base_branch, worktree_path, branch, fetch_first,
                     start_error, session_id,
                     provider, external_id, external_url, sort_order, pinned_pr_url,
@@ -315,7 +373,7 @@ impl WorkItemStore {
     pub fn get(&self, id: &str) -> SqlResult<Option<WorkItem>> {
         self.conn
             .query_row(
-                "SELECT id, project_id, parent_id, title, body, status, review_stage_id, repo_path,
+                "SELECT id, project_id, parent_id, title, body, status, review_stage_id, workflow_id, workflow_stage_id, workflow_stage_label, repo_path,
                         agent_profile, base_branch, worktree_path, branch, fetch_first,
                         start_error, session_id,
                         provider, external_id, external_url, sort_order, pinned_pr_url,
@@ -331,16 +389,25 @@ impl WorkItemStore {
         let status = input.status.as_ref().unwrap_or(&WorkItemStatus::Todo).as_str().to_string();
         let review_stage_id =
             (status == WorkItemStatus::Review.as_str()).then_some(roux_core::FIRST_REVIEW_STAGE_ID);
+        let workflow_id = input.workflow_id.clone().or_else(|| Some("default".to_string()));
+        let workflow_stage_id = input
+            .workflow_stage_id
+            .clone()
+            .or_else(|| Some(default_workflow_stage_id_for_status(&status).to_string()));
+        let workflow_stage_label = input
+            .workflow_stage_label
+            .clone()
+            .or_else(|| workflow_stage_id.as_deref().map(default_workflow_stage_label));
         let sort_order = input.sort_order.unwrap_or(0.0);
         let (provider, external_id, external_url) = split_external_ref(input.external_ref.as_ref());
 
         self.conn.execute(
             "INSERT INTO work_items
-             (id, project_id, parent_id, title, body, status, review_stage_id, repo_path,
+             (id, project_id, parent_id, title, body, status, review_stage_id, workflow_id, workflow_stage_id, workflow_stage_label, repo_path,
               agent_profile, base_branch, worktree_path, branch, fetch_first,
               start_error, provider, external_id, external_url, sort_order,
               created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)",
             params![
                 id,
                 input.project_id,
@@ -349,6 +416,9 @@ impl WorkItemStore {
                 input.body,
                 status,
                 review_stage_id,
+                workflow_id,
+                workflow_stage_id,
+                workflow_stage_label,
                 input.repo_path,
                 input.agent_profile,
                 input.base_branch,
@@ -384,6 +454,13 @@ impl WorkItemStore {
         let worktree_path_present = input.worktree_path_present();
         let branch_present = input.branch_present();
         let fetch_first_present = input.fetch_first_present();
+        let workflow_id_present = input.workflow_id_present();
+        let workflow_stage_id_present = input.workflow_stage_id_present();
+        let workflow_stage_label_present = input.workflow_stage_label_present();
+        let status_workflow_stage_id =
+            status.as_deref().map(default_workflow_stage_id_for_status).map(str::to_string);
+        let status_workflow_stage_label =
+            status_workflow_stage_id.as_deref().map(default_workflow_stage_label);
         let update_start_error = input.start_error_present()
             || string_field_changed(
                 repo_path_present,
@@ -420,6 +497,17 @@ impl WorkItemStore {
                     WHEN ?4 = ?29 THEN COALESCE(review_stage_id, ?31)
                     WHEN ?4 = ?30 THEN NULL
                     ELSE review_stage_id
+                END,
+                workflow_id = CASE WHEN ?35 THEN ?32 ELSE workflow_id END,
+                workflow_stage_id = CASE
+                    WHEN ?36 THEN ?33
+                    WHEN ?4 IS NOT NULL THEN ?38
+                    ELSE workflow_stage_id
+                END,
+                workflow_stage_label = CASE
+                    WHEN ?37 THEN ?34
+                    WHEN ?4 IS NOT NULL THEN ?39
+                    ELSE workflow_stage_label
                 END,
                 repo_path   = CASE WHEN ?21 THEN ?5 ELSE repo_path END,
                 agent_profile = CASE WHEN ?22 THEN ?6 ELSE agent_profile END,
@@ -468,6 +556,14 @@ impl WorkItemStore {
                 WorkItemStatus::Review.as_str(),
                 WorkItemStatus::Done.as_str(),
                 roux_core::FIRST_REVIEW_STAGE_ID,
+                input.workflow_id,
+                input.workflow_stage_id,
+                input.workflow_stage_label,
+                workflow_id_present,
+                workflow_stage_id_present,
+                workflow_stage_label_present,
+                status_workflow_stage_id,
+                status_workflow_stage_label,
             ],
         )?;
         self.get(id)
@@ -480,6 +576,8 @@ impl WorkItemStore {
         sort_order: f64,
         now: u64,
     ) -> SqlResult<Option<WorkItem>> {
+        let workflow_stage_id = default_workflow_stage_id_for_status(status.as_str());
+        let workflow_stage_label = default_workflow_stage_label(workflow_stage_id);
         self.conn.execute(
             "UPDATE work_items
              SET status = ?2,
@@ -488,6 +586,8 @@ impl WorkItemStore {
                      WHEN ?2 = ?7 THEN NULL
                      ELSE review_stage_id
                  END,
+                 workflow_stage_id = ?8,
+                 workflow_stage_label = ?9,
                  sort_order = ?3,
                  updated_at = ?4
              WHERE id = ?1",
@@ -495,6 +595,45 @@ impl WorkItemStore {
                 id,
                 status.as_str(),
                 sort_order,
+                now as i64,
+                WorkItemStatus::Review.as_str(),
+                roux_core::FIRST_REVIEW_STAGE_ID,
+                WorkItemStatus::Done.as_str(),
+                workflow_stage_id,
+                workflow_stage_label,
+            ],
+        )?;
+        self.get(id)
+    }
+
+    pub fn move_to_workflow_stage(
+        &mut self,
+        id: &str,
+        status: WorkItemStatus,
+        workflow_id: &str,
+        stage_id: &str,
+        stage_label: &str,
+        now: u64,
+    ) -> SqlResult<Option<WorkItem>> {
+        self.conn.execute(
+            "UPDATE work_items
+             SET status = ?2,
+                 review_stage_id = CASE
+                     WHEN ?2 = ?7 THEN COALESCE(review_stage_id, ?8)
+                     WHEN ?2 = ?9 THEN NULL
+                     ELSE review_stage_id
+                 END,
+                 workflow_id = ?3,
+                 workflow_stage_id = ?4,
+                 workflow_stage_label = ?5,
+                 updated_at = ?6
+             WHERE id = ?1",
+            params![
+                id,
+                status.as_str(),
+                workflow_id,
+                stage_id,
+                stage_label,
                 now as i64,
                 WorkItemStatus::Review.as_str(),
                 roux_core::FIRST_REVIEW_STAGE_ID,
@@ -1297,9 +1436,14 @@ impl WorkItemStore {
         };
         let review_stage_id =
             review_stage_id.unwrap_or_else(|| roux_core::FIRST_REVIEW_STAGE_ID.to_string());
+        let workflow_id = workflow_id_for_settings(kanban);
         let next_stage_id = roux_core::next_review_stage_id(&review_stage_id);
         add_review_stage_payload_fields(&mut payload, kanban, &review_stage_id, next_stage_id);
         if next_stage_id.is_some() {
+            let next_stage_label = review_stage_label(
+                kanban,
+                next_stage_id.unwrap_or(roux_core::FINAL_REVIEW_STAGE_ID),
+            );
             set_payload_string_field(&mut payload, "status", WorkItemRunStatus::Review.as_str());
             let changed = tx.execute(
                 "UPDATE work_item_runs
@@ -1315,9 +1459,19 @@ impl WorkItemStore {
                 "UPDATE work_items
                  SET status = ?2,
                      review_stage_id = ?3,
+                     workflow_id = COALESCE(workflow_id, ?6),
+                     workflow_stage_id = ?3,
+                     workflow_stage_label = ?5,
                      updated_at = ?4
                  WHERE id = ?1",
-                params![work_item_id, WorkItemStatus::Review.as_str(), next_stage_id, now as i64,],
+                params![
+                    work_item_id,
+                    WorkItemStatus::Review.as_str(),
+                    next_stage_id,
+                    now as i64,
+                    next_stage_label,
+                    workflow_id,
+                ],
             )?;
         } else {
             let changed = tx.execute(
@@ -1341,9 +1495,12 @@ impl WorkItemStore {
                 "UPDATE work_items
                  SET status = ?2,
                      review_stage_id = NULL,
+                     workflow_id = COALESCE(workflow_id, ?4),
+                     workflow_stage_id = 'done',
+                     workflow_stage_label = 'Done',
                      updated_at = ?3
                  WHERE id = ?1",
-                params![work_item_id, WorkItemStatus::Done.as_str(), now as i64],
+                params![work_item_id, WorkItemStatus::Done.as_str(), now as i64, workflow_id],
             )?;
         }
         let payload = serde_json::to_string(&payload)
@@ -1443,6 +1600,8 @@ impl WorkItemStore {
         }
         let review_stage_id =
             review_stage_id.unwrap_or_else(|| roux_core::FIRST_REVIEW_STAGE_ID.to_string());
+        let review_stage_label = review_stage_label(kanban, &review_stage_id);
+        let workflow_id = workflow_id_for_settings(kanban);
         add_review_stage_payload_fields(&mut payload, kanban, &review_stage_id, None);
         set_payload_string_field(&mut payload, "status", WorkItemRunStatus::Review.as_str());
         let payload = serde_json::to_string(&payload)
@@ -1473,13 +1632,18 @@ impl WorkItemStore {
             "UPDATE work_items
              SET status = ?2,
                  review_stage_id = COALESCE(review_stage_id, ?4),
+                 workflow_id = COALESCE(workflow_id, ?6),
+                 workflow_stage_id = COALESCE(review_stage_id, ?4),
+                 workflow_stage_label = ?5,
                  updated_at = ?3
              WHERE id = ?1",
             params![
                 work_item_id,
                 WorkItemStatus::Review.as_str(),
                 now as i64,
-                roux_core::FIRST_REVIEW_STAGE_ID,
+                review_stage_id,
+                review_stage_label,
+                workflow_id,
             ],
         )?;
         tx.execute(
@@ -1627,6 +1791,9 @@ impl WorkItemStore {
         }
         let review_stage_id =
             review_stage_id.unwrap_or_else(|| roux_core::FIRST_REVIEW_STAGE_ID.to_string());
+        let workflow_id = workflow_id_for_settings(kanban);
+        let (workflow_stage_id, workflow_stage_label) =
+            request_changes_workflow_stage(kanban, &review_stage_id, &target_status);
         add_review_stage_payload_fields(&mut payload, kanban, &review_stage_id, None);
         let payload = serde_json::to_string(&payload)
             .map_err(|err| rusqlite::Error::ToSqlConversionFailure(Box::new(err)))?;
@@ -1650,11 +1817,21 @@ impl WorkItemStore {
         }
         tx.execute(
             "UPDATE work_items
-             SET status = ?2,
+                 SET status = ?2,
                  session_id = NULL,
+                 workflow_id = COALESCE(workflow_id, ?6),
+                 workflow_stage_id = ?4,
+                 workflow_stage_label = ?5,
                  updated_at = ?3
              WHERE id = ?1",
-            params![work_item_id, target_status.as_str(), now as i64],
+            params![
+                work_item_id,
+                target_status.as_str(),
+                now as i64,
+                workflow_stage_id,
+                workflow_stage_label,
+                workflow_id,
+            ],
         )?;
         if let Some((id, input, byte_len, sha256)) = feedback {
             tx.execute(
@@ -1976,6 +2153,48 @@ fn review_stage_label(kanban: Option<&KanbanSettings>, id: &str) -> String {
         .unwrap_or_else(|| roux_core::review_stage_label(id))
 }
 
+fn workflow_id_for_settings(kanban: Option<&KanbanSettings>) -> &str {
+    kanban.map(|kanban| kanban.workflow.id.as_str()).unwrap_or("default")
+}
+
+fn request_changes_workflow_stage(
+    kanban: Option<&KanbanSettings>,
+    review_stage_id: &str,
+    target_status: &WorkItemStatus,
+) -> (String, String) {
+    if let Some(kanban) = kanban {
+        if let Some((_, _, review_stage)) =
+            roux_core::workflow_stage(&kanban.workflow, review_stage_id)
+        {
+            if let Some(target_stage_id) = review_stage.transitions.on_changes_requested.as_deref()
+            {
+                if let Some((_, _, target_stage)) =
+                    roux_core::workflow_stage(&kanban.workflow, target_stage_id)
+                {
+                    if workflow_status_for_category(target_stage.category) == *target_status {
+                        return (target_stage_id.to_string(), target_stage.label.clone());
+                    }
+                }
+            }
+        }
+    }
+    let stage_id = default_workflow_stage_id_for_status(target_status.as_str()).to_string();
+    let label = default_workflow_stage_label(&stage_id);
+    (stage_id, label)
+}
+
+fn workflow_status_for_category(
+    category: roux_core::KanbanWorkflowPhaseCategory,
+) -> WorkItemStatus {
+    match category {
+        roux_core::KanbanWorkflowPhaseCategory::Todo => WorkItemStatus::Todo,
+        roux_core::KanbanWorkflowPhaseCategory::Planning => WorkItemStatus::Planning,
+        roux_core::KanbanWorkflowPhaseCategory::Doing => WorkItemStatus::Doing,
+        roux_core::KanbanWorkflowPhaseCategory::Review => WorkItemStatus::Review,
+        roux_core::KanbanWorkflowPhaseCategory::Done => WorkItemStatus::Done,
+    }
+}
+
 fn set_payload_string_field(payload: &mut Value, key: &str, value: &str) {
     let object = payload_object_mut(payload);
     object.insert(key.to_string(), Value::String(value.to_string()));
@@ -1998,6 +2217,31 @@ fn session_already_bound_error(session_id: &str, work_item_id: &str) -> rusqlite
     )
 }
 
+fn default_workflow_stage_id_for_status(status: &str) -> &'static str {
+    match status {
+        "todo" => "todo",
+        "planning" | "ready" => "planning",
+        "doing" => "implementation",
+        "review" => roux_core::FIRST_REVIEW_STAGE_ID,
+        "done" => "done",
+        _ => "todo",
+    }
+}
+
+fn default_workflow_stage_label(stage_id: &str) -> String {
+    match stage_id {
+        "todo" => "Todo",
+        "planning" => "Planning",
+        "implementation" => "Implementation",
+        "fix_ci" => "Fix CI",
+        roux_core::FIRST_REVIEW_STAGE_ID => "Local Review",
+        roux_core::FINAL_REVIEW_STAGE_ID => "PR Review",
+        "done" => "Done",
+        _ => stage_id,
+    }
+    .to_string()
+}
+
 fn row_to_work_item(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkItem> {
     let status_str: String = row.get(5)?;
     let status = WorkItemStatus::from_str_opt(&status_str).unwrap_or_default();
@@ -2009,23 +2253,26 @@ fn row_to_work_item(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkItem> {
         body: row.get(4)?,
         status,
         review_stage_id: row.get(6)?,
-        repo_path: row.get(7)?,
-        agent_profile: row.get(8)?,
-        base_branch: row.get(9)?,
-        worktree_path: row.get(10)?,
-        branch: row.get(11)?,
-        fetch_first: row.get(12)?,
-        start_error: row.get(13)?,
-        session_id: row.get(14)?,
-        provider: row.get(15)?,
-        external_id: row.get(16)?,
-        external_url: row.get(17)?,
-        sort_order: row.get(18)?,
-        pinned_pr_url: row.get(19)?,
-        archived_at: row.get::<_, Option<i64>>(20)?.map(|value| value as u64),
-        cost: row.get(21)?,
-        created_at: row.get::<_, i64>(22)? as u64,
-        updated_at: row.get::<_, i64>(23)? as u64,
+        workflow_id: row.get(7)?,
+        workflow_stage_id: row.get(8)?,
+        workflow_stage_label: row.get(9)?,
+        repo_path: row.get(10)?,
+        agent_profile: row.get(11)?,
+        base_branch: row.get(12)?,
+        worktree_path: row.get(13)?,
+        branch: row.get(14)?,
+        fetch_first: row.get(15)?,
+        start_error: row.get(16)?,
+        session_id: row.get(17)?,
+        provider: row.get(18)?,
+        external_id: row.get(19)?,
+        external_url: row.get(20)?,
+        sort_order: row.get(21)?,
+        pinned_pr_url: row.get(22)?,
+        archived_at: row.get::<_, Option<i64>>(23)?.map(|value| value as u64),
+        cost: row.get(24)?,
+        created_at: row.get::<_, i64>(25)? as u64,
+        updated_at: row.get::<_, i64>(26)? as u64,
     })
 }
 
@@ -2204,9 +2451,20 @@ mod tests {
 
     #[test]
     fn pending_migrations_are_versions_after_current() {
-        assert_eq!(roux_core::pending_work_item_migrations(4, 9), vec![5, 6, 7, 8, 9]);
-        assert!(roux_core::pending_work_item_migrations(9, 9).is_empty());
-        assert!(roux_core::pending_work_item_migrations(10, 9).is_empty());
+        assert_eq!(
+            roux_core::pending_work_item_migrations(4, WORK_ITEM_SCHEMA_VERSION),
+            vec![5, 6, 7, 8, 9, 10, 11]
+        );
+        assert!(roux_core::pending_work_item_migrations(
+            WORK_ITEM_SCHEMA_VERSION,
+            WORK_ITEM_SCHEMA_VERSION
+        )
+        .is_empty());
+        assert!(roux_core::pending_work_item_migrations(
+            WORK_ITEM_SCHEMA_VERSION + 1,
+            WORK_ITEM_SCHEMA_VERSION
+        )
+        .is_empty());
     }
 
     #[test]
@@ -2214,7 +2472,39 @@ mod tests {
         let store = WorkItemStore::open_in_memory().unwrap();
         let version: i64 =
             store.conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
-        assert_eq!(version, 9);
+        assert_eq!(version, WORK_ITEM_SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn v11_migration_repairs_ready_rows_in_existing_v10_database() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("board.db");
+        {
+            let mut store = WorkItemStore::open(&path).unwrap();
+            let item = store.create("i-1".into(), input("Ready card"), 1000).unwrap();
+            store
+                .conn
+                .execute(
+                    "UPDATE work_items
+                     SET status = 'ready',
+                         workflow_stage_id = 'todo',
+                         workflow_stage_label = 'Todo'
+                     WHERE id = ?1",
+                    params![item.id],
+                )
+                .unwrap();
+            store.conn.execute_batch("PRAGMA user_version = 10;").unwrap();
+        }
+
+        let store = WorkItemStore::open(&path).unwrap();
+        let version: i64 =
+            store.conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
+        let item = store.get("i-1").unwrap().unwrap();
+
+        assert_eq!(version, WORK_ITEM_SCHEMA_VERSION);
+        assert_eq!(item.status, WorkItemStatus::Planning);
+        assert_eq!(item.workflow_stage_id.as_deref(), Some("planning"));
+        assert_eq!(item.workflow_stage_label.as_deref(), Some("Planning"));
     }
 
     #[test]
@@ -2225,7 +2515,7 @@ mod tests {
             let store = WorkItemStore::open(&path).unwrap();
             let version: i64 =
                 store.conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
-            assert_eq!(version, 9);
+            assert_eq!(version, WORK_ITEM_SCHEMA_VERSION);
             assert!(table_has_column(&store.conn, "work_items", "repo_path").unwrap());
             assert!(table_has_column(&store.conn, "work_items", "branch").unwrap());
             assert!(table_has_column(&store.conn, "work_items", "fetch_first").unwrap());
@@ -2238,7 +2528,7 @@ mod tests {
         let store = WorkItemStore::open(&path).unwrap();
         let version: i64 =
             store.conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
-        assert_eq!(version, 9);
+        assert_eq!(version, WORK_ITEM_SCHEMA_VERSION);
         assert!(table_has_column(&store.conn, "work_items", "repo_path").unwrap());
         assert!(table_has_column(&store.conn, "work_items", "branch").unwrap());
         assert!(table_has_column(&store.conn, "work_items", "fetch_first").unwrap());
@@ -2331,6 +2621,8 @@ mod tests {
         let item = store.get("i-1").unwrap().unwrap();
         assert_eq!(item.status, WorkItemStatus::Review);
         assert_eq!(item.review_stage_id.as_deref(), Some("local_review"));
+        assert_eq!(item.workflow_stage_id.as_deref(), Some("local_review"));
+        assert_eq!(item.workflow_stage_label.as_deref(), Some("Local Review"));
     }
 
     #[test]
@@ -2381,6 +2673,8 @@ mod tests {
 
         assert_eq!(item.status, WorkItemStatus::Review);
         assert_eq!(item.review_stage_id.as_deref(), Some("pr_review"));
+        assert_eq!(item.workflow_stage_id.as_deref(), Some("pr_review"));
+        assert_eq!(item.workflow_stage_label.as_deref(), Some("PR Review"));
         assert_eq!(run.status, roux_core::WorkItemRunStatus::Review);
         assert_eq!(event.payload["reviewStageId"], "local_review");
         assert_eq!(event.payload["nextReviewStageId"], "pr_review");
@@ -2500,6 +2794,8 @@ mod tests {
         let item = store.get("i-1").unwrap().unwrap();
         assert_eq!(item.status, WorkItemStatus::Doing);
         assert_eq!(item.review_stage_id.as_deref(), Some("pr_review"));
+        assert_eq!(item.workflow_stage_id.as_deref(), Some("implementation"));
+        assert_eq!(item.workflow_stage_label.as_deref(), Some("Implementation"));
     }
 
     #[test]
@@ -2541,6 +2837,8 @@ mod tests {
 
         assert_eq!(item.status, WorkItemStatus::Done);
         assert_eq!(item.review_stage_id, None);
+        assert_eq!(item.workflow_stage_id.as_deref(), Some("done"));
+        assert_eq!(item.workflow_stage_label.as_deref(), Some("Done"));
         assert_eq!(run.status, roux_core::WorkItemRunStatus::Done);
         assert_eq!(event.payload["reviewStageId"], "pr_review");
     }
@@ -2680,7 +2978,7 @@ mod tests {
         let store = WorkItemStore::open(&path).unwrap();
         let version: i64 =
             store.conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
-        assert_eq!(version, 9);
+        assert_eq!(version, WORK_ITEM_SCHEMA_VERSION);
         for column in [
             "repo_path",
             "agent_profile",

@@ -1,8 +1,8 @@
-use clap::{ArgGroup, Args, Parser, Subcommand};
-use serde_json::Value;
+use clap::{ArgGroup, Args, Parser, Subcommand, ValueEnum};
+use serde_json::{json, Value};
 use std::fs;
 use std::io::{BufRead, BufReader, Read};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 mod attach;
@@ -28,6 +28,11 @@ enum Commands {
     Hook {
         #[command(subcommand)]
         action: HookAction,
+    },
+    /// Install Roux integrations into external agent tools
+    Install {
+        #[command(subcommand)]
+        action: InstallAction,
     },
     /// Show current session statuses
     Status,
@@ -312,6 +317,8 @@ enum DaemonAction {
     Stop,
     /// Stop the daemon if running, then start it in the background
     Restart,
+    /// Clear stale daemon coordination files when the daemon is unreachable
+    Clear,
     /// Query the daemon-only status endpoint
     Status,
     /// Show daemon runtime logs
@@ -1014,6 +1021,24 @@ enum HookAction {
     Run(Box<HookRunArgs>),
 }
 
+#[derive(Subcommand)]
+enum InstallAction {
+    /// Install Roux hooks into an agent config
+    Hooks(InstallHooksArgs),
+}
+
+#[derive(Args)]
+struct InstallHooksArgs {
+    /// Agent whose hooks should be installed
+    #[arg(long, value_enum)]
+    agent: InstallHooksAgent,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum InstallHooksAgent {
+    Claude,
+}
+
 #[derive(Args)]
 struct HookShowArgs {
     /// Repo path whose project hooks should be included
@@ -1155,6 +1180,239 @@ fn status_dir() -> PathBuf {
     platform::status_dir()
 }
 
+fn claude_settings_path() -> Result<PathBuf, String> {
+    let home = dirs::home_dir().ok_or("Could not determine home directory")?;
+    Ok(home.join(".claude").join("settings.json"))
+}
+
+fn current_roux_cli_path() -> Result<PathBuf, String> {
+    std::env::current_exe()
+        .map_err(|e| format!("Could not determine current roux executable: {e}"))
+        .map(|path| path.canonicalize().unwrap_or(path))
+}
+
+fn hook_command(cli_path: &Path, status: &str) -> String {
+    platform::command_string(cli_path, &["hook", status])
+}
+
+fn roux_claude_hooks_config(cli_path: &Path) -> Value {
+    json!({
+        "hooks": {
+            "UserPromptSubmit": [
+                {
+                    "hooks": [
+                        { "type": "command", "command": hook_command(cli_path, "working") }
+                    ]
+                }
+            ],
+            "Stop": [
+                {
+                    "hooks": [
+                        { "type": "command", "command": hook_command(cli_path, "idle") }
+                    ]
+                }
+            ],
+            "PermissionRequest": [
+                {
+                    "hooks": [
+                        { "type": "command", "command": hook_command(cli_path, "attention") }
+                    ]
+                }
+            ],
+            "PreToolUse": [
+                {
+                    "matcher": "AskUserQuestion",
+                    "hooks": [
+                        { "type": "command", "command": hook_command(cli_path, "attention") }
+                    ]
+                }
+            ],
+            "PostToolUse": [
+                {
+                    "hooks": [
+                        { "type": "command", "command": hook_command(cli_path, "working") }
+                    ]
+                }
+            ],
+            "StopFailure": [
+                {
+                    "hooks": [
+                        { "type": "command", "command": hook_command(cli_path, "error") }
+                    ]
+                }
+            ],
+            "SessionEnd": [
+                {
+                    "hooks": [
+                        { "type": "command", "command": hook_command(cli_path, "idle") }
+                    ]
+                }
+            ],
+            "Notification": [
+                {
+                    "matcher": "permission_prompt|elicitation_dialog|elicitation_response",
+                    "hooks": [
+                        { "type": "command", "command": hook_command(cli_path, "attention") }
+                    ]
+                },
+                {
+                    "matcher": "elicitation_complete|idle_prompt",
+                    "hooks": [
+                        { "type": "command", "command": hook_command(cli_path, "idle") }
+                    ]
+                }
+            ],
+            "Elicitation": [
+                {
+                    "hooks": [
+                        { "type": "command", "command": hook_command(cli_path, "attention") }
+                    ]
+                }
+            ],
+            "ElicitationResult": [
+                {
+                    "hooks": [
+                        { "type": "command", "command": hook_command(cli_path, "idle") }
+                    ]
+                }
+            ]
+        }
+    })
+}
+
+fn split_command_program(command: &str) -> Option<(&str, &str)> {
+    let trimmed = command.trim_start();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    if let Some(rest) = trimmed.strip_prefix('"') {
+        let quote = rest.find('"')?;
+        let (program, remainder) = rest.split_at(quote);
+        return Some((program, remainder[1..].trim_start()));
+    }
+
+    let mut parts = trimmed.splitn(2, char::is_whitespace);
+    let program = parts.next()?;
+    Some((program, parts.next().unwrap_or("").trim_start()))
+}
+
+fn command_program_is_roux_cli(program: &str) -> bool {
+    let file_name = program.rsplit(['/', '\\']).next().unwrap_or(program);
+    matches!(
+        file_name.to_ascii_lowercase().as_str(),
+        "roux" | "roux.exe" | "roux-cli" | "roux-cli.exe"
+    )
+}
+
+fn args_start_with_roux_hook_status(args: &str) -> bool {
+    let mut args = args.split_whitespace();
+    let Some(hook) = args.next() else {
+        return false;
+    };
+    if hook != "hook" {
+        return false;
+    }
+
+    matches!(args.next(), Some("working" | "idle" | "attention" | "error" | "disconnected"))
+}
+
+fn is_roux_hook_command(command: &str) -> bool {
+    let Some((program, args)) = split_command_program(command) else {
+        return false;
+    };
+    command_program_is_roux_cli(program) && args_start_with_roux_hook_status(args)
+}
+
+fn is_roux_hook(hook_obj: &Value) -> bool {
+    hook_obj.get("command").and_then(|c| c.as_str()).map(is_roux_hook_command).unwrap_or(false)
+}
+
+fn is_legacy_roux_hook(hook_obj: &Value) -> bool {
+    hook_obj
+        .get("command")
+        .and_then(|c| c.as_str())
+        .map(|c| c.contains("roux/hook-handler.sh"))
+        .unwrap_or(false)
+}
+
+fn merge_roux_claude_hooks(settings: &mut Value, cli_path: &Path) -> Result<(), String> {
+    let roux = roux_claude_hooks_config(cli_path);
+    let roux_hooks = roux.get("hooks").and_then(|hooks| hooks.as_object()).unwrap();
+
+    if settings.get("hooks").is_none() || !settings["hooks"].is_object() {
+        settings["hooks"] = json!({});
+    }
+
+    for (event_name, roux_entries) in roux_hooks {
+        let roux_entries = roux_entries.as_array().unwrap();
+        let existing = settings["hooks"]
+            .get(event_name)
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+        let mut filtered: Vec<Value> = existing
+            .into_iter()
+            .filter_map(|mut entry| {
+                let hooks = entry.get_mut("hooks")?.as_array_mut()?;
+                hooks.retain(|hook| !is_roux_hook(hook) && !is_legacy_roux_hook(hook));
+                if hooks.is_empty() {
+                    None
+                } else {
+                    Some(entry)
+                }
+            })
+            .collect();
+        filtered.extend(roux_entries.iter().cloned());
+        settings["hooks"][event_name] = Value::Array(filtered);
+    }
+
+    Ok(())
+}
+
+fn install_claude_hooks() -> Result<PathBuf, String> {
+    fs::create_dir_all(status_dir()).map_err(|e| format!("Failed to create status dir: {e}"))?;
+    let cli_path = current_roux_cli_path()?;
+    let settings_path = claude_settings_path()?;
+
+    let mut settings: Value = if settings_path.exists() {
+        let content = fs::read_to_string(&settings_path)
+            .map_err(|e| format!("Failed to read {}: {e}", settings_path.display()))?;
+        serde_json::from_str(&content)
+            .map_err(|e| format!("Failed to parse {}: {e}", settings_path.display()))?
+    } else {
+        if let Some(parent) = settings_path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|e| format!("Failed to create {}: {e}", parent.display()))?;
+        }
+        json!({})
+    };
+
+    merge_roux_claude_hooks(&mut settings, &cli_path)?;
+    let output = serde_json::to_string_pretty(&settings)
+        .map_err(|e| format!("Failed to serialize hooks: {e}"))?;
+    fs::write(&settings_path, output)
+        .map_err(|e| format!("Failed to write {}: {e}", settings_path.display()))?;
+    Ok(settings_path)
+}
+
+fn handle_install_action(action: InstallAction) {
+    let result = match action {
+        InstallAction::Hooks(args) => match args.agent {
+            InstallHooksAgent::Claude => install_claude_hooks()
+                .map(|path| format!("Installed Claude hooks to {}", path.display())),
+        },
+    };
+
+    match result {
+        Ok(message) => println!("{message}"),
+        Err(error) => {
+            eprintln!("Error: {error}");
+            std::process::exit(1);
+        }
+    }
+}
+
 /// Build the shared `args` map for receive-side mailbox commands
 /// (peek/read/count/clear). Keeps the dispatch arms focused on their
 /// command-specific extras.
@@ -1197,6 +1455,14 @@ fn get_session_id() -> Option<String> {
 
 fn get_pane_id() -> Option<String> {
     std::env::var("ROUX_PANE_ID").ok()
+}
+
+fn get_work_item_id() -> Option<String> {
+    std::env::var("ROUX_WORK_ITEM_ID").ok()
+}
+
+fn get_work_item_run_id() -> Option<String> {
+    std::env::var("ROUX_WORK_ITEM_RUN_ID").ok()
 }
 
 /// Pick the session_id and pane_id to send over the wire, given explicit CLI
@@ -1361,6 +1627,15 @@ fn is_not_running_error(error: &str) -> bool {
     error == "Roux is not running"
 }
 
+fn daemon_timeout_from_env(key: &str, default: Duration) -> Duration {
+    std::env::var(key)
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|millis| *millis > 0)
+        .map(Duration::from_millis)
+        .unwrap_or(default)
+}
+
 fn start_daemon_background() -> Result<(), String> {
     match daemon_status_data() {
         Ok(status) => {
@@ -1373,7 +1648,7 @@ fn start_daemon_background() -> Result<(), String> {
 
     let pid = spawn_detached_daemon()?;
     let started = Instant::now();
-    let timeout = Duration::from_secs(3);
+    let timeout = daemon_timeout_from_env("ROUX_DAEMON_START_TIMEOUT_MS", Duration::from_secs(15));
     let poll_interval = Duration::from_millis(100);
 
     loop {
@@ -1408,7 +1683,7 @@ fn stop_daemon_background(ignore_not_running: bool) -> Result<(), String> {
     };
 
     let _ = socket_command_data(serde_json::json!({ "command": "daemon-stop" }))?;
-    let timeout = Duration::from_secs(3);
+    let timeout = daemon_timeout_from_env("ROUX_DAEMON_STOP_TIMEOUT_MS", Duration::from_secs(5));
     let poll_interval = Duration::from_millis(100);
     let started = Instant::now();
 
@@ -1422,10 +1697,213 @@ fn stop_daemon_background(ignore_not_running: bool) -> Result<(), String> {
                 ));
             }
             Err(_) => {
+                wait_for_daemon_owner_lock_release(timeout.saturating_sub(started.elapsed()))?;
                 print_daemon_lifecycle_line("Stopped roux daemon", &status);
                 return Ok(());
             }
         }
+    }
+}
+
+fn wait_for_daemon_owner_lock_release(timeout: Duration) -> Result<(), String> {
+    let lock_path = platform::daemon_owner_lock_path();
+    let started = Instant::now();
+    let poll_interval = Duration::from_millis(100);
+    loop {
+        if !daemon_owner_lock_is_held(&lock_path)? {
+            return Ok(());
+        }
+        if started.elapsed() >= timeout {
+            break;
+        }
+        std::thread::sleep(poll_interval);
+    }
+    Err(format!(
+        "daemon socket stopped responding, but owner lock {} was still held after {}ms",
+        lock_path.display(),
+        timeout.as_millis()
+    ))
+}
+
+fn daemon_owner_lock_is_held(lock_path: &Path) -> Result<bool, String> {
+    #[cfg(unix)]
+    {
+        use std::os::fd::AsRawFd;
+
+        if let Some(parent) = lock_path.parent() {
+            std::fs::create_dir_all(parent).map_err(|err| {
+                format!("create daemon owner lock directory {}: {err}", parent.display())
+            })?;
+        }
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .read(true)
+            .write(true)
+            .open(lock_path)
+            .map_err(|err| format!("open daemon owner lock {}: {err}", lock_path.display()))?;
+        let result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+        if result == -1 {
+            let err = std::io::Error::last_os_error();
+            if err.kind() == std::io::ErrorKind::WouldBlock {
+                return Ok(true);
+            }
+            return Err(format!("lock daemon owner lock {}: {err}", lock_path.display()));
+        }
+        let _ = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_UN) };
+        Ok(false)
+    }
+
+    #[cfg(not(unix))]
+    {
+        let _ = lock_path;
+        Ok(false)
+    }
+}
+
+fn clear_stale_daemon_state() -> Result<(), String> {
+    match daemon_status_data() {
+        Ok(status) => {
+            print_daemon_lifecycle_line("Roux daemon is running; not clearing", &status);
+            return Ok(());
+        }
+        Err(error) if is_not_running_error(&error) => {}
+        Err(error) => return Err(error),
+    }
+
+    let lock_path = platform::daemon_owner_lock_path();
+    if daemon_owner_lock_is_held(&lock_path)? {
+        let lock_holders = daemon_lock_holder_pids(&lock_path);
+        if lock_holders.is_empty() {
+            return Err(format!(
+                "daemon owner lock {} is held, but no roux daemon owner process was found",
+                lock_path.display()
+            ));
+        }
+        for pid in &lock_holders {
+            println!("Terminating stale daemon lock holder pid={pid}");
+            terminate_process(*pid)?;
+        }
+    }
+
+    let mut removed = Vec::new();
+    for path in [
+        platform::socket_path(),
+        platform::socket_addr_file_path(),
+        platform::socket_auth_token_file_path(),
+        lock_path,
+    ] {
+        match std::fs::remove_file(&path) {
+            Ok(()) => removed.push(path),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => return Err(format!("remove stale daemon file {}: {err}", path.display())),
+        }
+    }
+
+    if removed.is_empty() {
+        println!("No stale daemon files found");
+    } else {
+        for path in removed {
+            println!("Removed {}", path.display());
+        }
+    }
+    Ok(())
+}
+
+fn daemon_lock_holder_pids(lock_path: &Path) -> Vec<u32> {
+    #[cfg(unix)]
+    {
+        let Ok(output) = std::process::Command::new("lsof").arg("-t").arg(lock_path).output()
+        else {
+            return Vec::new();
+        };
+        if !output.status.success() {
+            return Vec::new();
+        }
+        let current = std::process::id();
+        String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .filter_map(|line| line.trim().parse::<u32>().ok())
+            .filter(|pid| *pid != current)
+            .filter(|pid| {
+                process_command(*pid)
+                    .map(|cmd| command_looks_like_roux_daemon(&cmd))
+                    .unwrap_or(false)
+            })
+            .collect()
+    }
+
+    #[cfg(not(unix))]
+    {
+        let _ = lock_path;
+        Vec::new()
+    }
+}
+
+fn process_command(pid: u32) -> Option<String> {
+    let output = std::process::Command::new("ps")
+        .args(["-p", &pid.to_string(), "-o", "command="])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let command = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    (!command.is_empty()).then_some(command)
+}
+
+fn command_looks_like_roux_daemon(command: &str) -> bool {
+    let Some((program, args)) = split_command_program(command) else {
+        return false;
+    };
+    command_program_is_roux_cli(program) && args.split_whitespace().any(|arg| arg == "daemon")
+}
+
+fn terminate_process(pid: u32) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        unsafe {
+            if libc::kill(pid as libc::pid_t, libc::SIGTERM) == -1 {
+                let err = std::io::Error::last_os_error();
+                if err.kind() != std::io::ErrorKind::NotFound {
+                    return Err(format!("terminate stale daemon pid={pid}: {err}"));
+                }
+            }
+        }
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while process_exists(pid) && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        if process_exists(pid) {
+            unsafe {
+                if libc::kill(pid as libc::pid_t, libc::SIGKILL) == -1 {
+                    let err = std::io::Error::last_os_error();
+                    if err.kind() != std::io::ErrorKind::NotFound {
+                        return Err(format!("kill stale daemon pid={pid}: {err}"));
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[cfg(not(unix))]
+    {
+        let _ = pid;
+        Err("daemon clear cannot terminate lock holders on this platform".to_string())
+    }
+}
+
+fn process_exists(pid: u32) -> bool {
+    #[cfg(unix)]
+    unsafe {
+        libc::kill(pid as libc::pid_t, 0) == 0
+    }
+
+    #[cfg(not(unix))]
+    {
+        let _ = pid;
+        false
     }
 }
 
@@ -2200,6 +2678,12 @@ fn handle_hook(status: &str) {
     if let Some(pane) = get_pane_id() {
         out["roux_pane_id"] = Value::String(pane);
     }
+    if let Some(work_item_id) = get_work_item_id() {
+        out["roux_work_item_id"] = Value::String(work_item_id);
+    }
+    if let Some(run_id) = get_work_item_run_id() {
+        out["roux_work_item_run_id"] = Value::String(run_id);
+    }
 
     if status == "attention" {
         if let Some(tn) = data.get("tool_name") {
@@ -2368,6 +2852,7 @@ fn main() {
     let cli = Cli::parse();
     match cli.command {
         Commands::Hook { action } => handle_hook_action(action),
+        Commands::Install { action } => handle_install_action(action),
         Commands::Status => show_status(),
         Commands::Clear => clear_status(),
         Commands::Mcp => {
@@ -2420,6 +2905,12 @@ fn main() {
                     std::process::exit(1);
                 }
                 if let Err(e) = start_daemon_background() {
+                    eprintln!("Error: {e}");
+                    std::process::exit(1);
+                }
+            }
+            Some(DaemonAction::Clear) => {
+                if let Err(e) = clear_stale_daemon_state() {
                     eprintln!("Error: {e}");
                     std::process::exit(1);
                 }
@@ -3752,7 +4243,7 @@ mod tests {
             "--note",
             "Add coverage",
             "--status",
-            "ready",
+            "planning",
         ])
         .unwrap();
         match cli.command {
@@ -3764,7 +4255,7 @@ mod tests {
             } => {
                 assert_eq!(target, "run-1");
                 assert_eq!(note, "Add coverage");
-                assert_eq!(status.as_deref(), Some("ready"));
+                assert_eq!(status.as_deref(), Some("planning"));
             }
             _ => panic!("expected WorkItem::Review::RequestChanges"),
         }
@@ -3775,13 +4266,13 @@ mod tests {
         let request = build_work_item_review_request_changes(
             "run-1".into(),
             "Add coverage".into(),
-            Some("ready".into()),
+            Some("planning".into()),
         );
 
         assert_eq!(request["command"], "work-item-review-request-changes");
         assert_eq!(request["args"]["id"], "run-1");
         assert_eq!(request["args"]["note"], "Add coverage");
-        assert_eq!(request["args"]["status"], "ready");
+        assert_eq!(request["args"]["status"], "planning");
     }
 
     #[test]
@@ -4270,6 +4761,97 @@ mod tests {
     }
 
     #[test]
+    fn cli_parses_install_claude_hooks_command() {
+        let cli = Cli::try_parse_from(["roux", "install", "hooks", "--agent", "claude"]).unwrap();
+        match cli.command {
+            Commands::Install {
+                action: InstallAction::Hooks(InstallHooksArgs { agent: InstallHooksAgent::Claude }),
+            } => {}
+            _ => panic!("expected Install::Hooks"),
+        }
+    }
+
+    #[test]
+    fn merge_roux_claude_hooks_replaces_roux_entries_and_preserves_user_hooks() {
+        let cli_path = Path::new("/opt/roux/bin/roux");
+        let mut settings = json!({
+            "hooks": {
+                "PreToolUse": [
+                    {
+                        "matcher": "AskUserQuestion",
+                        "hooks": [
+                            { "type": "command", "command": "/old/roux hook attention" },
+                            { "type": "command", "command": "echo keep-same-entry" }
+                        ]
+                    },
+                    {
+                        "matcher": "Bash",
+                        "hooks": [
+                            { "type": "command", "command": "echo keep-me" }
+                        ]
+                    }
+                ]
+            }
+        });
+
+        merge_roux_claude_hooks(&mut settings, cli_path).unwrap();
+
+        let entries = settings["hooks"]["PreToolUse"].as_array().unwrap();
+        assert!(entries.iter().any(|entry| {
+            entry.get("matcher").and_then(|matcher| matcher.as_str()) == Some("AskUserQuestion")
+                && entry.get("hooks").and_then(|hooks| hooks.as_array()).unwrap().iter().any(
+                    |hook| {
+                        hook.get("command").and_then(|command| command.as_str())
+                            == Some("/opt/roux/bin/roux hook attention")
+                    },
+                )
+        }));
+        assert!(entries.iter().any(|entry| {
+            entry.get("matcher").and_then(|matcher| matcher.as_str()) == Some("Bash")
+        }));
+        assert!(entries.iter().any(|entry| {
+            entry.get("matcher").and_then(|matcher| matcher.as_str()) == Some("AskUserQuestion")
+                && entry.get("hooks").and_then(|hooks| hooks.as_array()).unwrap().iter().any(
+                    |hook| {
+                        hook.get("command").and_then(|command| command.as_str())
+                            == Some("echo keep-same-entry")
+                    },
+                )
+        }));
+        assert!(!entries.iter().any(|entry| {
+            entry.get("hooks").and_then(|hooks| hooks.as_array()).unwrap().iter().any(|hook| {
+                hook.get("command").and_then(|command| command.as_str())
+                    == Some("/old/roux hook attention")
+            })
+        }));
+    }
+
+    #[test]
+    fn command_looks_like_roux_daemon_only_matches_roux_daemon_commands() {
+        assert!(command_looks_like_roux_daemon("/opt/roux/bin/roux daemon"));
+        assert!(command_looks_like_roux_daemon("\"/opt/Roux App/roux\" daemon restart"));
+        assert!(!command_looks_like_roux_daemon("/opt/roux/bin/roux hook attention"));
+        assert!(!command_looks_like_roux_daemon("node /opt/roux daemon"));
+    }
+
+    #[test]
+    fn daemon_timeout_from_env_uses_positive_milliseconds() {
+        static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::set_var("ROUX_TEST_TIMEOUT_MS", "2500");
+        assert_eq!(
+            daemon_timeout_from_env("ROUX_TEST_TIMEOUT_MS", Duration::from_secs(1)),
+            Duration::from_millis(2500)
+        );
+        std::env::set_var("ROUX_TEST_TIMEOUT_MS", "0");
+        assert_eq!(
+            daemon_timeout_from_env("ROUX_TEST_TIMEOUT_MS", Duration::from_secs(1)),
+            Duration::from_secs(1)
+        );
+        std::env::remove_var("ROUX_TEST_TIMEOUT_MS");
+    }
+
+    #[test]
     fn cli_parses_daemon_command() {
         let cli = Cli::try_parse_from(["roux", "daemon"]).unwrap();
         match cli.command {
@@ -4300,6 +4882,9 @@ mod tests {
             restart.command,
             Commands::Daemon { action: Some(DaemonAction::Restart) }
         ));
+
+        let clear = Cli::try_parse_from(["roux", "daemon", "clear"]).unwrap();
+        assert!(matches!(clear.command, Commands::Daemon { action: Some(DaemonAction::Clear) }));
     }
 
     #[test]

@@ -28,6 +28,14 @@ impl DaemonLog {
         log
     }
 
+    pub fn open_append() -> Self {
+        let dir = paths::roux_config_dir().join("logs");
+        let _ = fs::create_dir_all(&dir);
+        let log = Self { path: Arc::new(dir.join("roux-daemon.log")) };
+        log.write("=== Roux daemon startup attempt ===");
+        log
+    }
+
     pub fn path(&self) -> &PathBuf {
         &self.path
     }
@@ -40,9 +48,10 @@ impl DaemonLog {
     pub fn write(&self, msg: &str) {
         if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(self.path.as_ref())
         {
-            let _ = writeln!(file, "[{}] {}", timestamp(), msg);
+            let line = format!("[{} pid={}] {}\n", timestamp(), std::process::id(), msg);
+            let _ = file.write_all(line.as_bytes());
         }
-        eprintln!("[roux-daemon] {msg}");
+        eprintln!("[roux-daemon pid={}] {msg}", std::process::id());
     }
 }
 

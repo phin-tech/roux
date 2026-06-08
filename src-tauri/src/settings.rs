@@ -141,35 +141,94 @@ mod tests {
                 "id": "personal",
                 "label": "Personal Flow",
                 "phases": {
+                    "todo": {
+                        "category": "todo",
+                        "label": "Todo",
+                        "agentProfile": null,
+                        "instructions": "",
+                        "stageOrder": ["todo"],
+                        "stages": {
+                            "todo": {
+                                "label": "Todo",
+                                "category": "todo",
+                                "kind": "manual",
+                                "agentProfile": null,
+                                "instructions": ""
+                            }
+                        }
+                    },
                     "planning": {
                         "category": "planning",
                         "label": "Shape",
                         "agentProfile": null,
                         "instructions": "Plan from file.",
-                        "stages": {}
+                        "stageOrder": ["planning"],
+                        "stages": {
+                            "planning": {
+                                "label": "Shape",
+                                "category": "planning",
+                                "kind": "work",
+                                "runner": { "type": "agent", "agentProfile": null },
+                                "agentProfile": null,
+                                "instructions": "Plan from file."
+                            }
+                        }
                     },
-                    "implementation": {
-                        "category": "implementation",
+                    "doing": {
+                        "category": "doing",
                         "label": "Build",
                         "agentProfile": "codex",
                         "instructions": "Implement from file.",
-                        "stages": {}
+                        "stageOrder": ["implementation"],
+                        "stages": {
+                            "implementation": {
+                                "label": "Build",
+                                "category": "doing",
+                                "kind": "work",
+                                "runner": { "type": "agent", "agentProfile": "codex" },
+                                "agentProfile": "codex",
+                                "instructions": "Implement from file."
+                            }
+                        }
                     },
                     "review": {
                         "category": "review",
                         "label": "Review",
                         "agentProfile": null,
                         "instructions": "",
+                        "stageOrder": ["local_review", "pr_review"],
                         "stages": {
                             "local_review": {
                                 "label": "Local QA",
+                                "category": "review",
+                                "kind": "gate",
+                                "gate": { "type": "manual" },
                                 "agentProfile": null,
                                 "instructions": "Check locally."
                             },
                             "pr_review": {
                                 "label": "Team Review",
+                                "category": "review",
+                                "kind": "gate",
+                                "gate": { "type": "manual" },
                                 "agentProfile": null,
                                 "instructions": "Check PR."
+                            }
+                        }
+                    },
+                    "done": {
+                        "category": "done",
+                        "label": "Done",
+                        "agentProfile": null,
+                        "instructions": "",
+                        "stageOrder": ["done"],
+                        "stages": {
+                            "done": {
+                                "label": "Done",
+                                "category": "done",
+                                "kind": "manual",
+                                "agentProfile": null,
+                                "instructions": ""
                             }
                         }
                     }

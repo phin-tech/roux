@@ -7,7 +7,7 @@
   import { revealItemInDir } from "@tauri-apps/plugin-opener";
   import type {
     KanbanWorkflowPhaseSettings,
-    KanbanReviewStageSettings,
+    KanbanWorkflowStageSettings,
   } from "$lib/bindings";
   import { profileList, type SpawnProfile } from "$lib/panes/profiles";
   import {
@@ -19,24 +19,26 @@
   import {
     createKanbanWorkflowExample,
     kanbanWorkflowConfigDir,
+    saveKanbanWorkflowJson,
     validateKanbanWorkflow,
   } from "$lib/tauri";
   import {
-    REVIEW_STAGE_IDS,
+    WORKFLOW_PHASE_IDS,
     normalizeKanbanSettings,
     type RequiredKanbanSettings,
-    type ReviewStageId,
     type WorkflowPhaseId,
   } from "$lib/workItems/workflow";
 
   const workflowPhases: { id: WorkflowPhaseId; title: string }[] = [
+    { id: "todo", title: "To Do" },
     { id: "planning", title: "Planning" },
-    { id: "implementation", title: "Implementation" },
+    { id: "doing", title: "Doing" },
     { id: "review", title: "Review" },
+    { id: "done", title: "Done" },
   ];
 
   let workflowActionBusy = $state<
-    "browse" | "validate" | "copy" | "reveal" | null
+    "browse" | "validate" | "copy" | "save" | "reveal" | null
   >(null);
   let workflowActionError = $state<string | null>(null);
   let workflowActionStatus = $state<string | null>(null);
@@ -63,8 +65,11 @@
   });
 
   const kanban = $derived(normalizeKanbanSettings($settings.kanban));
-  const isFileBackedWorkflow = $derived(
-    (kanban.workflowPath ?? "").trim().length > 0,
+  const workflowJsonBacked = $derived(Boolean(kanban.workflowPath?.trim()));
+  const orderedPhaseIds = $derived(
+    kanban.workflow.phaseOrder.filter((id): id is WorkflowPhaseId =>
+      (WORKFLOW_PHASE_IDS as readonly string[]).includes(id),
+    ),
   );
 
   function updateKanban(next: RequiredKanbanSettings): void {
@@ -178,6 +183,29 @@
     }
   }
 
+  async function saveWorkflowJson(): Promise<void> {
+    const workflowPath = kanban.workflowPath?.trim() ?? "";
+    if (!workflowPath) {
+      workflowActionError = "Set a JSON file path before saving.";
+      workflowActionStatus = null;
+      return;
+    }
+    workflowActionBusy = "save";
+    workflowActionError = null;
+    workflowActionStatus = null;
+    try {
+      const path = await saveKanbanWorkflowJson(workflowPath, kanban.workflow);
+      const validated = await applyValidatedKanban(kanban);
+      workflowActionStatus = validated.workflowLoadError
+        ? null
+        : `Saved ${path}.`;
+    } catch (error) {
+      workflowActionError = errorMessage(error);
+    } finally {
+      workflowActionBusy = null;
+    }
+  }
+
   async function revealWorkflowConfigDir(): Promise<void> {
     workflowActionBusy = "reveal";
     workflowActionError = null;
@@ -211,16 +239,17 @@
     });
   }
 
-  function updateReviewStage(
-    stageId: ReviewStageId,
-    patch: Partial<KanbanReviewStageSettings>,
+  function updateStage(
+    phaseId: WorkflowPhaseId,
+    stageId: string,
+    patch: Partial<KanbanWorkflowStageSettings>,
   ): void {
-    const review = kanban.workflow.phases.review;
-    updatePhase("review", {
+    const phase = kanban.workflow.phases[phaseId];
+    updatePhase(phaseId, {
       stages: {
-        ...review.stages,
+        ...phase.stages,
         [stageId]: {
-          ...review.stages[stageId],
+          ...phase.stages[stageId],
           ...patch,
         },
       },
@@ -237,7 +266,7 @@
     aria-label="Workflow label"
     class="mt-2 w-full rounded border border-border bg-bg-deep px-2 py-1.5 text-xs text-text-primary outline-none focus:border-accent-dim"
     value={kanban.workflow.label}
-    disabled={isFileBackedWorkflow}
+    disabled={workflowJsonBacked}
     oninput={(e) => updateWorkflowLabel(e.currentTarget.value)}
   />
   <label
@@ -284,6 +313,15 @@
     <button
       type="button"
       class={workflowActionButton}
+      disabled={workflowActionBusy !== null || !kanban.workflowPath}
+      onclick={() => void saveWorkflowJson()}
+    >
+      <Check size={12} />
+      Save JSON
+    </button>
+    <button
+      type="button"
+      class={workflowActionButton}
       disabled={workflowActionBusy !== null}
       onclick={() => void revealWorkflowConfigDir()}
     >
@@ -301,14 +339,21 @@
       {kanban.workflowLoadError}
     </div>
   {/if}
-  {#if isFileBackedWorkflow}
+  {#if kanban.workflowPath}
     <div class="mt-2 text-xs text-text-muted">
-      Inline workflow fields are read-only while a JSON file is selected.
+      Workflow fields are read-only while JSON owns the workflow. Use Validate
+      after changing the file on disk.
     </div>
   {/if}
 </div>
 
-{#each workflowPhases as phaseInfo (phaseInfo.id)}
+{#each orderedPhaseIds as phaseId (phaseId)}
+  {@const phaseInfo = workflowPhases.find(
+    (candidate) => candidate.id === phaseId,
+  ) ?? {
+    id: phaseId,
+    title: phaseId,
+  }}
   {@const phase = kanban.workflow.phases[phaseInfo.id]}
   <div class="mt-3 rounded border border-border-subtle bg-bg-surface/35 p-3">
     <div class="flex flex-wrap items-start justify-between gap-3">
@@ -326,7 +371,7 @@
             aria-label={`${phaseInfo.title} label`}
             class="w-40 rounded border border-border bg-bg-deep px-2 py-1 text-xs text-text-primary outline-none focus:border-accent-dim"
             value={phase.label}
-            disabled={isFileBackedWorkflow}
+            disabled={workflowJsonBacked}
             oninput={(e) =>
               updatePhase(phaseInfo.id, { label: e.currentTarget.value })}
           />
@@ -340,7 +385,7 @@
           aria-label={`${phaseInfo.title} agent`}
           class="max-w-[14rem] cursor-pointer appearance-none rounded border border-border bg-bg-deep px-2 py-1 pr-6 text-xs text-text-primary outline-none focus:border-accent-dim"
           value={phase.agentProfile ?? ""}
-          disabled={isFileBackedWorkflow}
+          disabled={workflowJsonBacked}
           onchange={(e) =>
             updatePhase(phaseInfo.id, {
               agentProfile: e.currentTarget.value || null,
@@ -354,42 +399,68 @@
       </label>
     </div>
 
-    {#if phaseInfo.id === "review"}
-      <div class="mt-3 space-y-3">
-        {#each REVIEW_STAGE_IDS as stageId (stageId)}
-          {@const stage = phase.stages[stageId]}
+    <textarea
+      aria-label={`${phaseInfo.title} instructions`}
+      class="mt-3 min-h-20 w-full resize-y rounded border border-border bg-bg-deep px-2 py-1.5 text-xs text-text-primary outline-none focus:border-accent-dim"
+      value={phase.instructions}
+      disabled={workflowJsonBacked}
+      oninput={(e) =>
+        updatePhase(phaseInfo.id, { instructions: e.currentTarget.value })}
+    ></textarea>
+
+    <div class="mt-3 space-y-3">
+      {#each phase.stageOrder as stageId (stageId)}
+        {@const stage = phase.stages[stageId]}
+        {#if stage}
           <div class="border-t border-border-subtle pt-3">
             <div class="flex flex-wrap items-start justify-between gap-3">
-              <label
-                class="flex flex-col gap-1 text-[11px] uppercase tracking-wider text-text-muted"
-              >
-                Stage label
-                <input
-                  aria-label={`${stageId} label`}
-                  class="w-40 rounded border border-border bg-bg-deep px-2 py-1 text-xs text-text-primary outline-none focus:border-accent-dim"
-                  value={stage.label}
-                  disabled={isFileBackedWorkflow}
-                  oninput={(e) =>
-                    updateReviewStage(stageId, {
-                      label: e.currentTarget.value,
-                    })}
-                />
-              </label>
+              <div class="flex min-w-0 flex-wrap gap-2">
+                <label
+                  class="flex flex-col gap-1 text-[11px] uppercase tracking-wider text-text-muted"
+                >
+                  Stage
+                  <input
+                    aria-label={`${stageId} label`}
+                    class="w-40 rounded border border-border bg-bg-deep px-2 py-1 text-xs text-text-primary outline-none focus:border-accent-dim"
+                    value={stage.label}
+                    disabled={workflowJsonBacked}
+                    oninput={(e) =>
+                      updateStage(phaseInfo.id, stageId, {
+                        label: e.currentTarget.value,
+                      })}
+                  />
+                </label>
+                <label
+                  class="flex flex-col gap-1 text-[11px] uppercase tracking-wider text-text-muted"
+                >
+                  Button
+                  <input
+                    aria-label={`${stageId} action label`}
+                    class="w-32 rounded border border-border bg-bg-deep px-2 py-1 text-xs text-text-primary outline-none focus:border-accent-dim"
+                    value={stage.actionLabel ?? ""}
+                    disabled={workflowJsonBacked}
+                    oninput={(e) =>
+                      updateStage(phaseInfo.id, stageId, {
+                        actionLabel: e.currentTarget.value.trim() || null,
+                      })}
+                  />
+                </label>
+              </div>
               <label
                 class="flex flex-col gap-1 text-[11px] uppercase tracking-wider text-text-muted"
               >
                 Agent
                 <select
-                  aria-label={`${stage.label || stageId} agent`}
+                  aria-label={`${stage.label || stageId} stage agent`}
                   class="max-w-[14rem] cursor-pointer appearance-none rounded border border-border bg-bg-deep px-2 py-1 pr-6 text-xs text-text-primary outline-none focus:border-accent-dim"
                   value={stage.agentProfile ?? ""}
-                  disabled={isFileBackedWorkflow}
+                  disabled={workflowJsonBacked}
                   onchange={(e) =>
-                    updateReviewStage(stageId, {
+                    updateStage(phaseInfo.id, stageId, {
                       agentProfile: e.currentTarget.value || null,
                     })}
                 >
-                  <option value="">Review phase/default</option>
+                  <option value="">Phase/default</option>
                   {#each availableProfiles as profile (profile.id)}
                     <option value={profile.id}>{profile.name}</option>
                   {/each}
@@ -397,27 +468,18 @@
               </label>
             </div>
             <textarea
-              aria-label={`${stage.label} instructions`}
-              class="mt-2 min-h-20 w-full resize-y rounded border border-border bg-bg-deep px-2 py-1.5 text-xs text-text-primary outline-none focus:border-accent-dim"
+              aria-label={`${stage.label || stageId} stage instructions`}
+              class="mt-2 min-h-16 w-full resize-y rounded border border-border bg-bg-deep px-2 py-1.5 text-xs text-text-primary outline-none focus:border-accent-dim"
               value={stage.instructions}
-              disabled={isFileBackedWorkflow}
+              disabled={workflowJsonBacked}
               oninput={(e) =>
-                updateReviewStage(stageId, {
+                updateStage(phaseInfo.id, stageId, {
                   instructions: e.currentTarget.value,
                 })}
             ></textarea>
           </div>
-        {/each}
-      </div>
-    {:else}
-      <textarea
-        aria-label={`${phaseInfo.title} instructions`}
-        class="mt-3 min-h-24 w-full resize-y rounded border border-border bg-bg-deep px-2 py-1.5 text-xs text-text-primary outline-none focus:border-accent-dim"
-        value={phase.instructions}
-        disabled={isFileBackedWorkflow}
-        oninput={(e) =>
-          updatePhase(phaseInfo.id, { instructions: e.currentTarget.value })}
-      ></textarea>
-    {/if}
+        {/if}
+      {/each}
+    </div>
   </div>
 {/each}

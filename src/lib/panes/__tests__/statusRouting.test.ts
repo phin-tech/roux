@@ -23,6 +23,8 @@ function ev(partial: Partial<StatusUpdate> = {}): StatusUpdate {
     provider: "claude",
     rouxSessionId: "sess-1",
     rouxPaneId: "pane-1",
+    rouxWorkItemId: null,
+    rouxWorkItemRunId: null,
     toolName: null,
     toolInput: null,
     message: null,

@@ -1073,6 +1073,8 @@ fn roux_env_pairs(
         pane_alias: pane_alias.as_deref(),
         project_id,
         worktree_path,
+        work_item_id: None,
+        work_item_run_id: None,
         notes,
     });
     for warning in &output.warnings {

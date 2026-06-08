@@ -143,8 +143,8 @@ async fn daemon_status_is_daemon_only_socket_command() {
     assert_eq!(data["socket"], "/tmp/roux.sock");
     assert_eq!(data["logPath"], "/tmp/roux-daemon.log");
     assert_eq!(data["processCount"], 0);
-    assert_eq!(data["workItemMigrationStatus"]["currentVersion"], 9);
-    assert_eq!(data["workItemMigrationStatus"]["targetVersion"], 9);
+    assert_eq!(data["workItemMigrationStatus"]["currentVersion"], 11);
+    assert_eq!(data["workItemMigrationStatus"]["targetVersion"], 11);
     assert_eq!(data["workItemMigrationStatus"]["pendingVersions"], serde_json::json!([]));
     assert_eq!(data["workItemMigrationStatus"]["storage"], "boardDb");
     assert!(data["capabilities"].as_array().unwrap().contains(&serde_json::json!("daemon-status")));

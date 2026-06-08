@@ -73,10 +73,10 @@ vi.mock("$lib/stores/workItems", async () => {
     stopWorkItemRun: vi.fn().mockResolvedValue({}),
     listDocuments: vi.fn().mockResolvedValue([]),
     getDocument: vi.fn(),
-    WORK_ITEM_COLUMNS: ["todo", "ready", "doing", "review", "done"],
+    WORK_ITEM_COLUMNS: ["todo", "planning", "doing", "review", "done"],
     COLUMN_LABELS: {
       todo: "To Do",
-      ready: "Planning",
+      planning: "Planning",
       doing: "In Progress",
       review: "Review",
       done: "Done",
@@ -161,6 +161,9 @@ function workItem(overrides: Partial<WorkItem> = {}): WorkItem {
     sortOrder: 0,
     pinnedPrUrl: null,
     reviewStageId: null,
+    workflowId: "default",
+    workflowStageId: "todo",
+    workflowStageLabel: "To Do",
     archivedAt: null,
     cost: null,
     createdAt: 0,
@@ -314,6 +317,8 @@ describe("WorkItemEditor", () => {
         id: "wi-1",
         status: "review",
         reviewStageId: "pr_review",
+        workflowStageId: "pr_review",
+        workflowStageLabel: "PR Review",
       }),
     ]);
     render(WorkItemEditor);
@@ -321,16 +326,18 @@ describe("WorkItemEditor", () => {
 
     await screen.findByText("Edit card");
 
-    expect(screen.getByText("Review stage")).toBeTruthy();
+    expect(screen.getByText("Workflow stage")).toBeTruthy();
     expect(screen.getByText("PR Review")).toBeTruthy();
   });
 
-  it("labels preserved review stage as the next gate during fixes", async () => {
+  it("shows preserved workflow stage during fixes", async () => {
     (workItems as ReturnType<typeof import("svelte/store").writable>).set([
       workItem({
         id: "wi-1",
         status: "doing",
         reviewStageId: "pr_review",
+        workflowStageId: "pr_review",
+        workflowStageLabel: "PR Review",
       }),
     ]);
     render(WorkItemEditor);
@@ -338,8 +345,7 @@ describe("WorkItemEditor", () => {
 
     await screen.findByText("Edit card");
 
-    expect(screen.getByText("Next review stage")).toBeTruthy();
-    expect(screen.queryByText("Review stage")).toBeNull();
+    expect(screen.getByText("Workflow stage")).toBeTruthy();
     expect(screen.getByText("PR Review")).toBeTruthy();
   });
 

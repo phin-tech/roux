@@ -61,15 +61,18 @@ describe("workItemPhase", () => {
     expect(phase.action.kind).toBe("plan");
   });
 
-  it("ready with no planning run and startable offers Plan", () => {
-    const phase = workItemPhase(input({ status: "ready" }));
+  it("planning with no planning run and startable offers Plan", () => {
+    const phase = workItemPhase(input({ status: "planning" }));
     expect(phase.name).toBe("planning-active");
     expect(phase.action.kind).toBe("plan");
   });
 
-  it("ready with an active planning session offers Open planning", () => {
+  it("planning with an active planning session offers Open planning", () => {
     const phase = workItemPhase(
-      input({ status: "ready", activePlanningRun: planningRun("sess-plan") }),
+      input({
+        status: "planning",
+        activePlanningRun: planningRun("sess-plan"),
+      }),
     );
     expect(phase.action).toEqual({
       kind: "open-planning",
@@ -77,17 +80,17 @@ describe("workItemPhase", () => {
     });
   });
 
-  it("ready with an attached plan offers Approve & start", () => {
+  it("planning with an attached plan offers Approve & start", () => {
     const phase = workItemPhase(
-      input({ status: "ready", hasAttachedPlan: true }),
+      input({ status: "planning", hasAttachedPlan: true }),
     );
-    expect(phase.name).toBe("plan-ready");
+    expect(phase.name).toBe("plan-planning");
     expect(phase.action.kind).toBe("approve-start");
   });
 
-  it("ready with an attached plan but not startable offers Configure", () => {
+  it("planning with an attached plan but not startable offers Configure", () => {
     const phase = workItemPhase(
-      input({ status: "ready", hasAttachedPlan: true, isStartable: false }),
+      input({ status: "planning", hasAttachedPlan: true, isStartable: false }),
     );
     expect(phase.action.kind).toBe("configure");
   });
@@ -122,7 +125,7 @@ describe("workItemPhase", () => {
   it("marks blocked and resolves the attention session (planning preferred)", () => {
     const withPlanning = workItemPhase(
       input({
-        status: "ready",
+        status: "planning",
         sessionId: "sess-impl",
         activePlanningRun: planningRun("sess-plan"),
         pendingDecision: decision(),
@@ -158,13 +161,15 @@ describe("workItemPhase", () => {
   });
 
   it("offers force-start only for a startable, plan-less planning item", () => {
-    expect(workItemPhase(input({ status: "ready" })).canForceStart).toBe(true);
+    expect(workItemPhase(input({ status: "planning" })).canForceStart).toBe(
+      true,
+    );
     expect(
-      workItemPhase(input({ status: "ready", hasAttachedPlan: true }))
+      workItemPhase(input({ status: "planning", hasAttachedPlan: true }))
         .canForceStart,
     ).toBe(false);
     expect(
-      workItemPhase(input({ status: "ready", isStartable: false }))
+      workItemPhase(input({ status: "planning", isStartable: false }))
         .canForceStart,
     ).toBe(false);
     expect(workItemPhase(input({ status: "todo" })).canForceStart).toBe(false);
@@ -173,7 +178,7 @@ describe("workItemPhase", () => {
   it("always mirrors status onto lane (placement authority)", () => {
     const statuses: WorkItemStatus[] = [
       "todo",
-      "ready",
+      "planning",
       "doing",
       "review",
       "done",

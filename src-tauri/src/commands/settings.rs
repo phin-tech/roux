@@ -61,6 +61,24 @@ pub(crate) fn cmd_create_kanban_workflow_example() -> Result<KanbanWorkflowExamp
     create_kanban_workflow_example_at(&crate::paths::roux_config_dir())
 }
 
+#[tauri::command]
+#[specta::specta]
+pub(crate) fn cmd_save_kanban_workflow_json(
+    workflow_path: String,
+    workflow: roux_core::KanbanWorkflowSettings,
+) -> Result<String, String> {
+    let path = resolve_kanban_workflow_path(&workflow_path);
+    let json = serde_json::to_string_pretty(&workflow).map_err(|err| err.to_string())?;
+    roux_core::parse_kanban_workflow_json(&json).map_err(|err| err.to_string())?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|err| format!("failed to create {}: {err}", parent.display()))?;
+    }
+    std::fs::write(&path, format!("{json}\n"))
+        .map_err(|err| format!("failed to write {}: {err}", path.display()))?;
+    Ok(path.display().to_string())
+}
+
 fn create_kanban_workflow_example_at(
     config_dir: &Path,
 ) -> Result<KanbanWorkflowExampleResult, String> {
@@ -78,6 +96,15 @@ fn example_result(path: PathBuf) -> KanbanWorkflowExampleResult {
     KanbanWorkflowExampleResult {
         path: path.display().to_string(),
         workflow_path: KANBAN_WORKFLOW_EXAMPLE_FILE.to_string(),
+    }
+}
+
+fn resolve_kanban_workflow_path(workflow_path: &str) -> PathBuf {
+    let path = PathBuf::from(workflow_path.trim());
+    if path.is_absolute() {
+        path
+    } else {
+        crate::paths::roux_config_dir().join(path)
     }
 }
 
@@ -99,5 +126,16 @@ mod tests {
 
         assert_eq!(existing.path, created.path);
         assert_eq!(std::fs::read_to_string(&created.path).unwrap(), "{\"id\":\"custom\"}");
+    }
+
+    #[test]
+    fn save_kanban_workflow_json_rejects_invalid_workflow() {
+        let err = cmd_save_kanban_workflow_json(
+            "workflow.json".to_string(),
+            roux_core::KanbanWorkflowSettings { id: "".to_string(), ..Default::default() },
+        )
+        .unwrap_err();
+
+        assert!(!err.is_empty());
     }
 }

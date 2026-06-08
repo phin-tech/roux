@@ -21,6 +21,11 @@
   import { projects } from "$lib/stores/projects";
   import { settings } from "$lib/stores/settings";
   import { reviewStageLabel } from "$lib/workItems/reviewStages";
+  import {
+    workflowStage,
+    workflowStageActionLabel,
+    workflowStageLabel,
+  } from "$lib/workItems/workflow";
   import { worktreeMetadataFor } from "$lib/stores/worktreeMetadata";
   import { ciChipFor } from "$lib/ciIcon";
   import type { WorkItemStartActionOptions } from "$lib/stores/workItems";
@@ -35,6 +40,8 @@
     ) => void;
     /** Start or open a planning run for this work item. */
     onPlan?: (id: string, item: WorkItem, replaceActive?: boolean) => void;
+    /** Run the card's current workflow stage. */
+    onRunStage?: (id: string, item: WorkItem) => void | Promise<void>;
     /** Open the card's bound session (by session id). */
     onOpen?: (sessionId: string) => void;
     /** Open the card editor (by work item id). */
@@ -60,6 +67,7 @@
     ) => void | Promise<void>;
     startPending?: boolean;
     planPending?: boolean;
+    stagePending?: boolean;
     acceptPending?: boolean;
     requestChangesPending?: boolean;
     openAgentPending?: boolean;
@@ -69,6 +77,7 @@
     phase: WorkItemPhase;
     reviewPackage?: WorkItemReviewPackage | null;
     attachedSessionIds?: string[];
+    attentionSessionId?: string | null;
     /** Opt-in card dragging. The full-screen board enables it; the sidebar leaves it off. */
     draggable?: boolean;
   }
@@ -78,6 +87,7 @@
     sessionStatus = null,
     onStart,
     onPlan,
+    onRunStage,
     onOpen,
     onEdit,
     onDelete,
@@ -88,6 +98,7 @@
     onOpenAgent,
     startPending = false,
     planPending = false,
+    stagePending = false,
     acceptPending = false,
     requestChangesPending = false,
     openAgentPending = false,
@@ -96,6 +107,7 @@
     phase,
     reviewPackage = null,
     attachedSessionIds = [],
+    attentionSessionId: attachedAttentionSessionId = null,
     draggable = false,
   }: Props = $props();
 
@@ -113,7 +125,12 @@
   const isPlanning = $derived(phase.isPlanning);
   const hasAttachedPlan = $derived(phase.hasAttachedPlan);
   const pendingDecision = $derived(phase.pendingDecision);
-  const attentionSessionId = $derived(phase.attentionSessionId);
+  const attentionSessionId = $derived(
+    phase.attentionSessionId ?? attachedAttentionSessionId,
+  );
+  const hasPendingQuestion = $derived(
+    !!pendingDecision || !!attentionSessionId,
+  );
   const primaryOpenSessionId = $derived(
     phase.action.kind === "open-session" ? phase.action.sessionId : null,
   );
@@ -164,6 +181,30 @@
   );
   const hasMenuActions = $derived(
     !!onEdit || !!onPlan || !!onDelete || !!onArchive || canForceStartPlanning,
+  );
+  const workflowStageName = $derived(
+    item.workflowStageLabel ??
+      workflowStageLabel(item.workflowStageId, $settings.kanban),
+  );
+  const workflowStageActionText = $derived(
+    workflowStageActionLabel(item.workflowStageId, $settings.kanban) ??
+      workflowStageName ??
+      "Run",
+  );
+  const activeWorkflowStage = $derived(
+    workflowStage($settings.kanban, item.workflowStageId),
+  );
+  const workflowStageIsAgentBacked = $derived(
+    activeWorkflowStage?.runner?.type === "agent",
+  );
+  const canRunWorkflowStage = $derived(
+    !!onRunStage &&
+      !!item.workflowStageId &&
+      item.status !== "done" &&
+      (!workflowStageIsAgentBacked ||
+        phase.action.kind === "plan" ||
+        phase.action.kind === "start" ||
+        phase.action.kind === "accept-review"),
   );
   const reviewSessionId = $derived(reviewPackage?.sessionId ?? null);
   const reviewStageName = $derived(
@@ -219,10 +260,10 @@
   const attentionButtonRight = $derived(hasMenuActions ? "2rem" : "0.375rem");
   const liveStatusRight = $derived(
     hasMenuActions
-      ? pendingDecision
+      ? hasPendingQuestion
         ? "3.5rem"
         : "2rem"
-      : pendingDecision
+      : hasPendingQuestion
         ? "2rem"
         : "0.5rem",
   );
@@ -290,6 +331,11 @@
   function handleReplan(): void {
     menuOpen = false;
     onPlan?.(item.id, item, true);
+  }
+
+  function handleRunStage(): void {
+    menuOpen = false;
+    void onRunStage?.(item.id, item);
   }
 
   function handleForceStart(): void {
@@ -365,6 +411,17 @@
     onOpen?.(attentionSessionId);
   }
 
+  function handleQuestionChipClick(event: MouseEvent): void {
+    event.stopPropagation();
+    if (pendingDecision && onEdit) {
+      onEdit(item.id);
+      return;
+    }
+    if (attentionSessionId && onOpen) {
+      onOpen(attentionSessionId);
+    }
+  }
+
   function handleUnreadActivityOpen(event: MouseEvent): void {
     event.stopPropagation();
     if (!unreadActivity.targetSessionId) return;
@@ -397,7 +454,7 @@
   {draggable}
   data-session-bound={hasSession}
   data-error={!!startError}
-  data-blocked={!!pendingDecision}
+  data-blocked={hasPendingQuestion}
   ondragstart={draggable
     ? (e) => writeWorkItemDragData(e.dataTransfer, item)
     : undefined}
@@ -421,13 +478,13 @@
     </span>
   {/if}
 
-  {#if pendingDecision}
+  {#if hasPendingQuestion}
     <button
       type="button"
       class="absolute top-1.5 z-10 flex h-6 w-6 items-center justify-center rounded-md border border-accent-dim/35 bg-accent-dim/15 text-accent shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition-colors hover:bg-accent-dim/25 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/60 disabled:cursor-default disabled:opacity-60"
       style={`right: ${attentionButtonRight};`}
       aria-label="Open session with pending question"
-      title={pendingDecision.question}
+      title={pendingDecision?.question ?? "Session needs attention"}
       onclick={handleAttentionOpen}
       disabled={!attentionSessionId || !onOpen}
     >
@@ -484,8 +541,43 @@
     </p>
   {/if}
 
-  {#if hasAttachedPlan || projectLabel || profileLabel || targetLabel || branchLabel}
+  {#if hasPendingQuestion || workflowStageName || hasAttachedPlan || projectLabel || profileLabel || targetLabel || branchLabel}
     <div class="flex flex-wrap gap-1.5">
+      {#if hasPendingQuestion}
+        {#if onEdit || (attentionSessionId && onOpen)}
+          <button
+            type="button"
+            class="inline-flex min-w-0 max-w-full items-center gap-1 rounded-md border border-amber/35 bg-amber/12 px-1.5 py-0.5 text-[10px] font-semibold leading-4 text-amber transition-colors hover:bg-amber/18 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-amber/50"
+            title={pendingDecision?.question ?? "Session needs attention"}
+            aria-label="Open pending question"
+            onclick={handleQuestionChipClick}
+          >
+            <MessageSquareWarning
+              size={10}
+              strokeWidth={2.2}
+              class="shrink-0"
+            />
+            <span class="truncate">Question</span>
+          </button>
+        {:else}
+          <span
+            class="inline-flex min-w-0 max-w-full items-center gap-1 rounded-md border border-amber/35 bg-amber/12 px-1.5 py-0.5 text-[10px] font-semibold leading-4 text-amber"
+            title={pendingDecision?.question ?? "Session needs attention"}
+          >
+            <MessageSquareWarning
+              size={10}
+              strokeWidth={2.2}
+              class="shrink-0"
+            />
+            <span class="truncate">Question</span>
+          </span>
+        {/if}
+      {/if}
+      {#if workflowStageName}
+        <span class={chipClass}>
+          <span class="truncate">{workflowStageName}</span>
+        </span>
+      {/if}
       {#if hasAttachedPlan}
         {#if onEdit}
           <button
@@ -680,6 +772,21 @@
 
   {#if item.status === "review"}
     <div class="flex items-center gap-1.5 pt-0.5">
+      {#if canRunWorkflowStage}
+        <button
+          type="button"
+          class={accentActionClass}
+          onclick={handleRunStage}
+          aria-label="Run workflow stage"
+          aria-busy={stagePending}
+          disabled={stagePending}
+        >
+          <Play size={10} fill="currentColor" strokeWidth={2.2} />
+          <span class="truncate"
+            >{stagePending ? "Running..." : workflowStageActionText}</span
+          >
+        </button>
+      {/if}
       {#if canFixCi}
         <button
           type="button"
@@ -742,8 +849,23 @@
     </div>
   {:else}
     <div class="flex items-center gap-1.5 pt-0.5">
-      {#if phase.action.kind === "plan" && onPlan}
+      {#if canRunWorkflowStage}
         <button
+          type="button"
+          class={accentActionClass}
+          onclick={handleRunStage}
+          aria-label="Run workflow stage"
+          aria-busy={stagePending}
+          disabled={stagePending}
+        >
+          <Play size={10} fill="currentColor" strokeWidth={2.2} />
+          <span class="truncate"
+            >{stagePending ? "Running..." : workflowStageActionText}</span
+          >
+        </button>
+      {:else if phase.action.kind === "plan" && onPlan}
+        <button
+          type="button"
           class={amberActionClass}
           onclick={() => onPlan?.(item.id, item)}
           aria-label="Plan work item"
@@ -755,6 +877,7 @@
         </button>
       {:else if phase.action.kind === "accept-review" && onAcceptReview}
         <button
+          type="button"
           class={doneActionClass}
           onclick={() => onAcceptReview?.(item.id, item)}
           aria-label="Accept work item review"

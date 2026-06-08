@@ -2,8 +2,9 @@ use serde::Serialize;
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
-use std::time::{SystemTime, UNIX_EPOCH};
-use tokio::io::AsyncWriteExt;
+use std::process::Stdio;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use roux_core::WorkItemInputPresence;
 use roux_runtime::host::RuntimeHost;
@@ -72,6 +73,15 @@ pub(super) async fn handle_work_item_create(req: Request, host: &RuntimeHost) ->
         branch: optional_string_arg(&req.args, &["branch", "worktreeBranch", "worktree_branch"]),
         fetch_first: bool_arg(&req.args, &["fetchFirst", "fetch_first"]),
         start_error: optional_nullable_string_arg(&req.args, &["startError", "start_error"]),
+        workflow_id: optional_nullable_string_arg(&req.args, &["workflowId", "workflow_id"]),
+        workflow_stage_id: optional_nullable_string_arg(
+            &req.args,
+            &["workflowStageId", "workflow_stage_id"],
+        ),
+        workflow_stage_label: optional_nullable_string_arg(
+            &req.args,
+            &["workflowStageLabel", "workflow_stage_label"],
+        ),
         project_id: optional_string_arg(&req.args, &["projectId", "project_id"]),
         parent_id: optional_string_arg(&req.args, &["parentId", "parent_id"]),
         external_ref: None,
@@ -113,6 +123,15 @@ pub(super) async fn handle_work_item_update(req: Request, host: &RuntimeHost) ->
         branch: optional_string_arg(&req.args, &["branch", "worktreeBranch", "worktree_branch"]),
         fetch_first: bool_arg(&req.args, &["fetchFirst", "fetch_first"]),
         start_error: optional_nullable_string_arg(&req.args, &["startError", "start_error"]),
+        workflow_id: optional_nullable_string_arg(&req.args, &["workflowId", "workflow_id"]),
+        workflow_stage_id: optional_nullable_string_arg(
+            &req.args,
+            &["workflowStageId", "workflow_stage_id"],
+        ),
+        workflow_stage_label: optional_nullable_string_arg(
+            &req.args,
+            &["workflowStageLabel", "workflow_stage_label"],
+        ),
         project_id: optional_string_arg(&req.args, &["projectId", "project_id"]),
         parent_id: optional_string_arg(&req.args, &["parentId", "parent_id"]),
         external_ref: None,
@@ -143,6 +162,9 @@ fn work_item_input_presence(args: &serde_json::Value) -> WorkItemInputPresence {
         branch: has_arg(args, &["branch", "worktreeBranch", "worktree_branch"]),
         fetch_first: has_arg(args, &["fetchFirst", "fetch_first"]),
         start_error: has_arg(args, &["startError", "start_error"]),
+        workflow_id: has_arg(args, &["workflowId", "workflow_id"]),
+        workflow_stage_id: has_arg(args, &["workflowStageId", "workflow_stage_id"]),
+        workflow_stage_label: has_arg(args, &["workflowStageLabel", "workflow_stage_label"]),
         project_id: has_arg(args, &["projectId", "project_id"]),
         parent_id: has_arg(args, &["parentId", "parent_id"]),
     }
@@ -348,6 +370,9 @@ fn work_item_project_update_input(
         branch: item.branch.clone(),
         fetch_first: item.fetch_first,
         start_error: item.start_error.clone(),
+        workflow_id: item.workflow_id.clone(),
+        workflow_stage_id: item.workflow_stage_id.clone(),
+        workflow_stage_label: item.workflow_stage_label.clone(),
         project_id: Some(project_id),
         parent_id: item.parent_id.clone(),
         external_ref: None,
@@ -698,8 +723,8 @@ fn request_changes_target_status(
         return Err(Response::err(format!("unknown status: {status}")));
     };
     match status {
-        roux_core::WorkItemStatus::Doing | roux_core::WorkItemStatus::Ready => Ok(status),
-        _ => Err(Response::err("request changes status must be doing or ready")),
+        roux_core::WorkItemStatus::Doing | roux_core::WorkItemStatus::Planning => Ok(status),
+        _ => Err(Response::err("request changes status must be doing or planning")),
     }
 }
 
@@ -1014,7 +1039,7 @@ fn persist_work_item_planning_target(
     let input = roux_core::WorkItemInput {
         title: item.title.clone(),
         body: item.body.clone(),
-        status: Some(roux_core::WorkItemStatus::Ready),
+        status: Some(roux_core::WorkItemStatus::Planning),
         repo_path: Some(repo_path.to_string()),
         agent_profile: Some(profile_id.to_string()),
         base_branch: base_branch.map(str::to_string),
@@ -1022,12 +1047,18 @@ fn persist_work_item_planning_target(
         branch: branch.map(str::to_string),
         fetch_first,
         start_error: None,
+        workflow_id: None,
+        workflow_stage_id: None,
+        workflow_stage_label: None,
         project_id: item.project_id.clone(),
         parent_id: item.parent_id.clone(),
         external_ref: None,
         sort_order: Some(item.sort_order),
         field_presence: roux_core::WorkItemInputPresence {
             start_error: true,
+            workflow_id: true,
+            workflow_stage_id: true,
+            workflow_stage_label: true,
             ..roux_core::WorkItemInputPresence::default()
         },
     };
@@ -1061,6 +1092,421 @@ async fn stop_planning_run_for_replacement(
     };
     cleanup_stopped_work_item_run_session(host, &stopped_run).await?;
     Ok(())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WorkflowStageOutcome {
+    Complete,
+    Passed,
+    Failed,
+    ChangesRequested,
+}
+
+struct WorkflowCommandOutput {
+    status: std::process::ExitStatus,
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+}
+
+impl WorkflowStageOutcome {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Complete => "complete",
+            Self::Passed => "passed",
+            Self::Failed => "failed",
+            Self::ChangesRequested => "changes_requested",
+        }
+    }
+}
+
+fn manual_stage_outcome(
+    args: &serde_json::Value,
+) -> Result<Option<WorkflowStageOutcome>, Response> {
+    let Some(outcome_value) = args.get("outcome") else {
+        return Ok(None);
+    };
+    let Some(outcome) = outcome_value.as_str().map(str::trim).filter(|value| !value.is_empty())
+    else {
+        return Err(Response::err("invalid workflow stage outcome; expected non-empty string"));
+    };
+    match outcome {
+        "complete" | "completed" => Ok(Some(WorkflowStageOutcome::Complete)),
+        "pass" | "passed" => Ok(Some(WorkflowStageOutcome::Passed)),
+        "fail" | "failed" => Ok(Some(WorkflowStageOutcome::Failed)),
+        "changes_requested" | "changesRequested" | "request_changes" | "requestChanges" => {
+            Ok(Some(WorkflowStageOutcome::ChangesRequested))
+        }
+        _ => Err(Response::err(format!(
+            "invalid workflow stage outcome {outcome:?}; expected complete, passed, failed, or changesRequested"
+        ))),
+    }
+}
+
+fn stage_agent_profile<'a>(
+    stage: &'a roux_core::KanbanWorkflowStageSettings,
+    phase: &'a roux_core::KanbanWorkflowPhaseSettings,
+) -> Option<&'a str> {
+    stage
+        .agent_profile
+        .as_deref()
+        .or(match &stage.runner {
+            Some(roux_core::KanbanWorkflowRunnerSettings::Agent { agent_profile }) => {
+                agent_profile.as_deref()
+            }
+            _ => None,
+        })
+        .or(phase.agent_profile.as_deref())
+        .map(str::trim)
+        .filter(|profile| !profile.is_empty())
+}
+
+fn merge_object_string_arg(args: &mut serde_json::Value, key: &str, value: &str) {
+    if !args.is_object() {
+        *args = serde_json::Value::Object(serde_json::Map::new());
+    }
+    if let Some(object) = args.as_object_mut() {
+        object.insert(key.to_string(), serde_json::Value::String(value.to_string()));
+    }
+}
+
+fn merge_object_bool_arg(args: &mut serde_json::Value, key: &str, value: bool) {
+    if !args.is_object() {
+        *args = serde_json::Value::Object(serde_json::Map::new());
+    }
+    if let Some(object) = args.as_object_mut() {
+        object.insert(key.to_string(), serde_json::Value::Bool(value));
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn run_workflow_command(
+    host: &RuntimeHost,
+    item: &roux_core::WorkItem,
+    workflow: &roux_core::KanbanWorkflowSettings,
+    phase: &roux_core::KanbanWorkflowPhaseSettings,
+    stage: &roux_core::KanbanWorkflowStageSettings,
+    command: &str,
+    args: &[String],
+    cwd: roux_core::KanbanWorkflowCommandCwd,
+    timeout_seconds: Option<u64>,
+    run_id: &str,
+) -> Result<WorkflowStageOutcome, Response> {
+    let cwd_path = resolve_workflow_command_cwd(item, cwd)?;
+    let started = SystemTime::now();
+    let mut child_command = tokio::process::Command::new(command);
+    child_command
+        .args(args)
+        .current_dir(&cwd_path)
+        .envs(workflow.env.iter())
+        .envs(phase.env.iter())
+        .envs(stage.env.iter())
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+    configure_workflow_command_process_group(&mut child_command);
+    let mut child = child_command.spawn().map_err(|err| {
+        Response::err(format!("workflow command {command:?} failed to start: {err}"))
+    })?;
+    let child_id = child.id();
+    let mut stdout = child.stdout.take();
+    let mut stderr = child.stderr.take();
+    let mut stdout_task = tokio::spawn(async move {
+        let mut buffer = Vec::new();
+        if let Some(stdout) = stdout.as_mut() {
+            stdout.read_to_end(&mut buffer).await?;
+        }
+        std::io::Result::Ok(buffer)
+    });
+    let mut stderr_task = tokio::spawn(async move {
+        let mut buffer = Vec::new();
+        if let Some(stderr) = stderr.as_mut() {
+            stderr.read_to_end(&mut buffer).await?;
+        }
+        std::io::Result::Ok(buffer)
+    });
+    let deadline = timeout_seconds
+        .filter(|seconds| *seconds > 0)
+        .map(|seconds| (seconds, tokio::time::Instant::now() + Duration::from_secs(seconds)));
+    let status_result = match deadline {
+        Some((seconds, deadline)) => match tokio::time::timeout_at(deadline, child.wait()).await {
+            Ok(status) => status,
+            Err(_) => {
+                stdout_task.abort();
+                stderr_task.abort();
+                record_workflow_command_timeout(
+                    host, run_id, command, args, &cwd_path, seconds, started, child_id, &mut child,
+                )
+                .await;
+                return Ok(WorkflowStageOutcome::Failed);
+            }
+        },
+        None => child.wait().await,
+    };
+    let status = status_result.map_err(|err| {
+        Response::err(format!("workflow command {command:?} failed while running: {err}"))
+    })?;
+    let stdout = match deadline {
+        Some((seconds, deadline)) => {
+            match tokio::time::timeout_at(deadline, &mut stdout_task).await {
+                Ok(result) => result,
+                Err(_) => {
+                    stdout_task.abort();
+                    stderr_task.abort();
+                    record_workflow_command_timeout(
+                        host, run_id, command, args, &cwd_path, seconds, started, child_id,
+                        &mut child,
+                    )
+                    .await;
+                    return Ok(WorkflowStageOutcome::Failed);
+                }
+            }
+        }
+        None => (&mut stdout_task).await,
+    }
+    .map_err(|err| Response::err(format!("workflow command stdout join failed: {err}")))?
+    .map_err(|err| Response::err(format!("workflow command stdout read failed: {err}")))?;
+    let stderr = match deadline {
+        Some(seconds) => match tokio::time::timeout_at(seconds.1, &mut stderr_task).await {
+            Ok(result) => result,
+            Err(_) => {
+                stdout_task.abort();
+                stderr_task.abort();
+                record_workflow_command_timeout(
+                    host, run_id, command, args, &cwd_path, seconds.0, started, child_id,
+                    &mut child,
+                )
+                .await;
+                return Ok(WorkflowStageOutcome::Failed);
+            }
+        },
+        None => (&mut stderr_task).await,
+    }
+    .map_err(|err| Response::err(format!("workflow command stderr join failed: {err}")))?
+    .map_err(|err| Response::err(format!("workflow command stderr read failed: {err}")))?;
+    let output = WorkflowCommandOutput { status, stdout, stderr };
+    let duration_ms = started.elapsed().map(|d| d.as_millis() as u64).unwrap_or(0);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout_preview = truncate_preview(&stdout, 16 * 1024);
+    let stderr_preview = truncate_preview(&stderr, 16 * 1024);
+    let exit_code = output.status.code();
+    let _ = host.work_item_handle.append_run_event(
+        run_id,
+        roux_core::WorkItemRunEventKind::Result,
+        serde_json::json!({
+            "stage": "workflowCommandFinished",
+            "command": command,
+            "args": args,
+            "cwd": cwd_path.to_string_lossy(),
+            "exitCode": exit_code,
+            "success": output.status.success(),
+            "durationMs": duration_ms,
+            "stdoutPreview": stdout_preview,
+            "stderrPreview": stderr_preview,
+            "truncated": stdout.len() > 16 * 1024 || stderr.len() > 16 * 1024,
+        }),
+    );
+    Ok(if output.status.success() {
+        if stage.kind == roux_core::KanbanWorkflowStageKind::Gate {
+            WorkflowStageOutcome::Passed
+        } else {
+            WorkflowStageOutcome::Complete
+        }
+    } else {
+        WorkflowStageOutcome::Failed
+    })
+}
+
+fn resolve_workflow_command_cwd(
+    item: &roux_core::WorkItem,
+    cwd: roux_core::KanbanWorkflowCommandCwd,
+) -> Result<PathBuf, Response> {
+    match cwd {
+        roux_core::KanbanWorkflowCommandCwd::Worktree => item
+            .worktree_path
+            .as_deref()
+            .or(item.repo_path.as_deref())
+            .map(PathBuf::from)
+            .ok_or_else(|| {
+                Response::err("workflow command cwd worktree requires worktreePath or repoPath")
+            }),
+        roux_core::KanbanWorkflowCommandCwd::Project
+        | roux_core::KanbanWorkflowCommandCwd::Repo => item
+            .repo_path
+            .as_deref()
+            .or(item.worktree_path.as_deref())
+            .map(PathBuf::from)
+            .ok_or_else(|| Response::err("workflow command cwd requires repoPath or worktreePath")),
+        roux_core::KanbanWorkflowCommandCwd::None => std::env::current_dir()
+            .map_err(|err| Response::err(format!("failed to resolve daemon cwd: {err}"))),
+    }
+}
+
+fn truncate_preview(value: &str, max_bytes: usize) -> String {
+    if value.len() <= max_bytes {
+        return value.to_string();
+    }
+    let mut end = max_bytes;
+    while !value.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}...", &value[..end])
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn record_workflow_command_timeout(
+    host: &RuntimeHost,
+    run_id: &str,
+    command: &str,
+    args: &[String],
+    cwd_path: &Path,
+    timeout_seconds: u64,
+    started: SystemTime,
+    child_id: Option<u32>,
+    child: &mut tokio::process::Child,
+) {
+    kill_workflow_command_tree(child_id, child).await;
+    let duration_ms = started.elapsed().map(|d| d.as_millis() as u64).unwrap_or(0);
+    let _ = host.work_item_handle.append_run_event(
+        run_id,
+        roux_core::WorkItemRunEventKind::Result,
+        serde_json::json!({
+            "stage": "workflowCommandTimedOut",
+            "command": command,
+            "args": args,
+            "cwd": cwd_path.to_string_lossy(),
+            "timeoutSeconds": timeout_seconds,
+            "durationMs": duration_ms,
+        }),
+    );
+}
+
+#[cfg(unix)]
+fn configure_workflow_command_process_group(command: &mut tokio::process::Command) {
+    command.process_group(0);
+}
+
+#[cfg(not(unix))]
+fn configure_workflow_command_process_group(_command: &mut tokio::process::Command) {}
+
+#[cfg(unix)]
+async fn kill_workflow_command_tree(child_id: Option<u32>, child: &mut tokio::process::Child) {
+    let Some(child_id) = child_id else {
+        let _ = child.kill().await;
+        let _ = child.wait().await;
+        return;
+    };
+    unsafe {
+        let _ = libc::kill(-(child_id as libc::pid_t), libc::SIGKILL);
+    }
+    let _ = child.kill().await;
+    let _ = child.wait().await;
+}
+
+#[cfg(windows)]
+async fn kill_workflow_command_tree(child_id: Option<u32>, child: &mut tokio::process::Child) {
+    if let Some(child_id) = child_id {
+        let _ = tokio::process::Command::new("taskkill")
+            .args(["/PID", &child_id.to_string(), "/T", "/F"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .await;
+    }
+    let _ = child.kill().await;
+    let _ = child.wait().await;
+}
+
+#[cfg(not(any(unix, windows)))]
+async fn kill_workflow_command_tree(_child_id: Option<u32>, child: &mut tokio::process::Child) {
+    let _ = child.kill().await;
+    let _ = child.wait().await;
+}
+
+fn workflow_stage_snapshot(
+    workflow: &roux_core::KanbanWorkflowSettings,
+    phase_id: &str,
+    phase: &roux_core::KanbanWorkflowPhaseSettings,
+    stage_id: &str,
+    stage: &roux_core::KanbanWorkflowStageSettings,
+) -> serde_json::Value {
+    serde_json::json!({
+        "workflowId": workflow.id,
+        "workflowLabel": workflow.label,
+        "phaseId": phase_id,
+        "phaseLabel": phase.label,
+        "stageId": stage_id,
+        "stageLabel": stage.label,
+        "stageKind": stage.kind,
+        "category": stage.category,
+        "prompt": stage.prompt,
+        "runner": stage.runner,
+        "gate": stage.gate,
+        "envKeys": {
+            "workflow": workflow.env.keys().collect::<Vec<_>>(),
+            "phase": phase.env.keys().collect::<Vec<_>>(),
+            "stage": stage.env.keys().collect::<Vec<_>>(),
+        },
+        "transitions": stage.transitions,
+    })
+}
+
+fn apply_workflow_transition(
+    host: &RuntimeHost,
+    workflow: &roux_core::KanbanWorkflowSettings,
+    item: &roux_core::WorkItem,
+    stage: &roux_core::KanbanWorkflowStageSettings,
+    outcome: WorkflowStageOutcome,
+) -> Result<Option<roux_core::WorkItem>, Response> {
+    let target = match outcome {
+        WorkflowStageOutcome::Complete => stage.transitions.on_complete.as_deref(),
+        WorkflowStageOutcome::Passed => stage.transitions.on_passed.as_deref(),
+        WorkflowStageOutcome::Failed => stage.transitions.on_failed.as_deref(),
+        WorkflowStageOutcome::ChangesRequested => stage.transitions.on_changes_requested.as_deref(),
+    };
+    let Some(target_stage_id) = target else {
+        return Ok(None);
+    };
+    let Some((_phase_id, _phase, target_stage)) =
+        roux_core::workflow_stage(workflow, target_stage_id)
+    else {
+        return Err(Response::err(format!(
+            "workflow transition target {target_stage_id:?} not found"
+        )));
+    };
+    host.work_item_handle
+        .move_to_workflow_stage(
+            &item.id,
+            workflow_status_for_category(target_stage.category),
+            &workflow.id,
+            target_stage_id,
+            &target_stage.label,
+        )
+        .map_err(Response::err)
+}
+
+fn workflow_status_for_category(
+    category: roux_core::KanbanWorkflowPhaseCategory,
+) -> roux_core::WorkItemStatus {
+    match category {
+        roux_core::KanbanWorkflowPhaseCategory::Todo => roux_core::WorkItemStatus::Todo,
+        roux_core::KanbanWorkflowPhaseCategory::Planning => roux_core::WorkItemStatus::Planning,
+        roux_core::KanbanWorkflowPhaseCategory::Doing => roux_core::WorkItemStatus::Doing,
+        roux_core::KanbanWorkflowPhaseCategory::Review => roux_core::WorkItemStatus::Review,
+        roux_core::KanbanWorkflowPhaseCategory::Done => roux_core::WorkItemStatus::Done,
+    }
+}
+
+fn default_stage_id_for_status(status: &roux_core::WorkItemStatus) -> &'static str {
+    match status {
+        roux_core::WorkItemStatus::Todo => roux_core::KANBAN_STAGE_TODO,
+        roux_core::WorkItemStatus::Planning => roux_core::KANBAN_STAGE_PLANNING,
+        roux_core::WorkItemStatus::Doing => roux_core::KANBAN_STAGE_IMPLEMENTATION,
+        roux_core::WorkItemStatus::Review => roux_core::FIRST_REVIEW_STAGE_ID,
+        roux_core::WorkItemStatus::Done => roux_core::KANBAN_STAGE_DONE,
+    }
 }
 
 fn active_work_item_run(
@@ -1585,6 +2031,234 @@ async fn start_work_item_run_with_hooks(
     };
 
     Ok(roux_core::WorkItemStartResult { item, session, run })
+}
+
+pub(super) async fn handle_work_item_run_stage(
+    req: Request,
+    host: &RuntimeHost,
+    identity: &DaemonIdentity,
+) -> Response {
+    match run_work_item_stage(req, host, identity).await {
+        Ok(value) => match serde_json::to_value(value) {
+            Ok(value) => Response::success(value),
+            Err(err) => Response::err(err.to_string()),
+        },
+        Err(response) => response,
+    }
+}
+
+async fn run_work_item_stage(
+    mut req: Request,
+    host: &RuntimeHost,
+    identity: &DaemonIdentity,
+) -> Result<roux_core::WorkItemStageRunResult, Response> {
+    let Some(item_id) = optional_string_arg(&req.args, &["id"]) else {
+        return Err(Response::err("id required"));
+    };
+    let item = match host.work_item_handle.get(&item_id) {
+        Ok(Some(item)) => item,
+        Ok(None) => return Err(Response::err("work item not found")),
+        Err(err) => return Err(Response::err(err)),
+    };
+    reject_archived_work_item(&item)?;
+
+    let settings = load_daemon_settings();
+    if let Some(error) = settings.kanban.workflow_load_error.as_deref() {
+        return Err(Response::err(format!("workflow JSON is invalid: {error}")));
+    }
+    let stage_id = optional_string_arg(&req.args, &["stageId", "stage_id"])
+        .or_else(|| item.workflow_stage_id.clone())
+        .unwrap_or_else(|| default_stage_id_for_status(&item.status).to_string());
+    let Some((phase_id, phase, stage)) = settings.kanban.stage(&stage_id) else {
+        return Err(Response::err(format!(
+            "workflow stage {stage_id:?} not found; move the card to a valid stage"
+        )));
+    };
+
+    if let Some(profile_id) = stage_agent_profile(stage, phase) {
+        merge_object_string_arg(&mut req.args, "profile", profile_id);
+    }
+
+    if let Some(roux_core::KanbanWorkflowRunnerSettings::Agent { .. }) = &stage.runner {
+        if stage.category == roux_core::KanbanWorkflowPhaseCategory::Planning {
+            let result = plan_work_item_run(req, host, identity).await?;
+            let item = host
+                .work_item_handle
+                .move_to_workflow_stage(
+                    &result.item.id,
+                    workflow_status_for_category(stage.category),
+                    &settings.kanban.workflow.id,
+                    &stage_id,
+                    &stage.label,
+                )
+                .map_err(Response::err)?
+                .unwrap_or(result.item);
+            return Ok(roux_core::WorkItemStageRunResult {
+                item,
+                run: result.run,
+                session: Some(result.session),
+                outcome: "started".to_string(),
+            });
+        }
+        let mut start_req = req;
+        if stage_id == roux_core::KANBAN_STAGE_FIX_CI {
+            merge_object_bool_arg(&mut start_req.args, "fixCi", true);
+        }
+        let result = start_work_item_run(start_req, host, identity).await?;
+        let item = host
+            .work_item_handle
+            .move_to_workflow_stage(
+                &result.item.id,
+                workflow_status_for_category(stage.category),
+                &settings.kanban.workflow.id,
+                &stage_id,
+                &stage.label,
+            )
+            .map_err(Response::err)?
+            .unwrap_or(result.item);
+        return Ok(roux_core::WorkItemStageRunResult {
+            item,
+            run: result.run,
+            session: Some(result.session),
+            outcome: "started".to_string(),
+        });
+    }
+
+    match stage.kind {
+        roux_core::KanbanWorkflowStageKind::Gate if stage.gate.is_none() => {
+            return Err(Response::err(format!("workflow gate stage {stage_id:?} has no gate")));
+        }
+        roux_core::KanbanWorkflowStageKind::Work if stage.runner.is_none() => {
+            return Err(Response::err(format!("workflow work stage {stage_id:?} has no runner")));
+        }
+        _ => {}
+    }
+
+    let run = host
+        .work_item_handle
+        .create_starting_run(
+            &item_id,
+            item.session_id.as_deref(),
+            None,
+            None,
+            item.worktree_path.as_deref(),
+            item.branch.as_deref(),
+        )
+        .map_err(Response::err)?;
+    let snapshot =
+        workflow_stage_snapshot(&settings.kanban.workflow, phase_id, phase, &stage_id, stage);
+    let _ = host.work_item_handle.append_run_event(
+        &run.id,
+        roux_core::WorkItemRunEventKind::Lifecycle,
+        serde_json::json!({
+            "stage": "workflowStageStarted",
+            "workflow": snapshot,
+        }),
+    );
+
+    let outcome_result = match stage.kind {
+        roux_core::KanbanWorkflowStageKind::Manual => manual_stage_outcome(&req.args)
+            .map(|outcome| outcome.unwrap_or(WorkflowStageOutcome::Complete)),
+        roux_core::KanbanWorkflowStageKind::Gate => match &stage.gate {
+            Some(roux_core::KanbanWorkflowGateSettings::Manual) => manual_stage_outcome(&req.args)
+                .map(|outcome| outcome.unwrap_or(WorkflowStageOutcome::Passed)),
+            Some(roux_core::KanbanWorkflowGateSettings::Command {
+                command,
+                args,
+                cwd,
+                timeout_seconds,
+            }) => {
+                run_workflow_command(
+                    host,
+                    &item,
+                    &settings.kanban.workflow,
+                    phase,
+                    stage,
+                    command,
+                    args,
+                    *cwd,
+                    *timeout_seconds,
+                    &run.id,
+                )
+                .await
+            }
+            None => {
+                return Err(Response::err(format!("workflow gate stage {stage_id:?} has no gate")))
+            }
+        },
+        roux_core::KanbanWorkflowStageKind::Work => match &stage.runner {
+            Some(roux_core::KanbanWorkflowRunnerSettings::Command {
+                command,
+                args,
+                cwd,
+                timeout_seconds,
+            }) => {
+                run_workflow_command(
+                    host,
+                    &item,
+                    &settings.kanban.workflow,
+                    phase,
+                    stage,
+                    command,
+                    args,
+                    *cwd,
+                    *timeout_seconds,
+                    &run.id,
+                )
+                .await
+            }
+            Some(roux_core::KanbanWorkflowRunnerSettings::Agent { .. }) => {
+                unreachable!("agent runner handled above")
+            }
+            None => {
+                return Err(Response::err(format!(
+                    "workflow work stage {stage_id:?} has no runner"
+                )))
+            }
+        },
+    };
+    let outcome = match outcome_result {
+        Ok(outcome) => outcome,
+        Err(err) => {
+            let _ = host.work_item_handle.set_run_status(
+                &run.id,
+                roux_core::WorkItemRunStatus::Failed,
+                serde_json::json!({
+                    "reason": "workflowStageFailed",
+                    "workflow": snapshot,
+                }),
+            );
+            return Err(err);
+        }
+    };
+
+    let status = match outcome {
+        WorkflowStageOutcome::Failed => roux_core::WorkItemRunStatus::Failed,
+        WorkflowStageOutcome::ChangesRequested => roux_core::WorkItemRunStatus::ChangesRequested,
+        _ => roux_core::WorkItemRunStatus::Done,
+    };
+    let run = host
+        .work_item_handle
+        .set_run_status(
+            &run.id,
+            status,
+            serde_json::json!({
+                "reason": "workflowStageFinished",
+                "outcome": outcome.as_str(),
+                "workflow": snapshot,
+            }),
+        )
+        .map_err(Response::err)?
+        .unwrap_or(run);
+
+    let item = apply_workflow_transition(host, &settings.kanban.workflow, &item, stage, outcome)?
+        .unwrap_or(item);
+    Ok(roux_core::WorkItemStageRunResult {
+        item,
+        run,
+        session: None,
+        outcome: outcome.as_str().to_string(),
+    })
 }
 
 fn enforce_work_item_start_plan_gate(
@@ -2499,7 +3173,10 @@ async fn run_dispatched_profile_with_task_prompt(
     }
 
     let working_dir = profile_working_dir(&profile, &session);
-    let env_args = serde_json::Value::Null;
+    let env_args = serde_json::json!({
+        "workItemId": item.id,
+        "workItemRunId": run_id,
+    });
     match host
         .pty_handle
         .spawn_task(
@@ -2630,8 +3307,10 @@ fn render_work_item_planning_prompt(
     prompt.push_str(if item_id.is_empty() { "<work-item-id>" } else { &item_id });
     prompt.push_str(
         " --title \"Plan\" --text \"...\"`.\n\
-	         - If you need a human decision, ask in this session and wait for the answer here.\n\
-	         - For structured decisions that must be tracked on the card, the Roux CLI is still available: `<Roux CLI path> work-item decision create <Roux run id> \"Question?\" --option yes=Yes --option no=No`.",
+	         - If you need a human decision before continuing, create a structured Roux work item decision instead of asking only in terminal prose.\n\
+	         - Prefer: `<Roux CLI path> work-item decision create <Roux run id> \"Question?\" --option yes=Yes --option no=No`.\n\
+	         - Fallback if the CLI command is unavailable: print one newline-delimited JSON object shaped like {\"type\":\"decision\",\"question\":\"Question?\",\"options\":[{\"value\":\"yes\",\"label\":\"Yes\"},{\"value\":\"no\",\"label\":\"No\"}]}.\n\
+	         - After creating or printing the decision, stop and wait for the user's answer before continuing.",
     );
     append_custom_prompt_section(
         &mut prompt,
@@ -2908,8 +3587,10 @@ fn render_work_item_task_prompt(
 	         - Make the necessary code and documentation changes.\n\
          - Commit changes unless the repository or user instructions clearly say not to.\n\
          - Run the relevant tests/checks and report what passed, failed, or was not run.\n\
-         - If you need a human decision, ask in this session and wait for the answer here.\n\
-         - For structured decisions that must be tracked on the card, the Roux CLI is still available: `<Roux CLI path> work-item decision create <Roux run id> \"Question?\" --option yes=Yes --option no=No`.\n\
+         - If you need a human decision before continuing, create a structured Roux work item decision instead of asking only in terminal prose.\n\
+         - Prefer: `<Roux CLI path> work-item decision create <Roux run id> \"Question?\" --option yes=Yes --option no=No`.\n\
+         - Fallback if the CLI command is unavailable: print one newline-delimited JSON object shaped like {\"type\":\"decision\",\"question\":\"Question?\",\"options\":[{\"value\":\"yes\",\"label\":\"Yes\"},{\"value\":\"no\",\"label\":\"No\"}]}.\n\
+         - After creating or printing the decision, stop and wait for the user's answer before continuing.\n\
          - When the work is complete, run `",
     );
     prompt.push_str(&roux_cli_path);
@@ -2946,9 +3627,7 @@ fn implementation_agent_profile_id(
 ) -> String {
     optional_string_arg(&req.args, &["profile", "agentProfile", "agent_profile"])
         .or_else(|| item.agent_profile.clone())
-        .or_else(|| {
-            settings.kanban.implementation_phase().and_then(|phase| phase.agent_profile.clone())
-        })
+        .or_else(|| settings.kanban.doing_phase().and_then(|phase| phase.agent_profile.clone()))
         .unwrap_or_else(|| settings.default_agent_profile.clone())
 }
 
@@ -3121,6 +3800,15 @@ pub(super) async fn handle_work_item_import(req: Request, host: &RuntimeHost) ->
             branch: optional_string_arg(item_val, &["branch", "worktreeBranch", "worktree_branch"]),
             fetch_first: bool_arg(item_val, &["fetchFirst", "fetch_first"]),
             start_error: optional_nullable_string_arg(item_val, &["startError", "start_error"]),
+            workflow_id: optional_nullable_string_arg(item_val, &["workflowId", "workflow_id"]),
+            workflow_stage_id: optional_nullable_string_arg(
+                item_val,
+                &["workflowStageId", "workflow_stage_id"],
+            ),
+            workflow_stage_label: optional_nullable_string_arg(
+                item_val,
+                &["workflowStageLabel", "workflow_stage_label"],
+            ),
             project_id: optional_string_arg(item_val, &["projectId", "project_id"]),
             parent_id: None, // resolved in second pass
             external_ref,
@@ -3176,6 +3864,9 @@ pub(super) async fn handle_work_item_import(req: Request, host: &RuntimeHost) ->
                         branch: existing.branch,
                         fetch_first: existing.fetch_first,
                         start_error: existing.start_error,
+                        workflow_id: existing.workflow_id,
+                        workflow_stage_id: existing.workflow_stage_id,
+                        workflow_stage_label: existing.workflow_stage_label,
                         project_id: existing.project_id,
                         parent_id: Some(parent_id.clone()),
                         external_ref: ext_ref,
@@ -3668,6 +4359,9 @@ mod tests {
             branch: Some("roux/card".into()),
             fetch_first: Some(false),
             start_error: None,
+            workflow_id: None,
+            workflow_stage_id: None,
+            workflow_stage_label: None,
             session_id: Some("sess-1".into()),
             provider: None,
             external_id: None,
@@ -3723,9 +4417,10 @@ mod tests {
         assert!(prompt.contains("Roux session id: sess-1"));
         assert!(prompt.contains("Roux CLI path:"));
         assert!(prompt.contains("Roux CLI help:"));
-        assert!(prompt.contains("ask in this session"));
+        assert!(prompt.contains("create a structured Roux work item decision"));
         assert!(prompt.contains("work-item decision create"));
-        assert!(!prompt.contains("\"type\":\"decision\""));
+        assert!(prompt.contains("\"type\":\"decision\""));
+        assert!(prompt.contains("stop and wait for the user's answer"));
         assert!(prompt.contains("Run the relevant tests/checks"));
         assert!(prompt.contains("work-item review request run-1"));
         assert!(prompt.contains("--summary"));
@@ -3745,7 +4440,7 @@ mod tests {
             parent_id: None,
             title: "Fix tests".into(),
             body: Some("Original card notes".into()),
-            status: roux_core::WorkItemStatus::Ready,
+            status: roux_core::WorkItemStatus::Planning,
             review_stage_id: None,
             repo_path: Some("/repo/main".into()),
             agent_profile: Some("claude".into()),
@@ -3754,6 +4449,9 @@ mod tests {
             branch: Some("roux/card".into()),
             fetch_first: Some(false),
             start_error: None,
+            workflow_id: None,
+            workflow_stage_id: None,
+            workflow_stage_label: None,
             session_id: Some("sess-1".into()),
             provider: None,
             external_id: None,
@@ -3797,7 +4495,7 @@ mod tests {
             project_id: None,
             title: "Fix tests".into(),
             body: None,
-            status: roux_core::WorkItemStatus::Ready,
+            status: roux_core::WorkItemStatus::Planning,
             review_stage_id: None,
             parent_id: None,
             agent_profile: Some("claude".into()),
@@ -3807,6 +4505,9 @@ mod tests {
             branch: None,
             fetch_first: None,
             start_error: None,
+            workflow_id: None,
+            workflow_stage_id: None,
+            workflow_stage_label: None,
             session_id: None,
             provider: None,
             external_id: None,
@@ -3849,6 +4550,9 @@ mod tests {
             branch: None,
             fetch_first: None,
             start_error: None,
+            workflow_id: None,
+            workflow_stage_id: None,
+            workflow_stage_label: None,
             session_id: None,
             provider: None,
             external_id: None,
@@ -3899,6 +4603,9 @@ mod tests {
             branch: Some("feature/card".into()),
             fetch_first: None,
             start_error: None,
+            workflow_id: None,
+            workflow_stage_id: None,
+            workflow_stage_label: None,
             session_id: None,
             provider: None,
             external_id: None,
@@ -4000,6 +4707,9 @@ mod tests {
             branch: None,
             fetch_first: None,
             start_error: None,
+            workflow_id: None,
+            workflow_stage_id: None,
+            workflow_stage_label: None,
             session_id: None,
             provider: None,
             external_id: None,
@@ -4014,7 +4724,7 @@ mod tests {
         let mut settings = roux_core::RouxSettings::default();
         settings.kanban.workflow.phases.get_mut("planning").unwrap().instructions =
             "Ask about release timing.".into();
-        settings.kanban.workflow.phases.get_mut("implementation").unwrap().instructions =
+        settings.kanban.workflow.phases.get_mut("doing").unwrap().instructions =
             "Use narrow commits.".into();
         settings
             .kanban
@@ -4034,12 +4744,13 @@ mod tests {
             plan_prompt.contains("Additional planning instructions:\nAsk about release timing.")
         );
         assert!(plan_prompt.contains("Roux CLI path:"));
-        assert!(plan_prompt.contains("ask in this session"));
+        assert!(plan_prompt.contains("create a structured Roux work item decision"));
         assert!(plan_prompt.contains("work-item decision create"));
         assert!(plan_prompt.contains("roux document list --work-item wi-1"));
         assert!(plan_prompt.contains("roux document get <document-id>"));
         assert!(plan_prompt.contains("roux document attach --work-item wi-1"));
-        assert!(!plan_prompt.contains("\"type\":\"decision\""));
+        assert!(plan_prompt.contains("\"type\":\"decision\""));
+        assert!(plan_prompt.contains("stop and wait for the user's answer"));
 
         let task_prompt = render_work_item_task_prompt(
             &item,
@@ -4105,6 +4816,9 @@ mod tests {
             branch: None,
             fetch_first: None,
             start_error: None,
+            workflow_id: None,
+            workflow_stage_id: None,
+            workflow_stage_label: None,
             session_id: None,
             provider: None,
             external_id: None,
@@ -4120,7 +4834,7 @@ mod tests {
             default_agent_profile: "fallback".into(),
             ..roux_core::RouxSettings::default()
         };
-        settings.kanban.workflow.phases.get_mut("implementation").unwrap().agent_profile =
+        settings.kanban.workflow.phases.get_mut("doing").unwrap().agent_profile =
             Some("codex".into());
 
         let profile = implementation_agent_profile_id(
@@ -4139,7 +4853,7 @@ mod tests {
         );
         assert_eq!(profile, "codex");
 
-        settings.kanban.workflow.phases.get_mut("implementation").unwrap().agent_profile = None;
+        settings.kanban.workflow.phases.get_mut("doing").unwrap().agent_profile = None;
         let profile = implementation_agent_profile_id(
             &req("work-item-start", serde_json::json!({})),
             &item_without_profile,
@@ -4527,6 +5241,126 @@ mod tests {
         shutdown_host(host, joins).await;
     }
 
+    #[tokio::test]
+    async fn daemon_work_item_run_stage_rejects_invalid_manual_outcome_and_fails_run() {
+        let dir = tempfile::tempdir().unwrap();
+        let (host, identity, joins) = make_host_and_identity(&dir).await;
+        for (title, outcome) in [
+            ("bogus", serde_json::json!("bogus")),
+            ("blank", serde_json::json!("  ")),
+            ("number", serde_json::json!(1)),
+        ] {
+            let item = host
+                .work_item_handle
+                .create(roux_core::WorkItemInput {
+                    title: format!("Manual stage {title}"),
+                    ..Default::default()
+                })
+                .unwrap();
+
+            let resp = handle_request(
+                req(
+                    "work-item-run-stage",
+                    serde_json::json!({ "id": item.id.clone(), "outcome": outcome }),
+                ),
+                &host,
+                &identity,
+            )
+            .await;
+
+            assert!(!resp.ok);
+            assert!(resp.error.as_deref().unwrap_or("").contains("invalid workflow stage outcome"));
+            let runs = host.work_item_handle.list_runs(Some(&item.id)).unwrap();
+            assert_eq!(runs.len(), 1);
+            assert_eq!(runs[0].status, roux_core::WorkItemRunStatus::Failed);
+        }
+
+        shutdown_host(host, joins).await;
+    }
+
+    #[tokio::test]
+    async fn daemon_work_item_run_stage_marks_changes_requested_run_status() {
+        let dir = tempfile::tempdir().unwrap();
+        let (host, identity, joins) = make_host_and_identity(&dir).await;
+        let item = host
+            .work_item_handle
+            .create(roux_core::WorkItemInput {
+                title: "Manual changes".into(),
+                workflow_stage_id: Some(roux_core::KANBAN_STAGE_TODO.into()),
+                workflow_stage_label: Some("Todo".into()),
+                field_presence: roux_core::WorkItemInputPresence {
+                    workflow_stage_id: true,
+                    workflow_stage_label: true,
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+            .unwrap();
+
+        let resp = handle_request(
+            req(
+                "work-item-run-stage",
+                serde_json::json!({ "id": item.id.clone(), "outcome": "changes_requested" }),
+            ),
+            &host,
+            &identity,
+        )
+        .await;
+
+        assert!(resp.ok, "run stage failed: {:?}", resp.error);
+        let runs = host.work_item_handle.list_runs(Some(&item.id)).unwrap();
+        assert_eq!(runs.len(), 1);
+        assert_eq!(runs[0].status, roux_core::WorkItemRunStatus::ChangesRequested);
+
+        shutdown_host(host, joins).await;
+    }
+
+    #[cfg(not(windows))]
+    #[tokio::test]
+    async fn workflow_command_timeout_finishes_as_failed_outcome() {
+        let dir = tempfile::tempdir().unwrap();
+        let (host, _identity, joins) = make_host_and_identity(&dir).await;
+        let item = host
+            .work_item_handle
+            .create(roux_core::WorkItemInput {
+                title: "Timed command".into(),
+                ..Default::default()
+            })
+            .unwrap();
+        let run = host
+            .work_item_handle
+            .create_starting_run(&item.id, None, None, None, None, None)
+            .unwrap();
+        let workflow = roux_core::KanbanWorkflowSettings::default();
+        let phase = workflow.phases.get("doing").unwrap();
+        let mut stage = phase.stages.get(roux_core::KANBAN_STAGE_IMPLEMENTATION).unwrap().clone();
+        stage.kind = roux_core::KanbanWorkflowStageKind::Work;
+
+        let outcome = run_workflow_command(
+            &host,
+            &item,
+            &workflow,
+            phase,
+            &stage,
+            "sh",
+            &["-c".to_string(), "sleep 2".to_string()],
+            roux_core::KanbanWorkflowCommandCwd::None,
+            Some(1),
+            &run.id,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(outcome, WorkflowStageOutcome::Failed);
+        let events = host.work_item_handle.list_run_events(&run.id).unwrap();
+        assert!(events.iter().any(|event| {
+            event.payload["stage"] == "workflowCommandTimedOut"
+                && event.payload["timeoutSeconds"] == 1
+        }));
+
+        shutdown_host(host, joins).await;
+    }
+
     #[cfg(not(windows))]
     #[tokio::test]
     async fn daemon_work_item_start_creates_session_and_binds_it() {
@@ -4620,7 +5454,7 @@ mod tests {
             .work_item_handle
             .create(roux_core::WorkItemInput {
                 title: "Needs plan".into(),
-                status: Some(roux_core::WorkItemStatus::Ready),
+                status: Some(roux_core::WorkItemStatus::Planning),
                 ..Default::default()
             })
             .unwrap();
@@ -4646,7 +5480,7 @@ mod tests {
         let message = blocked.error.as_deref().unwrap_or_default();
         assert!(message.contains("attached implementation plan"), "{message}");
         let stored = host.work_item_handle.get(&item_id).unwrap().unwrap();
-        assert_eq!(stored.status, roux_core::WorkItemStatus::Ready);
+        assert_eq!(stored.status, roux_core::WorkItemStatus::Planning);
         assert_eq!(stored.start_error.as_deref(), Some(message));
         assert!(host.work_item_handle.list_runs(Some(&item_id)).unwrap().is_empty());
         assert!(host.session_handle.list().await.unwrap().is_empty());
@@ -4832,7 +5666,7 @@ mod tests {
                 title: "Implement workflow gate".into(),
                 repo_path: Some(repo.to_string_lossy().into_owned()),
                 agent_profile: Some("claude".into()),
-                status: Some(roux_core::WorkItemStatus::Ready),
+                status: Some(roux_core::WorkItemStatus::Planning),
                 field_presence: roux_core::WorkItemInputPresence {
                     repo_path: true,
                     agent_profile: true,
@@ -5286,7 +6120,7 @@ mod tests {
         let session_id = resp.run.session_id.clone().expect("planning run session id");
         assert_eq!(resp.run.kind, roux_core::WorkItemRunKind::Planning);
         assert_eq!(resp.run.status, roux_core::WorkItemRunStatus::Running);
-        assert_eq!(resp.item.status, roux_core::WorkItemStatus::Ready);
+        assert_eq!(resp.item.status, roux_core::WorkItemStatus::Planning);
         assert!(resp.item.session_id.is_none());
         assert_eq!(resp.item.branch.as_deref(), resp.run.branch.as_deref());
         assert_eq!(resp.item.worktree_path.as_deref(), resp.run.worktree_path.as_deref());
@@ -5298,7 +6132,7 @@ mod tests {
         assert_eq!(resp.session.name, "Clarify card");
 
         let item = host.work_item_handle.get(&item_id).unwrap().unwrap();
-        assert_eq!(item.status, roux_core::WorkItemStatus::Ready);
+        assert_eq!(item.status, roux_core::WorkItemStatus::Planning);
         assert!(item.session_id.is_none());
         assert_eq!(item.branch.as_deref(), resp.run.branch.as_deref());
         assert_eq!(item.worktree_path.as_deref(), resp.run.worktree_path.as_deref());
@@ -5652,7 +6486,7 @@ mod tests {
                 serde_json::json!({
                     "runId": run.id,
                     "note": "Please add retry coverage.",
-                    "status": "ready",
+                    "status": "planning",
                 }),
             ),
             &host,
@@ -5661,7 +6495,7 @@ mod tests {
         .await;
         assert!(resp.ok, "request changes failed: {:?}", resp.error);
         let data = resp.data.as_ref().unwrap();
-        assert_eq!(data["item"]["status"], "ready");
+        assert_eq!(data["item"]["status"], "planning");
         assert_eq!(data["item"]["reviewStageId"], "local_review");
         assert!(data["item"]["sessionId"].is_null());
         assert_eq!(data["run"]["status"], "changesRequested");
@@ -5676,7 +6510,7 @@ mod tests {
         assert_eq!(document.content, "Please add retry coverage.");
 
         let item = host.work_item_handle.get(&item.id).unwrap().unwrap();
-        assert_eq!(item.status, roux_core::WorkItemStatus::Ready);
+        assert_eq!(item.status, roux_core::WorkItemStatus::Planning);
         assert_eq!(item.review_stage_id.as_deref(), Some("local_review"));
         assert!(item.session_id.is_none());
         assert!(!host.work_item_handle.has_active_run(&item.id).unwrap());
@@ -5688,7 +6522,7 @@ mod tests {
             event.kind == roux_core::WorkItemRunEventKind::StatusChanged
                 && event.payload["status"] == "changes_requested"
                 && event.payload["reason"] == "changesRequested"
-                && event.payload["targetStatus"] == "ready"
+                && event.payload["targetStatus"] == "planning"
                 && event.payload["feedbackDocumentId"] == document_id
                 && event.payload["reviewStageId"] == "local_review"
                 && event.payload["reviewStageLabel"] == "Local Review"

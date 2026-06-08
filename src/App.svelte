@@ -51,7 +51,11 @@
     hydrateNotifications,
     applyNotificationEvent,
   } from "$lib/stores/notifications";
-  import { hydrateWorkItems, applyWorkItemEvent } from "$lib/stores/workItems";
+  import {
+    hydrateWorkItems,
+    applyWorkItemEvent,
+    applyWorkItemHookStatus,
+  } from "$lib/stores/workItems";
   import {
     hydrateMailbox,
     applyMailboxEvent,
@@ -1185,6 +1189,7 @@
     // which still drives notification fan-out.
     tauriUnlisteners.push(
       await onRouxStatusUpdate((update) => {
+        applyWorkItemHookStatus(update);
         const routing = applyStatusRouting(routeStatusUpdate(update));
         if (routing.kind === "pane") {
           // Tier-1 routing already wrote to agentState; the session aggregate

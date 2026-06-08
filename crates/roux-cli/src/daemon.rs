@@ -63,8 +63,8 @@ use work_items::{
     handle_work_item_move, handle_work_item_plan, handle_work_item_restore,
     handle_work_item_review_accept, handle_work_item_review_request,
     handle_work_item_review_request_changes, handle_work_item_run_events,
-    handle_work_item_run_stop, handle_work_item_runs_list, handle_work_item_start,
-    handle_work_item_update, schedule_pending_work_item_decision_timeouts,
+    handle_work_item_run_stage, handle_work_item_run_stop, handle_work_item_runs_list,
+    handle_work_item_start, handle_work_item_update, schedule_pending_work_item_decision_timeouts,
 };
 
 const DEFAULT_LATEST_OUTPUT_BYTES: usize = 8 * 1024;
@@ -72,8 +72,17 @@ const MAX_LATEST_OUTPUT_BYTES: usize = 64 * 1024;
 
 pub async fn run() -> Result<(), String> {
     let endpoint = platform::daemon_bind_endpoint();
-    let owner_guard =
-        acquire_daemon_owner(&platform::daemon_owner_lock_path(), &endpoint.display_value())?;
+    let startup_log = DaemonLog::open_append();
+    let owner_guard = match acquire_daemon_owner(
+        &platform::daemon_owner_lock_path(),
+        &endpoint.display_value(),
+    ) {
+        Ok(owner_guard) => owner_guard,
+        Err(err) => {
+            startup_log.write(&format!("Daemon startup failed before socket bind: {err}"));
+            return Err(err);
+        }
+    };
     paths::migrate_legacy_config_dir();
     let log = DaemonLog::init();
 
@@ -122,9 +131,15 @@ pub async fn run() -> Result<(), String> {
     }
 
     let status_dir = platform::status_dir();
-    if let Err(err) =
-        roux_runtime::session_status_source::start_watching(status_dir, host.session_handle.clone())
-    {
+    let status_log = {
+        let log = log.clone();
+        std::sync::Arc::new(move |message: String| log.write(&message))
+    };
+    if let Err(err) = roux_runtime::session_status_source::start_watching_with_logger(
+        status_dir,
+        host.session_handle.clone(),
+        Some(status_log),
+    ) {
         log.write(&format!("Warning: failed to start session status watcher: {err}"));
     }
 
@@ -161,10 +176,22 @@ pub async fn run() -> Result<(), String> {
     log.write("Runtime services stopped");
     drop(host);
 
-    for join in joins {
-        if let Err(err) = join.await {
-            log.write(&format!("Daemon task join failed: {err}"));
-            return Err(format!("daemon task join failed: {err}"));
+    for (index, mut join) in joins.into_iter().enumerate() {
+        match tokio::time::timeout(std::time::Duration::from_millis(500), &mut join).await {
+            Ok(Ok(())) => {
+                log.write(&format!("Daemon service task {index} joined"));
+            }
+            Ok(Err(err)) => {
+                log.write(&format!("Daemon service task {index} join failed: {err}"));
+                return Err(format!("daemon task join failed: {err}"));
+            }
+            Err(_) => {
+                log.write(&format!(
+                    "Daemon service task {index} did not stop within 500ms; aborting"
+                ));
+                join.abort();
+                let _ = tokio::time::timeout(std::time::Duration::from_millis(500), join).await;
+            }
         }
     }
 
@@ -283,6 +310,7 @@ async fn handle_request_with_watch_runner(
         "work-item-detach-session" => handle_work_item_detach_session(req, host).await,
         "work-item-plan" => handle_work_item_plan(req, host, identity).await,
         "work-item-start" => handle_work_item_start(req, host, identity).await,
+        "work-item-run-stage" => handle_work_item_run_stage(req, host, identity).await,
         "work-item-review-accept" => handle_work_item_review_accept(req, host).await,
         "work-item-review-request" => handle_work_item_review_request(req, host).await,
         "work-item-review-request-changes" => {
@@ -1875,6 +1903,16 @@ fn parse_pty_env_request(args: &Value, identity: &DaemonIdentity) -> PtyEnvReque
             .get("paneAlias")
             .or_else(|| args.get("pane_alias"))
             .and_then(|pane_alias| pane_alias.as_str())
+            .map(str::to_string),
+        work_item_id: args
+            .get("workItemId")
+            .or_else(|| args.get("work_item_id"))
+            .and_then(|work_item_id| work_item_id.as_str())
+            .map(str::to_string),
+        work_item_run_id: args
+            .get("workItemRunId")
+            .or_else(|| args.get("work_item_run_id"))
+            .and_then(|work_item_run_id| work_item_run_id.as_str())
             .map(str::to_string),
     }
 }

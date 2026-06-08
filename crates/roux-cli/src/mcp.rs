@@ -27,6 +27,7 @@ const MCP_TOOL_NAMES: &[&str] = &[
     "roux_delete_work_item",
     "roux_plan_work_item",
     "roux_start_work_item",
+    "roux_run_work_item_stage",
     "roux_request_work_item_review",
     "roux_request_work_item_review_changes",
     "roux_accept_work_item_review",
@@ -220,7 +221,7 @@ where
 #[serde(rename_all = "camelCase")]
 pub struct WorkItemMoveParams {
     pub id: String,
-    /// One of: todo | ready | doing | review | done.
+    /// One of: todo | planning | doing | review | done.
     pub status: String,
     pub sort_order: Option<f64>,
 }
@@ -259,6 +260,35 @@ pub struct WorkItemPlanParams {
     pub worktree_path: Option<String>,
     #[serde(default)]
     pub replace_active: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkItemRunStageParams {
+    pub id: String,
+    pub stage_id: Option<String>,
+    /// Manual stage/gate outcome: complete | passed | failed | changesRequested.
+    pub outcome: Option<WorkItemStageOutcomeParam>,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum WorkItemStageOutcomeParam {
+    Complete,
+    Passed,
+    Failed,
+    ChangesRequested,
+}
+
+impl WorkItemStageOutcomeParam {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Complete => "complete",
+            Self::Passed => "passed",
+            Self::Failed => "failed",
+            Self::ChangesRequested => "changesRequested",
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -722,7 +752,7 @@ impl RouxMcpServer {
     }
 
     #[tool(
-        description = "Create a Kanban board work item. Status may be todo, ready, doing, review, or done."
+        description = "Create a Kanban board work item. Status may be todo, planning, doing, review, or done."
     )]
     async fn roux_create_work_item(
         &self,
@@ -742,7 +772,7 @@ impl RouxMcpServer {
     }
 
     #[tool(
-        description = "Move a Kanban board work item to a new status. Status may be todo, ready, doing, review, or done."
+        description = "Move a Kanban board work item to a new status. Status may be todo, planning, doing, review, or done."
     )]
     async fn roux_move_work_item(
         &self,
@@ -817,6 +847,16 @@ impl RouxMcpServer {
     }
 
     #[tool(
+        description = "Run a Kanban work item's current workflow stage, or pass stageId to run a specific stage. Manual stages/gates may pass outcome."
+    )]
+    async fn roux_run_work_item_stage(
+        &self,
+        Parameters(params): Parameters<WorkItemRunStageParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        call_socket(build_work_item_run_stage_request(params)).await
+    }
+
+    #[tool(
         description = "Request review for a Kanban implementation run by run id. Moves the run and card to Review and enters the current review stage."
     )]
     async fn roux_request_work_item_review(
@@ -846,7 +886,7 @@ impl RouxMcpServer {
     }
 
     #[tool(
-        description = "Request changes for a Kanban work item review. Attaches human feedback, preserves the current review stage, and moves the card back to In Progress by default, or Ready when status is ready."
+        description = "Request changes for a Kanban work item review. Attaches human feedback, preserves the current review stage, and moves the card back to In Progress by default, or Planning when status is planning."
     )]
     async fn roux_request_work_item_review_changes(
         &self,
@@ -2094,6 +2134,19 @@ fn build_work_item_plan_request(params: WorkItemPlanParams) -> Value {
     })
 }
 
+fn build_work_item_run_stage_request(params: WorkItemRunStageParams) -> Value {
+    let mut args = serde_json::Map::new();
+    args.insert("id".into(), Value::String(params.id));
+    insert_optional_string(&mut args, "stageId", params.stage_id);
+    if let Some(outcome) = params.outcome {
+        args.insert("outcome".into(), Value::String(outcome.as_str().to_string()));
+    }
+    json!({
+        "command": "work-item-run-stage",
+        "args": Value::Object(args),
+    })
+}
+
 fn build_work_item_decision_create_request(
     params: WorkItemDecisionCreateParams,
 ) -> Result<Value, ErrorData> {
@@ -2209,6 +2262,7 @@ mod tests {
         assert!(MCP_TOOL_NAMES.contains(&"roux_send_text"));
         assert!(MCP_TOOL_NAMES.contains(&"roux_get_latest_output"));
         assert!(MCP_TOOL_NAMES.contains(&"roux_start_work_item"));
+        assert!(MCP_TOOL_NAMES.contains(&"roux_run_work_item_stage"));
         assert!(MCP_TOOL_NAMES.contains(&"roux_request_work_item_review"));
         assert!(MCP_TOOL_NAMES.contains(&"roux_request_work_item_review_changes"));
         assert!(MCP_TOOL_NAMES.contains(&"roux_accept_work_item_review"));
@@ -2444,6 +2498,20 @@ mod tests {
     }
 
     #[test]
+    fn work_item_run_stage_uses_run_stage_socket_command() {
+        let request = build_work_item_run_stage_request(WorkItemRunStageParams {
+            id: "wi-1".into(),
+            stage_id: Some("pr_review".into()),
+            outcome: Some(WorkItemStageOutcomeParam::Passed),
+        });
+
+        assert_eq!(request["command"], "work-item-run-stage");
+        assert_eq!(request["args"]["id"], "wi-1");
+        assert_eq!(request["args"]["stageId"], "pr_review");
+        assert_eq!(request["args"]["outcome"], "passed");
+    }
+
+    #[test]
     fn work_item_decision_create_requires_options() {
         let err = build_work_item_decision_create_request(WorkItemDecisionCreateParams {
             run_id: "run-1".into(),
@@ -2524,6 +2592,7 @@ mod tests {
 
         assert!(names.contains(&"roux_list_work_items"));
         assert!(names.contains(&"roux_start_work_item"));
+        assert!(names.contains(&"roux_run_work_item_stage"));
         assert!(names.contains(&"roux_resolve_work_item_decision"));
         assert!(names.contains(&"roux_attach_document"));
         assert!(names.contains(&"roux_list_documents"));

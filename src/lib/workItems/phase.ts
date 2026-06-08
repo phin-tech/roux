@@ -11,7 +11,7 @@ import type { WorkItemDecision, WorkItemRun } from "$lib/types/workItems";
  *    decision) is authoritative for the card's ACTION affordance + live state.
  *
  * `lane` always mirrors `status` so the two axes can disagree without the card
- * silently collapsing them (e.g. a `ready` lane with no planning run yet, or a
+ * silently collapsing them (e.g. a `planning` lane with no planning run yet, or a
  * blocked run while the column still reads `doing`).
  *
  * The action priority here ports `WorkItemCard.svelte`'s former nested
@@ -22,7 +22,7 @@ import type { WorkItemDecision, WorkItemRun } from "$lib/types/workItems";
 export type WorkItemPhaseName =
   | "todo"
   | "planning-active"
-  | "plan-ready"
+  | "plan-planning"
   | "implementing"
   | "blocked"
   | "review"
@@ -80,7 +80,7 @@ export function workItemPhase(input: WorkItemPhaseInput): WorkItemPhase {
   const planningSessionId = activePlanningRun?.sessionId ?? null;
   const hasSession = !!sessionId;
   const hasPlanningSession = !!planningSessionId;
-  const isPlanning = status === "ready";
+  const isPlanning = status === "planning";
   const isTodo = status === "todo";
   const isBlocked = !!pendingDecision;
 
@@ -110,7 +110,7 @@ export function workItemPhase(input: WorkItemPhaseInput): WorkItemPhase {
     if (status === "done") return "done";
     if (status === "review") return "review";
     if (hasSession) return "implementing";
-    if (isPlanning && hasAttachedPlan) return "plan-ready";
+    if (isPlanning && hasAttachedPlan) return "plan-planning";
     if (hasPlanningSession) return "planning-active";
     if (isPlanning) return "planning-active";
     return "todo";

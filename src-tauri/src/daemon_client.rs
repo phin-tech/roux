@@ -338,6 +338,15 @@ impl DaemonClient {
             .map_err(DaemonClientError::from)
     }
 
+    pub(crate) async fn work_item_run_stage(
+        &self,
+        id: String,
+        stage_id: Option<String>,
+        outcome: Option<String>,
+    ) -> DaemonClientResult<roux_core::WorkItemStageRunResult> {
+        self.sdk.work_item_run_stage(id, stage_id, outcome).await.map_err(DaemonClientError::from)
+    }
+
     pub(crate) async fn work_item_review_accept(
         &self,
         id: String,
