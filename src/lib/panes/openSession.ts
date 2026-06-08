@@ -115,6 +115,9 @@ export async function openSessionById(
   const attached = hasAttachedSessionPane(session.id, primaryPtyId);
   if (attached) {
     updateSessionStatus(session.id, "idle");
+  } else if (session.status === "disconnected") {
+    const { reattachSession } = await import("$lib/sessions/reconnect");
+    await reattachSession(session);
   } else if (existing && existing.status !== "disconnected") {
     updateSessionStatus(session.id, "disconnected");
   }

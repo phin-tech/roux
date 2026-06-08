@@ -122,7 +122,7 @@ describe("openSessionById", () => {
     expect(get(sessionState).activeSessionId).toBe("s1");
   });
 
-  it("does not mark a disconnected session idle when no live PTY attaches", async () => {
+  it("continues a disconnected regular session when no live PTY attaches", async () => {
     vi.mocked(listAllPtys).mockResolvedValue([]);
     sessionState.set({
       sessions: [
@@ -148,7 +148,10 @@ describe("openSessionById", () => {
 
     expect(result).toBe("opened");
     expect(attachPtyToPane).not.toHaveBeenCalled();
-    expect(get(sessionState).sessions[0].status).toBe("disconnected");
+    expect(reattachSession).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "s1" }),
+    );
+    expect(get(sessionState).activeSessionId).toBe("s1");
   });
 
   it("reattaches the supplied work-item PTY to the session main pane", async () => {
