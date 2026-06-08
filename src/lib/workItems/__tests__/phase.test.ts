@@ -3,13 +3,16 @@ import type { WorkItemStatus } from "$lib/bindings";
 import type { WorkItemDecision, WorkItemRun } from "$lib/types/workItems";
 import { workItemPhase, type WorkItemPhaseInput } from "../phase";
 
-function planningRun(sessionId: string | null): WorkItemRun {
+function planningRun(
+  sessionId: string | null,
+  ptyId: string | null = null,
+): WorkItemRun {
   return {
     id: "run-plan",
     workItemId: "item-1",
     kind: "planning",
     sessionId,
-    ptyId: null,
+    ptyId,
     provider: null,
     profileId: null,
     status: "running",
@@ -71,12 +74,13 @@ describe("workItemPhase", () => {
     const phase = workItemPhase(
       input({
         status: "planning",
-        activePlanningRun: planningRun("sess-plan"),
+        activePlanningRun: planningRun("sess-plan", "pty-plan"),
       }),
     );
     expect(phase.action).toEqual({
       kind: "open-planning",
       sessionId: "sess-plan",
+      ptyId: "pty-plan",
     });
   });
 

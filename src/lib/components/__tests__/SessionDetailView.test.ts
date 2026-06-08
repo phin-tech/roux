@@ -8,7 +8,7 @@ import { projects } from "$lib/stores/projects";
 import { sessionLayouts } from "$lib/panes/layout";
 import { paneInstances, type PaneInstance } from "$lib/panes/instances";
 import { closeMainView } from "$lib/stores/mainView";
-import { continueSession } from "$lib/sessions/reconnect";
+import { openSessionById } from "$lib/panes/openSession";
 import { getDocument, listDocuments } from "$lib/stores/workItems";
 import type { Attachment } from "$lib/types/workItems";
 import type { Session } from "$lib/types";
@@ -22,8 +22,8 @@ vi.mock("$lib/stores/mainView", () => ({
   closeMainView: vi.fn(),
 }));
 
-vi.mock("$lib/sessions/reconnect", () => ({
-  continueSession: vi.fn().mockResolvedValue({}),
+vi.mock("$lib/panes/openSession", () => ({
+  openSessionById: vi.fn().mockResolvedValue("opened"),
 }));
 
 vi.mock("$lib/tauri", () => ({
@@ -341,7 +341,7 @@ describe("SessionDetailView", () => {
       screen.getByRole("button", { name: "Continue session" }),
     );
 
-    expect(continueSession).toHaveBeenCalledWith(session);
+    expect(openSessionById).toHaveBeenCalledWith("session-1");
   });
 
   it("shows an empty state when the session no longer exists", () => {

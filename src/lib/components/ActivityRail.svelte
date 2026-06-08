@@ -7,6 +7,7 @@
   import BookOpen from "@lucide/svelte/icons/book-open";
   import Bell from "@lucide/svelte/icons/bell";
   import Inbox from "@lucide/svelte/icons/inbox";
+  import TerminalSquare from "@lucide/svelte/icons/square-terminal";
   import SettingsIcon from "@lucide/svelte/icons/settings";
   import Trees from "@lucide/svelte/icons/trees";
   import Kanban from "@lucide/svelte/icons/kanban";
@@ -53,6 +54,7 @@
     { id: "library", label: "Library", icon: Library },
     { id: "tasks", label: "Tasks", icon: ListTodo },
     { id: "board", label: "Board", icon: Kanban },
+    { id: "ptys", label: "PTYs", icon: TerminalSquare },
     { id: "docs", label: "Docs", icon: BookOpen },
     { id: "notifications", label: "Notifications", icon: Bell },
     { id: "mailbox", label: "Mailbox", icon: Inbox },

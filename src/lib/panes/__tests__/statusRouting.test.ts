@@ -223,7 +223,7 @@ describe("applyStatusRouting", () => {
     // hooks that omit the field. If applyStatusRouting persisted that
     // inferred value, a Codex pane whose hook didn't carry `provider`
     // would get its instance.provider clobbered to "claude", and
-    // continueSession would then build `claude --resume <id>` instead of
+    // reattachSession would then build `claude --resume <id>` instead of
     // `codex resume <id>`. We persist providerSessionId only.
     createPane({
       id: "pane-1",

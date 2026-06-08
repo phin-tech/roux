@@ -36,6 +36,7 @@ describe("ActivityRail", () => {
       /watches/i,
       /tasks/i,
       /sessions/i,
+      /ptys/i,
       /docs/i,
       /notifications/i,
       /settings/i,

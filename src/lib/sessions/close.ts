@@ -13,7 +13,7 @@ import {
   sessionAgentStatus,
   computeEffectiveSessionStatus,
 } from "$lib/panes/agentState";
-import { workItems } from "$lib/stores/workItems";
+import { activePlanningRunByItem, workItems } from "$lib/stores/workItems";
 import type { Session } from "$lib/types";
 
 /**
@@ -80,10 +80,13 @@ export async function closeSession(
   const isWorkItemBoundSession = get(workItems).some(
     (item) => item.sessionId === session.id,
   );
+  const isPlanningRunSession = [...get(activePlanningRunByItem).values()].some(
+    (run) => run.sessionId === session.id,
+  );
   if (
     action === "archive" &&
     preserveWorkItemBoundSession &&
-    isWorkItemBoundSession
+    (isWorkItemBoundSession || isPlanningRunSession)
   ) {
     detachSessionPanes(session.id);
     removeSession(session.id);

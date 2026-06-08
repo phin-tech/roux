@@ -135,7 +135,7 @@ export function applyStatusRouting(routing: StatusRouting): StatusRouting {
     // Persist providerSessionId only — never the routed `provider`.
     // `inferProvider` defaults to "claude" for legacy hooks that omit
     // `provider`, so writing the routed provider here would mis-tag a
-    // Codex pane's instance and cause `continueSession` to build the
+    // Codex pane's instance and cause `reattachSession` to build the
     // wrong resume command (`claude --resume <id>` instead of
     // `codex resume <id>`). The pane's provider is established at
     // creation time from the spawn profile / persisted descriptor, which

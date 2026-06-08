@@ -725,7 +725,10 @@ describe("workItems store", () => {
         session: {} as never,
       });
 
-      await expect(planWorkItem("wi-1")).resolves.toBe("plan-sess-1");
+      await expect(planWorkItem("wi-1")).resolves.toEqual({
+        sessionId: "plan-sess-1",
+        ptyId: "sess-1",
+      });
 
       expect(tauriWorkItemPlan).toHaveBeenCalledWith("wi-1", {});
       expect(get(workItemRuns)[0]).toMatchObject({

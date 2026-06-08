@@ -3,13 +3,29 @@ import {
   sessionState,
   addSession,
   setActiveSession,
+  updateSessionStatus,
 } from "$lib/stores/sessions";
 import { listSessions, listAllPtys } from "$lib/tauri";
 import { loadPaneState } from "./persistence";
 import { restoreSessionPanes } from "./restore";
+import { collectLeafIds, sessionLayouts } from "./layout";
+import { getAttachedPtyId, getInstance } from "./instances";
 import { log } from "$lib/logging";
 
 export type OpenSessionResult = "focused" | "opened" | "gone";
+
+export interface OpenSessionOptions {
+  ptyId?: string | null;
+}
+
+function hasAttachedSessionPane(sessionId: string, ptyId = sessionId): boolean {
+  const layout = get(sessionLayouts).get(sessionId);
+  if (!layout) return false;
+  return collectLeafIds(layout).some((paneId) => {
+    const pane = getInstance(paneId);
+    return pane ? getAttachedPtyId(pane) === ptyId : false;
+  });
+}
 
 /**
  * Open (render + focus) a session that may not yet be registered in the
@@ -28,14 +44,22 @@ export type OpenSessionResult = "focused" | "opened" | "gone";
  */
 export async function openSessionById(
   sessionId: string,
+  options: OpenSessionOptions = {},
 ): Promise<OpenSessionResult> {
-  if (get(sessionState).sessions.some((s) => s.id === sessionId)) {
+  const primaryPtyId = options.ptyId || sessionId;
+  const existing =
+    get(sessionState).sessions.find((s) => s.id === sessionId) ?? null;
+  if (
+    existing &&
+    existing.status !== "disconnected" &&
+    hasAttachedSessionPane(sessionId, primaryPtyId)
+  ) {
     setActiveSession(sessionId);
     return "focused";
   }
 
   const sessions = await listSessions();
-  const session = sessions.find((s) => s.id === sessionId);
+  const session = sessions.find((s) => s.id === sessionId) ?? existing;
   if (!session) {
     log(`openSessionById(${sessionId}): session not found — likely closed`);
     return "gone";
@@ -63,7 +87,14 @@ export async function openSessionById(
     attachPtyListeners,
     attachLivePtyToPane: attachPtyToPane,
     livePtyIds,
+    primaryPtyId,
   });
+  const attached = hasAttachedSessionPane(session.id, primaryPtyId);
+  if (attached) {
+    updateSessionStatus(session.id, "idle");
+  } else if (existing && existing.status !== "disconnected") {
+    updateSessionStatus(session.id, "disconnected");
+  }
   setActiveSession(session.id);
   return "opened";
 }

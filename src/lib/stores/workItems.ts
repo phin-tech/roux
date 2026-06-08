@@ -522,14 +522,21 @@ export interface WorkItemPlanOptions {
   replaceActive?: boolean;
 }
 
+export interface WorkItemPlanOpenTarget {
+  sessionId: string;
+  ptyId: string | null;
+}
+
 export async function planWorkItem(
   id: string,
   options: WorkItemPlanOptions = {},
-): Promise<string> {
+): Promise<WorkItemPlanOpenTarget> {
   const result = await tauriWorkItemPlan(id, options);
   upsertItem(result.item);
   upsertRun(result.run);
-  if (result.run.sessionId) return result.run.sessionId;
+  if (result.run.sessionId) {
+    return { sessionId: result.run.sessionId, ptyId: result.run.ptyId ?? null };
+  }
   throw new Error(
     `Work item planning run ${result.run.id} did not include a session id`,
   );

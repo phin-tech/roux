@@ -23,7 +23,6 @@
   } from "$lib/tauri";
   import type { SpawnProfileRef } from "$lib/panes/profiles";
   import { settings, updateSetting } from "$lib/stores/settings";
-  import { continueSession } from "$lib/sessions/reconnect";
   import { closeSession } from "$lib/sessions/close";
   import { refreshTasks, initTaskOverrides } from "$lib/stores/tasks";
   import { projects, createProject, removeProject } from "$lib/stores/projects";
@@ -37,6 +36,7 @@
     openEditProjectDialog,
   } from "$lib/stores/newProjectDialog";
   import { openMainView } from "$lib/stores/mainView";
+  import { openSessionById } from "$lib/panes/openSession";
 
   import Info from "@lucide/svelte/icons/info";
   import PinButton from "./PinButton.svelte";
@@ -546,9 +546,7 @@
   }
 
   async function handleReconnect(id: string) {
-    const session = $sessionList.find((s) => s.id === id);
-    if (!session) return;
-    await continueSession(session);
+    await openSessionById(id);
   }
 
   async function handleArchivedRestore(id: string) {
@@ -560,7 +558,7 @@
     }
     setActiveSession(id);
     try {
-      await continueSession(session);
+      await openSessionById(session.id);
     } catch (e) {
       logError(`Failed to reconnect restored session ${id}`, e);
       throw e;

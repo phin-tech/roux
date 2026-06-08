@@ -26,7 +26,6 @@ import {
 } from "$lib/stores/ui";
 import { closeMainView } from "$lib/stores/mainView";
 import { openSessionById } from "$lib/panes/openSession";
-import { continueSession } from "$lib/sessions/reconnect";
 import { WORK_ITEM_DRAG_MIME } from "$lib/board/drag";
 import type { WorkItem } from "$lib/bindings";
 import {
@@ -130,10 +129,6 @@ vi.mock("$lib/stores/mainView", () => ({
 
 vi.mock("$lib/panes/openSession", () => ({
   openSessionById: vi.fn().mockResolvedValue("opened"),
-}));
-
-vi.mock("$lib/sessions/reconnect", () => ({
-  continueSession: vi.fn().mockResolvedValue({}),
 }));
 
 vi.mock("$lib/tauri", () => ({
@@ -545,7 +540,9 @@ describe("BoardMainView", () => {
     expect(screen.queryByLabelText("Approve and start work item")).toBeNull();
     await fireEvent.click(screen.getByLabelText("Open planning terminal"));
 
-    expect(openSessionById).toHaveBeenCalledWith("plan-sess-1");
+    expect(openSessionById).toHaveBeenCalledWith("plan-sess-1", {
+      ptyId: "sess-1",
+    });
     expect(startWorkItem).not.toHaveBeenCalled();
   });
 
@@ -807,8 +804,7 @@ describe("BoardMainView", () => {
 
     await fireEvent.click(screen.getByLabelText("Open terminal"));
 
-    expect(continueSession).toHaveBeenCalledWith(session);
-    expect(openSessionById).not.toHaveBeenCalled();
+    expect(openSessionById).toHaveBeenCalledWith("sess-1");
     await vi.waitFor(() => expect(closeMainView).toHaveBeenCalled());
   });
 

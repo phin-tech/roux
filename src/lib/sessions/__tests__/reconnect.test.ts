@@ -37,7 +37,7 @@ vi.mock("$lib/logging", () => ({
 }));
 
 import {
-  continueSession,
+  reattachSession,
   reconnectSession,
   retryShellPane,
 } from "../reconnect";
@@ -193,7 +193,7 @@ describe("reconnectSession — existing behavior preserved", () => {
     addSession(session);
     initSession(session.id);
 
-    await continueSession(session);
+    await reattachSession(session);
 
     expect(writeToSession).toHaveBeenCalledWith(
       session.id,
@@ -212,7 +212,7 @@ describe("reconnectSession — existing behavior preserved", () => {
       providerSessionId: "claude-session-123",
     });
 
-    await continueSession(session);
+    await reattachSession(session);
 
     expect(writeToSession).toHaveBeenCalledWith(
       session.id,
@@ -241,7 +241,7 @@ describe("reconnectSession — existing behavior preserved", () => {
       ],
     } satisfies PaneStatePayload);
 
-    await continueSession(session);
+    await reattachSession(session);
 
     expect(writeToSession).toHaveBeenCalledWith(
       session.id,
@@ -260,7 +260,7 @@ describe("reconnectSession — existing behavior preserved", () => {
       providerSessionId: "session 'quoted'; $(touch bad)",
     });
 
-    await continueSession(session);
+    await reattachSession(session);
 
     // Cross-shell safety: anything outside SAFE_SHELL_ARG drops to the
     // generic continue path instead of attempting to quote — POSIX
@@ -285,7 +285,7 @@ describe("reconnectSession — existing behavior preserved", () => {
       providerSessionId: "session-1\n--dangerous",
     });
 
-    await continueSession(session);
+    await reattachSession(session);
 
     expect(writeToSession).toHaveBeenCalledWith(
       session.id,
@@ -306,7 +306,7 @@ describe("reconnectSession — existing behavior preserved", () => {
       .mockRejectedValueOnce(new Error("dead pty during exact resume"))
       .mockResolvedValue(undefined);
 
-    await continueSession(session);
+    await reattachSession(session);
 
     // Only the original attempt is made. We don't auto-fall-back to
     // `--continue` because runProfileInPane writes the command and the
@@ -333,7 +333,7 @@ describe("reconnectSession — existing behavior preserved", () => {
       spawnProfileRef: { kind: "registered", id: "codex" },
     });
 
-    await continueSession(session);
+    await reattachSession(session);
 
     expect(writeToSession).toHaveBeenCalledWith(
       session.id,
@@ -360,7 +360,7 @@ describe("reconnectSession — existing behavior preserved", () => {
       providerSessionId: "codex-session-123",
     });
 
-    await continueSession(session);
+    await reattachSession(session);
 
     expect(writeToSession).toHaveBeenCalledWith(
       session.id,
@@ -387,7 +387,7 @@ describe("reconnectSession — existing behavior preserved", () => {
       providerSessionId: "thread name with spaces",
     });
 
-    await continueSession(session);
+    await reattachSession(session);
 
     // Cross-shell safety: spaces don't match SAFE_SHELL_ARG, so the
     // exact-resume path is dropped in favor of `resume --last`.
@@ -712,7 +712,7 @@ describe("reconnectSession — full rehydration", () => {
       ],
     } satisfies PaneStatePayload);
 
-    await continueSession(session);
+    await reattachSession(session);
 
     const [freshPtyId] = vi.mocked(spawnShell).mock.calls[0];
     expect(writeToSession).toHaveBeenCalledWith(

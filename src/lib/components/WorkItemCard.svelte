@@ -43,7 +43,7 @@
     /** Run the card's current workflow stage. */
     onRunStage?: (id: string, item: WorkItem) => void | Promise<void>;
     /** Open the card's bound session (by session id). */
-    onOpen?: (sessionId: string) => void;
+    onOpen?: (sessionId: string, ptyId?: string | null) => void;
     /** Open the card editor (by work item id). */
     onEdit?: (id: string) => void;
     /** Delete the card (by work item id). */
@@ -136,6 +136,9 @@
   );
   const planningOpenSessionId = $derived(
     phase.action.kind === "open-planning" ? phase.action.sessionId : null,
+  );
+  const planningOpenPtyId = $derived(
+    phase.action.kind === "open-planning" ? phase.action.ptyId : null,
   );
   const startActionAriaLabel = $derived(
     phase.action.kind === "configure"
@@ -902,7 +905,8 @@
         <button
           class={amberActionClass}
           onclick={() =>
-            planningOpenSessionId && onOpen?.(planningOpenSessionId)}
+            planningOpenSessionId &&
+            onOpen?.(planningOpenSessionId, planningOpenPtyId)}
           aria-label="Open planning terminal"
         >
           <Terminal size={11} strokeWidth={2.2} />

@@ -33,7 +33,6 @@
   } from "$lib/stores/ui";
   import { closeMainView } from "$lib/stores/mainView";
   import { openSessionById } from "$lib/panes/openSession";
-  import { continueSession } from "$lib/sessions/reconnect";
   import { formatWorkItemStartError } from "$lib/board/startErrors";
   import {
     deleteWorkItemWithMode,
@@ -128,7 +127,9 @@
       item.status === "planning" &&
       !canStartImplementationFromPlanning(attachments, forceStart)
     ) {
-      if (planningRun?.sessionId) await handleOpen(planningRun.sessionId);
+      if (planningRun?.sessionId) {
+        await handleOpen(planningRun.sessionId, planningRun.ptyId);
+      }
       else {
         startErrors = {
           ...startErrors,
@@ -181,10 +182,10 @@
     planningItemIds = { ...planningItemIds, [id]: true };
     planErrors = withoutKey(planErrors, id);
     try {
-      const sessionId = replaceActive
+      const target = replaceActive
         ? await planWorkItem(id, { replaceActive: true })
         : await planWorkItem(id);
-      await handleOpen(sessionId);
+      await handleOpen(target.sessionId, target.ptyId);
     } catch (err) {
       planErrors = { ...planErrors, [id]: formatPlanError(err) };
       console.error("Failed to plan work item", err);
@@ -341,16 +342,13 @@
     }
   }
 
-  async function handleOpen(sessionId: string) {
-    const session = $sessionList.find((s) => s.id === sessionId) ?? null;
-    if (session?.status === "disconnected") {
-      await continueSession(session);
-    } else {
-      const result = await openSessionById(sessionId);
-      if (result === "gone") {
-        console.error(`Session ${sessionId} is no longer running`);
-        return;
-      }
+  async function handleOpen(sessionId: string, ptyId?: string | null) {
+    const result = ptyId
+      ? await openSessionById(sessionId, { ptyId })
+      : await openSessionById(sessionId);
+    if (result === "gone") {
+      console.error(`Session ${sessionId} is no longer running`);
+      return;
     }
     // Reveal the terminal we just focused — the main view covers it.
     closeMainView();

@@ -593,7 +593,7 @@ export async function reconnectSession(
   return reconnectSessionInternal(session, extraFlags, "reconnect");
 }
 
-export async function continueSession(session: Session): Promise<Session> {
+export async function reattachSession(session: Session): Promise<Session> {
   return reconnectSessionInternal(session, undefined, "continue");
 }
 

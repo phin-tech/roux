@@ -31,7 +31,7 @@ import {
   deleteSessionPermanently,
   saveLivePaneStateRaw,
 } from "$lib/tauri";
-import { workItems } from "$lib/stores/workItems";
+import { workItems, workItemRuns } from "$lib/stores/workItems";
 import type { Session } from "$lib/types";
 import { DEFAULT_SETTINGS } from "$lib/types";
 
@@ -65,6 +65,7 @@ describe("closeSession", () => {
     resetInstances();
     resetFocus();
     workItems.set([]);
+    workItemRuns.set([]);
     settings.set({ ...DEFAULT_SETTINGS });
     vi.mocked(killSession).mockReset().mockResolvedValue(undefined);
     vi.mocked(detachPty).mockReset().mockResolvedValue(undefined);
@@ -132,6 +133,42 @@ describe("closeSession", () => {
         archivedAt: null,
         cost: null,
         createdAt: 0,
+        updatedAt: 0,
+      },
+    ]);
+
+    const result = await closeSession(session);
+
+    expect(result).toBe(true);
+    expect(detachPty).toHaveBeenCalledWith(session.id);
+    expect(killSession).not.toHaveBeenCalled();
+    expect(deleteSessionPermanently).not.toHaveBeenCalled();
+    expect(removeWorktree).not.toHaveBeenCalled();
+    expect(get(sessionState).sessions).toHaveLength(0);
+    expect(get(archivedSessionsState).sessions).toHaveLength(0);
+  });
+
+  it("detaches an active planning run session instead of archiving or killing its PTY", async () => {
+    const session = makeSession({ id: "plan-session" });
+    addSession(session);
+    initSession(session.id);
+    archivedSessionsState.update((s) => ({ ...s, loaded: true }));
+    workItemRuns.set([
+      {
+        id: "run-1",
+        workItemId: "wi-1",
+        kind: "planning",
+        sessionId: session.id,
+        ptyId: session.id,
+        provider: "claude",
+        profileId: "claude",
+        status: "running",
+        worktreePath: null,
+        branch: null,
+        cost: null,
+        createdAt: 0,
+        startedAt: 0,
+        endedAt: null,
         updatedAt: 0,
       },
     ]);

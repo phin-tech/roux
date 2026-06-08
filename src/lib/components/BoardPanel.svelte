@@ -124,7 +124,9 @@
       item.status === "planning" &&
       !canStartImplementationFromPlanning(attachments, forceStart)
     ) {
-      if (planningRun?.sessionId) await handleOpen(planningRun.sessionId);
+      if (planningRun?.sessionId) {
+        await handleOpen(planningRun.sessionId, planningRun.ptyId);
+      }
       else {
         startErrors = {
           ...startErrors,
@@ -177,10 +179,10 @@
     planningItemIds = { ...planningItemIds, [id]: true };
     planErrors = withoutKey(planErrors, id);
     try {
-      const sessionId = replaceActive
+      const target = replaceActive
         ? await planWorkItem(id, { replaceActive: true })
         : await planWorkItem(id);
-      await handleOpen(sessionId);
+      await handleOpen(target.sessionId, target.ptyId);
     } catch (err) {
       planErrors = { ...planErrors, [id]: formatPlanError(err) };
       console.error("Failed to plan work item", err);
@@ -312,8 +314,10 @@
     }
   }
 
-  async function handleOpen(sessionId: string) {
-    const result = await openSessionById(sessionId);
+  async function handleOpen(sessionId: string, ptyId?: string | null) {
+    const result = ptyId
+      ? await openSessionById(sessionId, { ptyId })
+      : await openSessionById(sessionId);
     if (result === "gone") {
       console.error(`Session ${sessionId} is no longer running`);
     }

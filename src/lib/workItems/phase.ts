@@ -30,7 +30,7 @@ export type WorkItemPhaseName =
 
 export type WorkItemAction =
   | { kind: "plan" }
-  | { kind: "open-planning"; sessionId: string }
+  | { kind: "open-planning"; sessionId: string; ptyId: string | null }
   | { kind: "approve-start" }
   | { kind: "configure" }
   | { kind: "start" }
@@ -92,7 +92,11 @@ export function workItemPhase(input: WorkItemPhaseInput): WorkItemPhase {
       return isStartable ? { kind: "approve-start" } : { kind: "configure" };
     }
     if (hasPlanningSession && planningSessionId) {
-      return { kind: "open-planning", sessionId: planningSessionId };
+      return {
+        kind: "open-planning",
+        sessionId: planningSessionId,
+        ptyId: activePlanningRun?.ptyId ?? null,
+      };
     }
     if (isPlanning && !hasAttachedPlan && !hasPlanningSession && isStartable) {
       return { kind: "plan" };
