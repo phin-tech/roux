@@ -24,7 +24,12 @@ import {
   detachSessionPanes,
   initSession,
 } from "../actions";
-import { paneInstances, resetInstances, getInstance } from "../instances";
+import {
+  paneInstances,
+  resetInstances,
+  getInstance,
+  updateInstance,
+} from "../instances";
 import { sessionLayouts, resetLayouts, collectLeafIds } from "../layout";
 import {
   focusedPaneId,
@@ -265,6 +270,46 @@ describe("pane actions", () => {
       closePane("plan-session", "plan-session-main");
 
       expect(detachPty).toHaveBeenCalledWith("plan-session");
+      expect(killPty).not.toHaveBeenCalled();
+      expect(killSession).not.toHaveBeenCalled();
+      expect(get(sessionState).sessions[0].status).toBe("disconnected");
+    });
+
+    it("detaches a planning run PTY even when it differs from the session id", () => {
+      settings.set({ ...DEFAULT_SETTINGS, onPaneClose: "kill" });
+      const session = {
+        id: "plan-session",
+        name: "Plan session",
+        repoRoot: "/repo",
+        worktreePath: "/repo",
+        branch: "main",
+        isWorktree: false,
+        status: "idle",
+        model: null,
+        cost: null,
+        createdAt: 1,
+        projectId: null,
+        isGitRepo: true,
+      } as Session;
+      addSession(session);
+      initSession("plan-session");
+      updateInstance("plan-session-main", {
+        ptyId: "planning-pty",
+        terminalState: { kind: "attached", ptyId: "planning-pty" },
+      });
+      workItemRuns.set([
+        makeRun({
+          id: "run-1",
+          workItemId: "wi-1",
+          kind: "planning",
+          sessionId: "plan-session",
+          ptyId: "planning-pty",
+        }),
+      ]);
+
+      closePane("plan-session", "plan-session-main");
+
+      expect(detachPty).toHaveBeenCalledWith("planning-pty");
       expect(killPty).not.toHaveBeenCalled();
       expect(killSession).not.toHaveBeenCalled();
       expect(get(sessionState).sessions[0].status).toBe("disconnected");

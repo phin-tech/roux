@@ -35,8 +35,7 @@ function hasAttachedSessionPane(sessionId: string, ptyId = sessionId): boolean {
  * headless in the daemon's PTY manager and never enters the desktop
  * `sessionList` (there is no session-events bridge), so the desktop has to
  * look it up and attach on demand. This reattaches to the already-running PTY
- * via the same restore path used on launch — no respawn, no profile replay
- * (the primary PTY id equals the session id).
+ * via the same restore path used on launch — no respawn, no profile replay.
  *
  * - "focused": already registered locally; just made active.
  * - "opened":  looked up from the backend, attached, and made active.
@@ -46,13 +45,13 @@ export async function openSessionById(
   sessionId: string,
   options: OpenSessionOptions = {},
 ): Promise<OpenSessionResult> {
-  const primaryPtyId = options.ptyId || sessionId;
   const existing =
     get(sessionState).sessions.find((s) => s.id === sessionId) ?? null;
+  const initialPtyId = options.ptyId || existing?.primaryPtyId || sessionId;
   if (
     existing &&
     existing.status !== "disconnected" &&
-    hasAttachedSessionPane(sessionId, primaryPtyId)
+    hasAttachedSessionPane(sessionId, initialPtyId)
   ) {
     setActiveSession(sessionId);
     return "focused";
@@ -65,6 +64,7 @@ export async function openSessionById(
     return "gone";
   }
 
+  const primaryPtyId = options.ptyId || session.primaryPtyId || session.id;
   addSession(session);
 
   // xterm-heavy modules are imported lazily, mirroring the launch restore path.

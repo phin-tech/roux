@@ -153,20 +153,23 @@ export function closePane(sessionId: string, paneId: string): boolean {
   const isWorkItemBoundSession = get(workItems).some(
     (item) => item.sessionId === sessionId,
   );
-  const isPlanningRunSession = [...get(activePlanningRunByItem).values()].some(
-    (run) => run.sessionId === sessionId,
+  const isPlanningRunPane = [...get(activePlanningRunByItem).values()].some(
+    (run) =>
+      run.sessionId === sessionId &&
+      !!ptyId &&
+      (run.ptyId ? run.ptyId === ptyId : ptyId === sessionId),
   );
   const isPrimarySessionPane = ptyId === sessionId;
   if (
     (onPaneClose === "detach" ||
-      ((isWorkItemBoundSession || isPlanningRunSession) &&
-        isPrimarySessionPane)) &&
+      (isWorkItemBoundSession && isPrimarySessionPane) ||
+      isPlanningRunPane) &&
     ptyId
   ) {
     // Detach the PTY so it keeps running in the background. Fire-and-forget:
     // the pane is already removed from the layout so there is no UI to update.
     detachPty(ptyId).catch(() => {});
-    if ((isWorkItemBoundSession || isPlanningRunSession) && isPrimarySessionPane) {
+    if ((isWorkItemBoundSession && isPrimarySessionPane) || isPlanningRunPane) {
       setSessionDisconnected(sessionId);
     }
     // Dispose the pane instance without killing the PTY.

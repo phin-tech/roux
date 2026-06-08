@@ -174,6 +174,37 @@ describe("openSessionById", () => {
     expect(get(sessionState).sessions[0].status).toBe("idle");
   });
 
+  it("reattaches a session manager open using the session primary PTY id", async () => {
+    vi.mocked(listAllPtys).mockResolvedValue([ptyInfo("primary-pty", "s1")]);
+    sessionState.set({
+      sessions: [
+        {
+          id: "s1",
+          name: "Session",
+          repoRoot: "/repo",
+          worktreePath: "/repo",
+          branch: "main",
+          isWorktree: false,
+          status: "disconnected",
+          model: null,
+          cost: null,
+          createdAt: 1,
+          projectId: null,
+          isGitRepo: true,
+          primaryPtyId: "primary-pty",
+        },
+      ],
+      activeSessionId: null,
+    });
+
+    const result = await openSessionById("s1");
+
+    expect(result).toBe("opened");
+    expect(get(paneInstances).get("s1-main")?.ptyId).toBe("primary-pty");
+    expect(attachPtyToPane).toHaveBeenCalledWith("s1-main", "primary-pty");
+    expect(get(sessionState).sessions[0].status).toBe("idle");
+  });
+
   it("overrides a persisted primary descriptor with the supplied work-item PTY", async () => {
     vi.mocked(listAllPtys).mockResolvedValue([ptyInfo("planning-pty", "s1")]);
     vi.mocked(loadPaneState).mockResolvedValueOnce({
