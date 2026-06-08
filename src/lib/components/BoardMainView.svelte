@@ -33,6 +33,7 @@
   } from "$lib/stores/ui";
   import { closeMainView } from "$lib/stores/mainView";
   import { openSessionById } from "$lib/panes/openSession";
+  import { continueSession } from "$lib/sessions/reconnect";
   import { formatWorkItemStartError } from "$lib/board/startErrors";
   import {
     deleteWorkItemWithMode,
@@ -341,10 +342,15 @@
   }
 
   async function handleOpen(sessionId: string) {
-    const result = await openSessionById(sessionId);
-    if (result === "gone") {
-      console.error(`Session ${sessionId} is no longer running`);
-      return;
+    const session = $sessionList.find((s) => s.id === sessionId) ?? null;
+    if (session?.status === "disconnected") {
+      await continueSession(session);
+    } else {
+      const result = await openSessionById(sessionId);
+      if (result === "gone") {
+        console.error(`Session ${sessionId} is no longer running`);
+        return;
+      }
     }
     // Reveal the terminal we just focused — the main view covers it.
     closeMainView();

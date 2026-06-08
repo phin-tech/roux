@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { get } from "svelte/store";
 import { settings } from "$lib/stores/settings";
+import { addSession, sessionState } from "$lib/stores/sessions";
 import { DEFAULT_SETTINGS } from "$lib/types";
+import type { Session } from "$lib/types";
 
 // Stub $lib/tauri so we can observe which kill/detach primitive disposePane
 // chose. The real invoke() would just reject silently in jsdom; this mock
@@ -37,6 +39,41 @@ import {
   openMultiLineEditor,
   closeMultiLineEditor,
 } from "$lib/stores/multiLineEditor";
+import { workItems } from "$lib/stores/workItems";
+import type { WorkItem } from "$lib/bindings";
+
+function makeWorkItem(overrides: Partial<WorkItem> = {}): WorkItem {
+  return {
+    id: "wi-1",
+    projectId: null,
+    parentId: null,
+    branch: null,
+    fetchFirst: null,
+    title: "Task card",
+    body: null,
+    status: "doing",
+    sessionId: null,
+    repoPath: null,
+    agentProfile: null,
+    baseBranch: null,
+    worktreePath: null,
+    startError: null,
+    provider: null,
+    externalId: null,
+    externalUrl: null,
+    sortOrder: 0,
+    pinnedPrUrl: null,
+    reviewStageId: null,
+    workflowId: "default",
+    workflowStageId: "implementation",
+    workflowStageLabel: "Implementation",
+    archivedAt: null,
+    cost: null,
+    createdAt: 0,
+    updatedAt: 0,
+    ...overrides,
+  };
+}
 
 describe("pane actions", () => {
   beforeEach(() => {
@@ -44,6 +81,8 @@ describe("pane actions", () => {
     resetLayouts();
     resetFocus();
     fullscreenPaneId.set(null);
+    workItems.set([]);
+    sessionState.set({ sessions: [], activeSessionId: null });
     settings.set(DEFAULT_SETTINGS); // resets to onPaneClose: "kill"
     vi.mocked(killPty).mockClear();
     vi.mocked(killSession).mockClear();
@@ -142,6 +181,34 @@ describe("pane actions", () => {
       expect(killPty).toHaveBeenCalledWith("s1");
       expect(detachPty).not.toHaveBeenCalled();
       expect(killSession).not.toHaveBeenCalled();
+    });
+
+    it("detaches instead of killing when closing a pane attached to a work-item-bound session", () => {
+      settings.set({ ...DEFAULT_SETTINGS, onPaneClose: "kill" });
+      const session = {
+        id: "task-session",
+        name: "Task session",
+        repoRoot: "/repo",
+        worktreePath: "/repo",
+        branch: "main",
+        isWorktree: false,
+        status: "idle",
+        model: null,
+        cost: null,
+        createdAt: 1,
+        projectId: null,
+        isGitRepo: true,
+      } as Session;
+      addSession(session);
+      initSession("task-session");
+      workItems.set([makeWorkItem({ sessionId: "task-session" })]);
+
+      closePane("task-session", "task-session-main");
+
+      expect(detachPty).toHaveBeenCalledWith("task-session");
+      expect(killPty).not.toHaveBeenCalled();
+      expect(killSession).not.toHaveBeenCalled();
+      expect(get(sessionState).sessions[0].status).toBe("disconnected");
     });
 
     it("detaches PTY (not kills) when onPaneClose is explicitly 'detach'", () => {

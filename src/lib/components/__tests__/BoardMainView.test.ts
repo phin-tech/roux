@@ -26,12 +26,14 @@ import {
 } from "$lib/stores/ui";
 import { closeMainView } from "$lib/stores/mainView";
 import { openSessionById } from "$lib/panes/openSession";
+import { continueSession } from "$lib/sessions/reconnect";
 import { WORK_ITEM_DRAG_MIME } from "$lib/board/drag";
 import type { WorkItem } from "$lib/bindings";
 import {
   DEFAULT_SETTINGS,
   type Notification,
   type Project,
+  type Session,
   type Worktree,
   type WorktrunkMetadata,
 } from "$lib/types";
@@ -128,6 +130,10 @@ vi.mock("$lib/stores/mainView", () => ({
 
 vi.mock("$lib/panes/openSession", () => ({
   openSessionById: vi.fn().mockResolvedValue("opened"),
+}));
+
+vi.mock("$lib/sessions/reconnect", () => ({
+  continueSession: vi.fn().mockResolvedValue({}),
 }));
 
 vi.mock("$lib/tauri", () => ({
@@ -773,6 +779,36 @@ describe("BoardMainView", () => {
     await fireEvent.click(screen.getByLabelText("Open terminal"));
 
     expect(openSessionById).toHaveBeenCalledWith("sess-1");
+    await vi.waitFor(() => expect(closeMainView).toHaveBeenCalled());
+  });
+
+  it("continues a disconnected session when opening a bound card terminal", async () => {
+    const session = {
+      id: "sess-1",
+      name: "Task session",
+      repoRoot: "/repo",
+      worktreePath: "/repo",
+      branch: "main",
+      isWorktree: false,
+      status: "disconnected",
+      model: null,
+      cost: null,
+      createdAt: 1,
+      projectId: null,
+      isGitRepo: true,
+    } as Session;
+    (sessionList as ReturnType<typeof import("svelte/store").writable>).set([
+      session,
+    ]);
+    seedColumns([
+      workItem({ id: "wi-1", status: "doing", sessionId: "sess-1" }),
+    ]);
+    render(BoardMainView);
+
+    await fireEvent.click(screen.getByLabelText("Open terminal"));
+
+    expect(continueSession).toHaveBeenCalledWith(session);
+    expect(openSessionById).not.toHaveBeenCalled();
     await vi.waitFor(() => expect(closeMainView).toHaveBeenCalled());
   });
 
