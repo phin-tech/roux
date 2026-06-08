@@ -5,7 +5,8 @@ import {
   setActiveSession,
   updateSessionStatus,
 } from "$lib/stores/sessions";
-import { listSessions, listAllPtys, restoreSession } from "$lib/tauri";
+import { listSessions, listAllPtys } from "$lib/tauri";
+import { restoreArchivedSession } from "$lib/stores/archivedSessions";
 import { loadPaneState } from "./persistence";
 import { restoreSessionPanes } from "./restore";
 import { collectLeafIds, sessionLayouts } from "./layout";
@@ -62,7 +63,7 @@ export async function openSessionById(
   let restoredArchived = false;
   if (!session) {
     try {
-      await restoreSession(sessionId);
+      await restoreArchivedSession(sessionId);
       restoredArchived = true;
       const restoredSessions = await listSessions();
       session = restoredSessions.find((s) => s.id === sessionId) ?? null;

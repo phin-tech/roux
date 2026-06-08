@@ -4,9 +4,12 @@ import { get } from "svelte/store";
 vi.mock("$lib/tauri", () => ({
   listSessions: vi.fn().mockResolvedValue([]),
   listAllPtys: vi.fn().mockResolvedValue([]),
-  restoreSession: vi.fn().mockResolvedValue(undefined),
   upsertPaneRecord: vi.fn().mockResolvedValue(undefined),
   removePaneRecord: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock("$lib/stores/archivedSessions", () => ({
+  restoreArchivedSession: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("../persistence", () => ({
@@ -32,7 +35,8 @@ import { paneInstances, resetInstances } from "../instances";
 import { sessionLayouts, resetLayouts } from "../layout";
 import { attachPtyToPane } from "../attach";
 import { loadPaneState } from "../persistence";
-import { listAllPtys, listSessions, restoreSession } from "$lib/tauri";
+import { listAllPtys, listSessions } from "$lib/tauri";
+import { restoreArchivedSession } from "$lib/stores/archivedSessions";
 import { reattachSession } from "$lib/sessions/reconnect";
 import type { PtyInfo } from "$lib/bindings";
 import type { Session } from "$lib/types";
@@ -273,7 +277,7 @@ describe("openSessionById", () => {
     const result = await openSessionById("archived-plan");
 
     expect(result).toBe("opened");
-    expect(restoreSession).toHaveBeenCalledWith("archived-plan");
+    expect(restoreArchivedSession).toHaveBeenCalledWith("archived-plan");
     expect(reattachSession).toHaveBeenCalledWith(restored);
     expect(get(sessionState).activeSessionId).toBe("archived-plan");
   });
