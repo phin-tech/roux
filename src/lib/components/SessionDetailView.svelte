@@ -11,7 +11,7 @@
   } from "$lib/stores/sessions";
   import { projects } from "$lib/stores/projects";
   import { closeMainView } from "$lib/stores/mainView";
-  import { continueSession } from "$lib/sessions/reconnect";
+  import { openSessionById } from "$lib/panes/openSession";
   import { collectLeafIds, sessionLayouts } from "$lib/panes/layout";
   import { paneInstances, type PaneInstance } from "$lib/panes/instances";
   import { getDocument, listDocuments } from "$lib/stores/workItems";
@@ -155,7 +155,9 @@
     if (!session || reconnecting) return;
     reconnecting = true;
     try {
-      await continueSession(session);
+      const result = await openSessionById(session.id);
+      if (result === "gone") return;
+      closeMainView();
     } finally {
       reconnecting = false;
     }

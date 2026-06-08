@@ -197,6 +197,7 @@ describe("sidebar pin-slot state", () => {
       expect(PINNABLE_SIDEBARS.has("notes")).toBe(true);
       expect(PINNABLE_SIDEBARS.has("watches")).toBe(true);
       expect(PINNABLE_SIDEBARS.has("tasks")).toBe(true);
+      expect(PINNABLE_SIDEBARS.has("ptys")).toBe(true);
       expect(PINNABLE_SIDEBARS.has("notifications")).toBe(true);
     });
 

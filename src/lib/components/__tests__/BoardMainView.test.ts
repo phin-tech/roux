@@ -10,6 +10,7 @@ import {
   startWorkItem,
   stopWorkItemRun,
   activePlanningRunByItem,
+  latestPlanningRunByItem,
   attachmentsByWorkItem,
   pendingDecisionByItem,
   pendingQuestionByItem,
@@ -32,6 +33,7 @@ import {
   DEFAULT_SETTINGS,
   type Notification,
   type Project,
+  type Session,
   type Worktree,
   type WorktrunkMetadata,
 } from "$lib/types";
@@ -87,6 +89,7 @@ vi.mock("$lib/stores/workItems", async () => {
     pendingDecisionByItem: writable(new Map()),
     pendingQuestionByItem: writable(new Map()),
     activePlanningRunByItem: writable(new Map()),
+    latestPlanningRunByItem: writable(new Map()),
     attachmentsByWorkItem: writable(new Map()),
     runsByItem: writable(new Map()),
     workItemRunEvents: writable([]),
@@ -539,7 +542,9 @@ describe("BoardMainView", () => {
     expect(screen.queryByLabelText("Approve and start work item")).toBeNull();
     await fireEvent.click(screen.getByLabelText("Open planning terminal"));
 
-    expect(openSessionById).toHaveBeenCalledWith("plan-sess-1");
+    expect(openSessionById).toHaveBeenCalledWith("plan-sess-1", {
+      ptyId: "sess-1",
+    });
     expect(startWorkItem).not.toHaveBeenCalled();
   });
 
@@ -770,6 +775,35 @@ describe("BoardMainView", () => {
 
     // Session-bound cards show Open terminal, not Start.
     expect(screen.queryByLabelText("Start work item")).toBeNull();
+    await fireEvent.click(screen.getByLabelText("Open terminal"));
+
+    expect(openSessionById).toHaveBeenCalledWith("sess-1");
+    await vi.waitFor(() => expect(closeMainView).toHaveBeenCalled());
+  });
+
+  it("continues a disconnected session when opening a bound card terminal", async () => {
+    const session = {
+      id: "sess-1",
+      name: "Task session",
+      repoRoot: "/repo",
+      worktreePath: "/repo",
+      branch: "main",
+      isWorktree: false,
+      status: "disconnected",
+      model: null,
+      cost: null,
+      createdAt: 1,
+      projectId: null,
+      isGitRepo: true,
+    } as Session;
+    (sessionList as ReturnType<typeof import("svelte/store").writable>).set([
+      session,
+    ]);
+    seedColumns([
+      workItem({ id: "wi-1", status: "doing", sessionId: "sess-1" }),
+    ]);
+    render(BoardMainView);
+
     await fireEvent.click(screen.getByLabelText("Open terminal"));
 
     expect(openSessionById).toHaveBeenCalledWith("sess-1");
@@ -1108,6 +1142,38 @@ describe("BoardMainView", () => {
 
     expect(openSessionById).toHaveBeenCalledWith("plan-sess-1");
     await vi.waitFor(() => expect(closeMainView).toHaveBeenCalled());
+  });
+
+  it("shows Open planning terminal for a completed planning run after restart", async () => {
+    seedColumns([
+      workItem({ id: "wi-plan", status: "planning", sessionId: null }),
+    ]);
+    (
+      latestPlanningRunByItem as ReturnType<
+        typeof import("svelte/store").writable
+      >
+    ).set(
+      new Map([
+        [
+          "wi-plan",
+          workItemRun({
+            id: "run-plan",
+            workItemId: "wi-plan",
+            kind: "planning",
+            sessionId: "archived-plan-sess",
+            ptyId: "archived-plan-pty",
+            status: "done",
+          }),
+        ],
+      ]),
+    );
+    render(BoardMainView);
+
+    await fireEvent.click(screen.getByLabelText("Open planning terminal"));
+
+    expect(openSessionById).toHaveBeenCalledWith("archived-plan-sess", {
+      ptyId: "archived-plan-pty",
+    });
   });
 
   it("routes pending question attention to the planning session without rendering the question body", async () => {

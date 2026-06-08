@@ -63,6 +63,7 @@ vi.mock("$lib/stores/workItems", async () => {
     pendingDecisionByItem: writable(new Map()),
     pendingQuestionByItem: writable(new Map()),
     activePlanningRunByItem: writable(new Map()),
+    latestPlanningRunByItem: writable(new Map()),
     attachmentsByWorkItem: writable(new Map()),
     runsByItem: writable(new Map()),
     workItemRunEvents: writable([]),

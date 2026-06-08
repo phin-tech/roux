@@ -25,6 +25,8 @@ import { defaultAgentProfileId } from "./defaultAgent";
 import type { SpawnProfileRef } from "./profiles";
 import { killPty, detachPty } from "$lib/tauri";
 import { settings } from "$lib/stores/settings";
+import { activePlanningRunByItem, workItems } from "$lib/stores/workItems";
+import { setSessionDisconnected } from "$lib/stores/sessions";
 import {
   multiLineEditor,
   closeMultiLineEditor,
@@ -148,10 +150,28 @@ export function closePane(sessionId: string, paneId: string): boolean {
 
   const onPaneClose = get(settings).onPaneClose ?? "kill";
   const ptyId = getAttachedPtyId(instance);
-  if (onPaneClose === "detach" && ptyId) {
+  const isWorkItemBoundSession = get(workItems).some(
+    (item) => item.sessionId === sessionId,
+  );
+  const isPlanningRunPane = [...get(activePlanningRunByItem).values()].some(
+    (run) =>
+      run.sessionId === sessionId &&
+      !!ptyId &&
+      (run.ptyId ? run.ptyId === ptyId : ptyId === sessionId),
+  );
+  const isPrimarySessionPane = ptyId === sessionId;
+  if (
+    (onPaneClose === "detach" ||
+      (isWorkItemBoundSession && isPrimarySessionPane) ||
+      isPlanningRunPane) &&
+    ptyId
+  ) {
     // Detach the PTY so it keeps running in the background. Fire-and-forget:
     // the pane is already removed from the layout so there is no UI to update.
     detachPty(ptyId).catch(() => {});
+    if ((isWorkItemBoundSession && isPrimarySessionPane) || isPlanningRunPane) {
+      setSessionDisconnected(sessionId);
+    }
     // Dispose the pane instance without killing the PTY.
     disposePane(paneId);
   } else {

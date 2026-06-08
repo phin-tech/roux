@@ -29,6 +29,7 @@
   import DocPanel from "./DocPanel.svelte";
   import LibraryPanel from "./LibraryPanel.svelte";
   import TaskPanel from "./TaskPanel.svelte";
+  import PtyPanel from "./PtyPanel.svelte";
   import BoardPanel from "./BoardPanel.svelte";
   import SessionTabs from "./SessionTabs.svelte";
 
@@ -120,6 +121,7 @@
     "watches",
     "library",
     "tasks",
+    "ptys",
     "board",
     "notifications",
     "mailbox",
@@ -270,6 +272,13 @@
             <TaskPanel
               {visible}
               onCollapse={onCloseFor(id)}
+              pinned={$pinnedSidebar === id}
+              onTogglePin={onTogglePinFor(id)}
+            />
+          {:else if id === "ptys"}
+            <PtyPanel
+              {visible}
+              onclose={onCloseFor(id)}
               pinned={$pinnedSidebar === id}
               onTogglePin={onTogglePinFor(id)}
             />

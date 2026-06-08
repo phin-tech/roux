@@ -30,8 +30,8 @@ vi.mock("$lib/sessions/close", () => ({
   closeSession: vi.fn(),
 }));
 
-vi.mock("$lib/sessions/reconnect", () => ({
-  continueSession: vi.fn(),
+vi.mock("$lib/panes/openSession", () => ({
+  openSessionById: vi.fn(),
 }));
 
 vi.mock("$lib/sessions/spawnBlueprint", () => ({

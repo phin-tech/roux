@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { get } from "svelte/store";
 import { settings } from "$lib/stores/settings";
+import { addSession, sessionState } from "$lib/stores/sessions";
 import { DEFAULT_SETTINGS } from "$lib/types";
+import type { Session } from "$lib/types";
 
 // Stub $lib/tauri so we can observe which kill/detach primitive disposePane
 // chose. The real invoke() would just reject silently in jsdom; this mock
@@ -22,7 +24,12 @@ import {
   detachSessionPanes,
   initSession,
 } from "../actions";
-import { paneInstances, resetInstances, getInstance } from "../instances";
+import {
+  paneInstances,
+  resetInstances,
+  getInstance,
+  updateInstance,
+} from "../instances";
 import { sessionLayouts, resetLayouts, collectLeafIds } from "../layout";
 import {
   focusedPaneId,
@@ -37,6 +44,63 @@ import {
   openMultiLineEditor,
   closeMultiLineEditor,
 } from "$lib/stores/multiLineEditor";
+import { workItems, workItemRuns } from "$lib/stores/workItems";
+import type { WorkItem } from "$lib/bindings";
+import type { WorkItemRun } from "$lib/types/workItems";
+
+function makeWorkItem(overrides: Partial<WorkItem> = {}): WorkItem {
+  return {
+    id: "wi-1",
+    projectId: null,
+    parentId: null,
+    branch: null,
+    fetchFirst: null,
+    title: "Task card",
+    body: null,
+    status: "doing",
+    sessionId: null,
+    repoPath: null,
+    agentProfile: null,
+    baseBranch: null,
+    worktreePath: null,
+    startError: null,
+    provider: null,
+    externalId: null,
+    externalUrl: null,
+    sortOrder: 0,
+    pinnedPrUrl: null,
+    reviewStageId: null,
+    workflowId: "default",
+    workflowStageId: "implementation",
+    workflowStageLabel: "Implementation",
+    archivedAt: null,
+    cost: null,
+    createdAt: 0,
+    updatedAt: 0,
+    ...overrides,
+  };
+}
+
+function makeRun(overrides: Partial<WorkItemRun> = {}): WorkItemRun {
+  return {
+    id: "run-1",
+    workItemId: "wi-1",
+    kind: "planning",
+    sessionId: "plan-session",
+    ptyId: "plan-session",
+    provider: "claude",
+    profileId: "claude",
+    status: "running",
+    worktreePath: null,
+    branch: null,
+    cost: null,
+    createdAt: 1,
+    startedAt: 1,
+    endedAt: null,
+    updatedAt: 1,
+    ...overrides,
+  };
+}
 
 describe("pane actions", () => {
   beforeEach(() => {
@@ -44,6 +108,9 @@ describe("pane actions", () => {
     resetLayouts();
     resetFocus();
     fullscreenPaneId.set(null);
+    workItems.set([]);
+    workItemRuns.set([]);
+    sessionState.set({ sessions: [], activeSessionId: null });
     settings.set(DEFAULT_SETTINGS); // resets to onPaneClose: "kill"
     vi.mocked(killPty).mockClear();
     vi.mocked(killSession).mockClear();
@@ -142,6 +209,110 @@ describe("pane actions", () => {
       expect(killPty).toHaveBeenCalledWith("s1");
       expect(detachPty).not.toHaveBeenCalled();
       expect(killSession).not.toHaveBeenCalled();
+    });
+
+    it("detaches instead of killing when closing a pane attached to a work-item-bound session", () => {
+      settings.set({ ...DEFAULT_SETTINGS, onPaneClose: "kill" });
+      const session = {
+        id: "task-session",
+        name: "Task session",
+        repoRoot: "/repo",
+        worktreePath: "/repo",
+        branch: "main",
+        isWorktree: false,
+        status: "idle",
+        model: null,
+        cost: null,
+        createdAt: 1,
+        projectId: null,
+        isGitRepo: true,
+      } as Session;
+      addSession(session);
+      initSession("task-session");
+      workItems.set([makeWorkItem({ sessionId: "task-session" })]);
+
+      closePane("task-session", "task-session-main");
+
+      expect(detachPty).toHaveBeenCalledWith("task-session");
+      expect(killPty).not.toHaveBeenCalled();
+      expect(killSession).not.toHaveBeenCalled();
+      expect(get(sessionState).sessions[0].status).toBe("disconnected");
+    });
+
+    it("detaches instead of killing when closing an active planning session pane", () => {
+      settings.set({ ...DEFAULT_SETTINGS, onPaneClose: "kill" });
+      const session = {
+        id: "plan-session",
+        name: "Plan session",
+        repoRoot: "/repo",
+        worktreePath: "/repo",
+        branch: "main",
+        isWorktree: false,
+        status: "idle",
+        model: null,
+        cost: null,
+        createdAt: 1,
+        projectId: null,
+        isGitRepo: true,
+      } as Session;
+      addSession(session);
+      initSession("plan-session");
+      workItemRuns.set([
+        makeRun({
+          id: "run-1",
+          workItemId: "wi-1",
+          kind: "planning",
+          sessionId: "plan-session",
+          ptyId: "plan-session",
+        }),
+      ]);
+
+      closePane("plan-session", "plan-session-main");
+
+      expect(detachPty).toHaveBeenCalledWith("plan-session");
+      expect(killPty).not.toHaveBeenCalled();
+      expect(killSession).not.toHaveBeenCalled();
+      expect(get(sessionState).sessions[0].status).toBe("disconnected");
+    });
+
+    it("detaches a planning run PTY even when it differs from the session id", () => {
+      settings.set({ ...DEFAULT_SETTINGS, onPaneClose: "kill" });
+      const session = {
+        id: "plan-session",
+        name: "Plan session",
+        repoRoot: "/repo",
+        worktreePath: "/repo",
+        branch: "main",
+        isWorktree: false,
+        status: "idle",
+        model: null,
+        cost: null,
+        createdAt: 1,
+        projectId: null,
+        isGitRepo: true,
+      } as Session;
+      addSession(session);
+      initSession("plan-session");
+      updateInstance("plan-session-main", {
+        ptyId: "planning-pty",
+        terminalState: { kind: "attached", ptyId: "planning-pty" },
+      });
+      workItemRuns.set([
+        makeRun({
+          id: "run-1",
+          workItemId: "wi-1",
+          kind: "planning",
+          sessionId: "plan-session",
+          ptyId: "planning-pty",
+        }),
+      ]);
+
+      closePane("plan-session", "plan-session-main");
+
+      expect(detachPty).toHaveBeenCalledWith("planning-pty");
+      expect(killPty).not.toHaveBeenCalled();
+      expect(killSession).not.toHaveBeenCalled();
+      expect(get(sessionState).sessions[0].status).toBe("disconnected");
     });
 
     it("detaches PTY (not kills) when onPaneClose is explicitly 'detach'", () => {

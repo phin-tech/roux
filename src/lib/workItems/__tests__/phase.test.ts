@@ -3,13 +3,17 @@ import type { WorkItemStatus } from "$lib/bindings";
 import type { WorkItemDecision, WorkItemRun } from "$lib/types/workItems";
 import { workItemPhase, type WorkItemPhaseInput } from "../phase";
 
-function planningRun(sessionId: string | null): WorkItemRun {
+function planningRun(
+  sessionId: string | null,
+  ptyId: string | null = null,
+  overrides: Partial<WorkItemRun> = {},
+): WorkItemRun {
   return {
     id: "run-plan",
     workItemId: "item-1",
     kind: "planning",
     sessionId,
-    ptyId: null,
+    ptyId,
     provider: null,
     profileId: null,
     status: "running",
@@ -20,6 +24,7 @@ function planningRun(sessionId: string | null): WorkItemRun {
     startedAt: null,
     endedAt: null,
     updatedAt: 0,
+    ...overrides,
   };
 }
 
@@ -71,12 +76,29 @@ describe("workItemPhase", () => {
     const phase = workItemPhase(
       input({
         status: "planning",
-        activePlanningRun: planningRun("sess-plan"),
+        activePlanningRun: planningRun("sess-plan", "pty-plan"),
       }),
     );
     expect(phase.action).toEqual({
       kind: "open-planning",
       sessionId: "sess-plan",
+      ptyId: "pty-plan",
+    });
+  });
+
+  it("planning with a completed planning session still offers Open planning", () => {
+    const phase = workItemPhase(
+      input({
+        status: "planning",
+        activePlanningRun: planningRun("archived-plan", "archived-pty", {
+          status: "done",
+        }),
+      }),
+    );
+    expect(phase.action).toEqual({
+      kind: "open-planning",
+      sessionId: "archived-plan",
+      ptyId: "archived-pty",
     });
   });
 

@@ -10,6 +10,7 @@ import {
   attachmentsByWorkItem,
   itemsByColumn,
   latestRunByItem,
+  latestPlanningRunByItem,
   pendingDecisionByItem,
   pendingQuestionByItem,
   runsByItem,
@@ -377,6 +378,32 @@ describe("workItems store", () => {
       ).toEqual(["run-1", "run-2"]);
     });
 
+    it("keeps terminal planning runs addressable as latest planning sessions", () => {
+      workItemRuns.set([
+        makeRun({
+          id: "run-impl",
+          kind: "implementation",
+          workItemId: "wi-1",
+          sessionId: "impl-sess",
+        }),
+        makeRun({
+          id: "run-plan",
+          kind: "planning",
+          workItemId: "wi-1",
+          sessionId: "plan-sess",
+          ptyId: "plan-pty",
+          status: "done",
+        }),
+      ]);
+
+      expect(get(latestPlanningRunByItem).get("wi-1")).toMatchObject({
+        id: "run-plan",
+        sessionId: "plan-sess",
+        ptyId: "plan-pty",
+        status: "done",
+      });
+    });
+
     it("updates a run from daemon runUpdated events", () => {
       workItemRuns.set([makeRun({ id: "run-1", status: "running" })]);
 
@@ -725,7 +752,10 @@ describe("workItems store", () => {
         session: {} as never,
       });
 
-      await expect(planWorkItem("wi-1")).resolves.toBe("plan-sess-1");
+      await expect(planWorkItem("wi-1")).resolves.toEqual({
+        sessionId: "plan-sess-1",
+        ptyId: "sess-1",
+      });
 
       expect(tauriWorkItemPlan).toHaveBeenCalledWith("wi-1", {});
       expect(get(workItemRuns)[0]).toMatchObject({

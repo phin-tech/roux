@@ -13,6 +13,7 @@ export interface RestoreSessionPanesOptions {
   attachPtyListeners: (paneId: string) => Promise<void>;
   attachLivePtyToPane?: (paneId: string, ptyId: string) => Promise<void>;
   livePtyIds?: ReadonlySet<string> | null;
+  primaryPtyId?: string | null;
 }
 
 /**
@@ -41,9 +42,10 @@ export async function restoreSessionPanes(
     return;
   }
 
-  const primaryDescriptor = restored.descriptors.find(
-    (d) => d.ptyId === session.id,
-  );
+  const primaryPtyId = opts.primaryPtyId ?? session.id;
+  const primaryDescriptor =
+    restored.descriptors.find((d) => d.ptyId === primaryPtyId) ??
+    restored.descriptors.find((d) => d.ptyId === session.id);
   if (!primaryDescriptor) {
     log(
       `restoreSessionPanes(${session.id}): persisted state has no primary pane; falling back to primary-only restore`,
@@ -62,8 +64,12 @@ export async function restoreSessionPanes(
   let primaryPaneId: string | null = null;
 
   for (const d of restored.descriptors) {
+    const descriptor =
+      d.id === primaryDescriptor.id && primaryPtyId !== session.id
+        ? { ...d, ptyId: primaryPtyId }
+        : d;
     const decision = decidePaneRestore({
-      descriptor: d,
+      descriptor,
       sessionId: session.id,
       livePtyIds: opts.livePtyIds,
     });
@@ -72,6 +78,9 @@ export async function restoreSessionPanes(
     if (d.id === primaryDescriptor.id) {
       primaryPaneId = createPrimaryPane(session.id, d.spawnProfileRef, d);
       updateInstance(primaryPaneId, {
+        // When the PTY is dead, use session.id so reconnect can
+        // locate this pane (it searches by ptyId === session.id).
+        ptyId: decision.kind === "attach" ? decision.panePtyId : session.id,
         terminalState: decision.terminalState,
       });
       continue;
@@ -96,8 +105,12 @@ export async function restoreSessionPanes(
 
   for (const d of restored.descriptors) {
     if (d.type === "markdown" || d.type === "notes") continue;
+    const descriptor =
+      d.id === primaryDescriptor.id && primaryPtyId !== session.id
+        ? { ...d, ptyId: primaryPtyId }
+        : d;
     const decision = decidePaneRestore({
-      descriptor: d,
+      descriptor,
       sessionId: session.id,
       livePtyIds: opts.livePtyIds,
     });
@@ -126,18 +139,20 @@ async function restorePrimaryOnly(
   descriptor: PaneStatePayload["descriptors"][number] | undefined,
   opts: RestoreSessionPanesOptions,
 ): Promise<string> {
+  const primaryPtyId = opts.primaryPtyId ?? session.id;
   const mainPaneId = initPrimaryPane(
     session.id,
     descriptor?.spawnProfileRef,
     descriptor,
   );
-  if (canAttachPty(session.id, opts.livePtyIds)) {
+  if (canAttachPty(primaryPtyId, opts.livePtyIds)) {
     updateInstance(mainPaneId, {
-      terminalState: { kind: "attached", ptyId: session.id },
+      ptyId: primaryPtyId,
+      terminalState: { kind: "attached", ptyId: primaryPtyId },
     });
     opts.initTerminal(mainPaneId);
-    if (opts.attachLivePtyToPane && opts.livePtyIds?.has(session.id)) {
-      await opts.attachLivePtyToPane(mainPaneId, session.id);
+    if (opts.attachLivePtyToPane && opts.livePtyIds?.has(primaryPtyId)) {
+      await opts.attachLivePtyToPane(mainPaneId, primaryPtyId);
     } else {
       await opts.attachPtyListeners(mainPaneId);
     }
