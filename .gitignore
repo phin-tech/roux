@@ -47,3 +47,4 @@ docs/__pycache__/
 
 # codebase-memory-mcp local graph artifacts
 /.codebase-memory/
+.claude/scheduled_tasks.lock
