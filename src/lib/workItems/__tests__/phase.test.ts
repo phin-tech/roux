@@ -6,6 +6,7 @@ import { workItemPhase, type WorkItemPhaseInput } from "../phase";
 function planningRun(
   sessionId: string | null,
   ptyId: string | null = null,
+  overrides: Partial<WorkItemRun> = {},
 ): WorkItemRun {
   return {
     id: "run-plan",
@@ -23,6 +24,7 @@ function planningRun(
     startedAt: null,
     endedAt: null,
     updatedAt: 0,
+    ...overrides,
   };
 }
 
@@ -81,6 +83,22 @@ describe("workItemPhase", () => {
       kind: "open-planning",
       sessionId: "sess-plan",
       ptyId: "pty-plan",
+    });
+  });
+
+  it("planning with a completed planning session still offers Open planning", () => {
+    const phase = workItemPhase(
+      input({
+        status: "planning",
+        activePlanningRun: planningRun("archived-plan", "archived-pty", {
+          status: "done",
+        }),
+      }),
+    );
+    expect(phase.action).toEqual({
+      kind: "open-planning",
+      sessionId: "archived-plan",
+      ptyId: "archived-pty",
     });
   });
 

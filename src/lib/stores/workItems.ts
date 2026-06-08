@@ -150,6 +150,15 @@ export const activePlanningRunByItem = derived(workItemRuns, ($runs) => {
   return map;
 });
 
+export const latestPlanningRunByItem = derived(workItemRuns, ($runs) => {
+  const map = new Map<string, WorkItemRun>();
+  for (const run of $runs) {
+    if (run.kind !== "planning") continue;
+    map.set(run.workItemId, run);
+  }
+  return map;
+});
+
 export const attachmentsByWorkItem = derived(
   workItemAttachments,
   ($attachments) => {

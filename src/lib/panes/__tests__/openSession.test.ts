@@ -4,6 +4,7 @@ import { get } from "svelte/store";
 vi.mock("$lib/tauri", () => ({
   listSessions: vi.fn().mockResolvedValue([]),
   listAllPtys: vi.fn().mockResolvedValue([]),
+  restoreSession: vi.fn().mockResolvedValue(undefined),
   upsertPaneRecord: vi.fn().mockResolvedValue(undefined),
   removePaneRecord: vi.fn().mockResolvedValue(undefined),
 }));
@@ -21,14 +22,20 @@ vi.mock("../attach", () => ({
   attachPtyToPane: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock("$lib/sessions/reconnect", () => ({
+  reattachSession: vi.fn(async (session) => session),
+}));
+
 import { openSessionById } from "../openSession";
 import { sessionState } from "$lib/stores/sessions";
 import { paneInstances, resetInstances } from "../instances";
 import { sessionLayouts, resetLayouts } from "../layout";
 import { attachPtyToPane } from "../attach";
 import { loadPaneState } from "../persistence";
-import { listAllPtys } from "$lib/tauri";
+import { listAllPtys, listSessions, restoreSession } from "$lib/tauri";
+import { reattachSession } from "$lib/sessions/reconnect";
 import type { PtyInfo } from "$lib/bindings";
+import type { Session } from "$lib/types";
 
 function ptyInfo(id: string, sessionId = id): PtyInfo {
   return {
@@ -237,5 +244,34 @@ describe("openSessionById", () => {
     expect(result).toBe("opened");
     expect(get(paneInstances).get("s1-main")?.ptyId).toBe("planning-pty");
     expect(attachPtyToPane).toHaveBeenCalledWith("s1-main", "planning-pty");
+  });
+
+  it("restores and continues an archived session when no active session exists", async () => {
+    const restored: Session = {
+      id: "archived-plan",
+      name: "Archived plan",
+      repoRoot: "/repo",
+      worktreePath: "/repo",
+      branch: "main",
+      isWorktree: false,
+      status: "disconnected",
+      model: null,
+      cost: null,
+      createdAt: 1,
+      projectId: null,
+      isGitRepo: true,
+      primaryPtyId: null,
+    };
+    vi.mocked(listSessions)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([restored]);
+    vi.mocked(listAllPtys).mockResolvedValue([]);
+
+    const result = await openSessionById("archived-plan");
+
+    expect(result).toBe("opened");
+    expect(restoreSession).toHaveBeenCalledWith("archived-plan");
+    expect(reattachSession).toHaveBeenCalledWith(restored);
+    expect(get(sessionState).activeSessionId).toBe("archived-plan");
   });
 });

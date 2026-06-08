@@ -10,6 +10,7 @@ import {
   startWorkItem,
   stopWorkItemRun,
   activePlanningRunByItem,
+  latestPlanningRunByItem,
   attachmentsByWorkItem,
   pendingDecisionByItem,
   pendingQuestionByItem,
@@ -88,6 +89,7 @@ vi.mock("$lib/stores/workItems", async () => {
     pendingDecisionByItem: writable(new Map()),
     pendingQuestionByItem: writable(new Map()),
     activePlanningRunByItem: writable(new Map()),
+    latestPlanningRunByItem: writable(new Map()),
     attachmentsByWorkItem: writable(new Map()),
     runsByItem: writable(new Map()),
     workItemRunEvents: writable([]),
@@ -1140,6 +1142,38 @@ describe("BoardMainView", () => {
 
     expect(openSessionById).toHaveBeenCalledWith("plan-sess-1");
     await vi.waitFor(() => expect(closeMainView).toHaveBeenCalled());
+  });
+
+  it("shows Open planning terminal for a completed planning run after restart", async () => {
+    seedColumns([
+      workItem({ id: "wi-plan", status: "planning", sessionId: null }),
+    ]);
+    (
+      latestPlanningRunByItem as ReturnType<
+        typeof import("svelte/store").writable
+      >
+    ).set(
+      new Map([
+        [
+          "wi-plan",
+          workItemRun({
+            id: "run-plan",
+            workItemId: "wi-plan",
+            kind: "planning",
+            sessionId: "archived-plan-sess",
+            ptyId: "archived-plan-pty",
+            status: "done",
+          }),
+        ],
+      ]),
+    );
+    render(BoardMainView);
+
+    await fireEvent.click(screen.getByLabelText("Open planning terminal"));
+
+    expect(openSessionById).toHaveBeenCalledWith("archived-plan-sess", {
+      ptyId: "archived-plan-pty",
+    });
   });
 
   it("routes pending question attention to the planning session without rendering the question body", async () => {

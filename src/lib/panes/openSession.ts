@@ -5,7 +5,7 @@ import {
   setActiveSession,
   updateSessionStatus,
 } from "$lib/stores/sessions";
-import { listSessions, listAllPtys } from "$lib/tauri";
+import { listSessions, listAllPtys, restoreSession } from "$lib/tauri";
 import { loadPaneState } from "./persistence";
 import { restoreSessionPanes } from "./restore";
 import { collectLeafIds, sessionLayouts } from "./layout";
@@ -58,14 +58,37 @@ export async function openSessionById(
   }
 
   const sessions = await listSessions();
-  const session = sessions.find((s) => s.id === sessionId) ?? existing;
+  let session = sessions.find((s) => s.id === sessionId) ?? existing;
+  let restoredArchived = false;
   if (!session) {
-    log(`openSessionById(${sessionId}): session not found — likely closed`);
-    return "gone";
+    try {
+      await restoreSession(sessionId);
+      restoredArchived = true;
+      const restoredSessions = await listSessions();
+      session = restoredSessions.find((s) => s.id === sessionId) ?? null;
+    } catch (e) {
+      log(
+        `openSessionById(${sessionId}): session not found and archived restore failed: ${e}`,
+      );
+      return "gone";
+    }
+    if (!session) {
+      log(
+        `openSessionById(${sessionId}): archived restore did not return an active session`,
+      );
+      return "gone";
+    }
   }
 
   const primaryPtyId = options.ptyId || session.primaryPtyId || session.id;
   addSession(session);
+
+  if (restoredArchived) {
+    const { reattachSession } = await import("$lib/sessions/reconnect");
+    await reattachSession(session);
+    setActiveSession(session.id);
+    return "opened";
+  }
 
   // xterm-heavy modules are imported lazily, mirroring the launch restore path.
   const [{ initTerminal, attachPtyListeners }, { attachPtyToPane }] =

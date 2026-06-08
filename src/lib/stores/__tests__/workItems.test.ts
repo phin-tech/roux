@@ -10,6 +10,7 @@ import {
   attachmentsByWorkItem,
   itemsByColumn,
   latestRunByItem,
+  latestPlanningRunByItem,
   pendingDecisionByItem,
   pendingQuestionByItem,
   runsByItem,
@@ -375,6 +376,32 @@ describe("workItems store", () => {
           .get("wi-1")
           ?.map((run) => run.id),
       ).toEqual(["run-1", "run-2"]);
+    });
+
+    it("keeps terminal planning runs addressable as latest planning sessions", () => {
+      workItemRuns.set([
+        makeRun({
+          id: "run-impl",
+          kind: "implementation",
+          workItemId: "wi-1",
+          sessionId: "impl-sess",
+        }),
+        makeRun({
+          id: "run-plan",
+          kind: "planning",
+          workItemId: "wi-1",
+          sessionId: "plan-sess",
+          ptyId: "plan-pty",
+          status: "done",
+        }),
+      ]);
+
+      expect(get(latestPlanningRunByItem).get("wi-1")).toMatchObject({
+        id: "run-plan",
+        sessionId: "plan-sess",
+        ptyId: "plan-pty",
+        status: "done",
+      });
     });
 
     it("updates a run from daemon runUpdated events", () => {

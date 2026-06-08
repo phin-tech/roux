@@ -13,6 +13,7 @@
     pendingDecisionByItem,
     pendingQuestionByItem,
     activePlanningRunByItem,
+    latestPlanningRunByItem,
     attachmentsByWorkItem,
     runsByItem,
     workItemRunEvents,
@@ -402,8 +403,13 @@
                 $pendingDecisionByItem.get(item.id) ?? null}
               {@const pendingQuestion =
                 $pendingQuestionByItem.get(item.id) ?? null}
-              {@const planningRun =
+              {@const activePlanningRun =
                 $activePlanningRunByItem.get(item.id) ?? null}
+              {@const planningRun =
+                item.status === "planning"
+                  ? ($latestPlanningRunByItem.get(item.id) ??
+                    activePlanningRun)
+                  : activePlanningRun}
               {@const itemRuns = $runsByItem.get(item.id) ?? []}
               {@const itemAttachments =
                 $attachmentsByWorkItem.get(item.id) ?? []}
