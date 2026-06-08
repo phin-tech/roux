@@ -14,6 +14,7 @@
   import type { WorkItem } from "$lib/bindings";
   import type { WorkItemPhase } from "$lib/workItems/phase";
   import type { WorkItemReviewPackage } from "$lib/workItems/reviewPackage";
+	import type { WorkItemOpenTarget } from "$lib/workItems/openTarget";
   import type { SessionStatus } from "$lib/types";
   import { profileList } from "$lib/panes/profiles";
   import { clearDraggedWorkItem, writeWorkItemDragData } from "$lib/board/drag";
@@ -80,6 +81,8 @@
     attentionSessionId?: string | null;
     /** Opt-in card dragging. The full-screen board enables it; the sidebar leaves it off. */
     draggable?: boolean;
+	    /** Resolved open target for the card terminal action. */
+	    openTarget?: WorkItemOpenTarget | null;
   }
 
   const {
@@ -109,6 +112,7 @@
     attachedSessionIds = [],
     attentionSessionId: attachedAttentionSessionId = null,
     draggable = false,
+	    openTarget = null,
   }: Props = $props();
 
   const statusDotClasses: Partial<Record<SessionStatus, string>> = {
@@ -131,15 +135,24 @@
   const hasPendingQuestion = $derived(
     !!pendingDecision || !!attentionSessionId,
   );
-  const primaryOpenSessionId = $derived(
-    phase.action.kind === "open-session" ? phase.action.sessionId : null,
-  );
-  const planningOpenSessionId = $derived(
-    phase.action.kind === "open-planning" ? phase.action.sessionId : null,
-  );
-  const planningOpenPtyId = $derived(
-    phase.action.kind === "open-planning" ? phase.action.ptyId : null,
-  );
+  const primaryOpenSessionId = $derived.by(() => {
+    if (phase.action.kind === "open-session" && phase.action.sessionId) {
+      return phase.action.sessionId;
+    }
+    return openTarget?.sessionId ?? null;
+  });
+  const planningOpenSessionId = $derived.by(() => {
+    if (phase.action.kind === "open-planning" && phase.action.sessionId) {
+      return phase.action.sessionId;
+    }
+    return openTarget?.sessionId ?? null;
+  });
+  const planningOpenPtyId = $derived.by(() => {
+    if (phase.action.kind === "open-planning" && phase.action.ptyId) {
+      return phase.action.ptyId;
+    }
+    return phase.action.kind === "open-planning" ? (openTarget?.ptyId ?? null) : null;
+  });
   const startActionAriaLabel = $derived(
     phase.action.kind === "configure"
       ? "Configure work item"
@@ -381,8 +394,9 @@
 
   function handleOpenReviewTerminal(): void {
     menuOpen = false;
-    if (!reviewSessionId) return;
-    onOpen?.(reviewSessionId);
+    const sessionId = reviewSessionId ?? (openTarget?.kind === "review" ? openTarget.sessionId : null);
+    if (!sessionId) return;
+    onOpen?.(sessionId);
   }
 
   function handleOpenReviewAgent(): void {

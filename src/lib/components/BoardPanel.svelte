@@ -45,6 +45,7 @@
     buildWorkItemReviewPackage,
     type WorkItemReviewPackage,
   } from "$lib/workItems/reviewPackage";
+	import { resolveWorkItemOpenTarget } from "$lib/workItems/openTarget";
   import { resolveReviewAgentRepoRoot } from "$lib/workItems/reviewAgent";
   import type { WorkItem } from "$lib/bindings";
   import { createSessionShell, openPathInFinder } from "$lib/tauri";
@@ -437,11 +438,17 @@
                 itemAttachments,
                 $workItemRunEvents,
               )}
+              {@const openTarget = resolveWorkItemOpenTarget(
+                item,
+                itemRuns,
+                reviewPackage
+              )}
               <WorkItemCard
                 {item}
                 {sessionStatus}
                 {phase}
                 {reviewPackage}
+                {openTarget}
                 {attachedSessionIds}
                 {attentionSessionId}
                 onStart={handleStart}
