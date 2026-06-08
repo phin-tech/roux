@@ -78,7 +78,9 @@ export async function restoreSessionPanes(
     if (d.id === primaryDescriptor.id) {
       primaryPaneId = createPrimaryPane(session.id, d.spawnProfileRef, d);
       updateInstance(primaryPaneId, {
-        ptyId: decision.panePtyId,
+        // When the PTY is dead, use session.id so reconnect can
+        // locate this pane (it searches by ptyId === session.id).
+        ptyId: decision.kind === "attach" ? decision.panePtyId : session.id,
         terminalState: decision.terminalState,
       });
       continue;

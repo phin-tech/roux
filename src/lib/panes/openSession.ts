@@ -82,11 +82,14 @@ export async function openSessionById(
   }
 
   const primaryPtyId = options.ptyId || session.primaryPtyId || session.id;
-  addSession(session);
 
+  // Reconnect the session *before* adding it to the store so the UI
+  // never renders it in a disconnected state (which would show the
+  // SessionPicker instead of the live terminal).
   if (restoredArchived) {
     const { reattachSession } = await import("$lib/sessions/reconnect");
-    await reattachSession(session);
+    session = await reattachSession(session);
+    addSession(session);
     setActiveSession(session.id);
     return "opened";
   }
@@ -113,13 +116,25 @@ export async function openSessionById(
     livePtyIds,
     primaryPtyId,
   });
+
   const attached = hasAttachedSessionPane(session.id, primaryPtyId);
+  if (!attached && session.status === "disconnected") {
+    const { reconnectSessionShell } = await import("$lib/sessions/reconnect");
+    try {
+      session = await reconnectSessionShell(session, ["--continue"]);
+    } catch (e) {
+      log(
+        `openSessionById(${sessionId}): reconnect failed, session stays disconnected: ${e}`,
+      );
+    }
+  }
+
+  // Add the session to the store *after* reconnect so the initial render
+  // sees a live / idle session, never a disconnected one.
+  addSession(session);
   if (attached) {
     updateSessionStatus(session.id, "idle");
-  } else if (session.status === "disconnected") {
-    const { reattachSession } = await import("$lib/sessions/reconnect");
-    await reattachSession(session);
-  } else if (existing && existing.status !== "disconnected") {
+  } else if (!attached && existing && existing.status !== "disconnected") {
     updateSessionStatus(session.id, "disconnected");
   }
   setActiveSession(session.id);

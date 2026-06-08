@@ -53,6 +53,12 @@ function findSessionPrimaryPaneId(sessionId: string): string | null {
   for (const leafId of collectLeafIds(layout)) {
     if (getInstance(leafId)?.ptyId === sessionId) return leafId;
   }
+  // Fallback: primary pane created by initSessionWithProfile uses the
+  // `${sessionId}-main` naming convention. This handles cases where the
+  // pane's ptyId was assigned a non-session-id value (e.g. a planning
+  // PTY id that doesn't match sessionId).
+  const mainPaneId = `${sessionId}-main`;
+  if (getInstance(mainPaneId)) return mainPaneId;
   return null;
 }
 

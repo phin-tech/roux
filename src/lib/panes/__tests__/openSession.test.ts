@@ -27,6 +27,7 @@ vi.mock("../attach", () => ({
 
 vi.mock("$lib/sessions/reconnect", () => ({
   reattachSession: vi.fn(async (session) => session),
+  reconnectSessionShell: vi.fn(async (session) => session),
 }));
 
 import { openSessionById } from "../openSession";
@@ -37,7 +38,7 @@ import { attachPtyToPane } from "../attach";
 import { loadPaneState } from "../persistence";
 import { listAllPtys, listSessions } from "$lib/tauri";
 import { restoreArchivedSession } from "$lib/stores/archivedSessions";
-import { reattachSession } from "$lib/sessions/reconnect";
+import { reattachSession, reconnectSessionShell } from "$lib/sessions/reconnect";
 import type { PtyInfo } from "$lib/bindings";
 import type { Session } from "$lib/types";
 
@@ -152,8 +153,9 @@ describe("openSessionById", () => {
 
     expect(result).toBe("opened");
     expect(attachPtyToPane).not.toHaveBeenCalled();
-    expect(reattachSession).toHaveBeenCalledWith(
+    expect(reconnectSessionShell).toHaveBeenCalledWith(
       expect.objectContaining({ id: "s1" }),
+      ["--continue"],
     );
     expect(get(sessionState).activeSessionId).toBe("s1");
   });
