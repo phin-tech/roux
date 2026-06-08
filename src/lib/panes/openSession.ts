@@ -72,9 +72,7 @@ export async function openSessionById(
       session = restoredSessions.find((s) => s.id === sessionId) ?? null;
       if (session) restoredArchived = true;
     } catch (e) {
-      log(
-        `openSessionById(${sessionId}): archived restore failed: ${e}`,
-      );
+      log(`openSessionById(${sessionId}): archived restore failed: ${e}`);
     }
   }
 

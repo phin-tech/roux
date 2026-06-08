@@ -127,8 +127,7 @@
     ) {
       if (planningRun?.sessionId) {
         await handleOpen(planningRun.sessionId, planningRun.ptyId);
-      }
-      else {
+      } else {
         startErrors = {
           ...startErrors,
           [id]: "Attach a plan before starting implementation.",
@@ -407,8 +406,7 @@
                 $activePlanningRunByItem.get(item.id) ?? null}
               {@const planningRun =
                 item.status === "planning"
-                  ? ($latestPlanningRunByItem.get(item.id) ??
-                    activePlanningRun)
+                  ? ($latestPlanningRunByItem.get(item.id) ?? activePlanningRun)
                   : activePlanningRun}
               {@const itemRuns = $runsByItem.get(item.id) ?? []}
               {@const itemAttachments =

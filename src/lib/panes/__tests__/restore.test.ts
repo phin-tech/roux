@@ -139,16 +139,12 @@ describe("restoreSessionPanes", () => {
       ],
     };
 
-    await restoreSessionPanes(
-      session({ id: "s1" }),
-      payload,
-      {
-        initTerminal,
-        attachPtyListeners,
-        livePtyIds: new Set(), // PTY dead
-        primaryPtyId: "planning-pty", // Foreign ptyId from work item
-      },
-    );
+    await restoreSessionPanes(session({ id: "s1" }), payload, {
+      initTerminal,
+      attachPtyListeners,
+      livePtyIds: new Set(), // PTY dead
+      primaryPtyId: "planning-pty", // Foreign ptyId from work item
+    });
 
     // The pane must have ptyId = session.id, not "" and not "planning-pty".
     const pane = get(paneInstances).get("pane-1");
@@ -173,16 +169,12 @@ describe("restoreSessionPanes", () => {
       ],
     };
 
-    await restoreSessionPanes(
-      session({ id: "s1" }),
-      payload,
-      {
-        initTerminal,
-        attachPtyListeners,
-        livePtyIds: new Set(["planning-pty"]), // Only planning PTY is live
-        primaryPtyId: "planning-pty", // But no descriptor has this ptyId
-      },
-    );
+    await restoreSessionPanes(session({ id: "s1" }), payload, {
+      initTerminal,
+      attachPtyListeners,
+      livePtyIds: new Set(["planning-pty"]), // Only planning PTY is live
+      primaryPtyId: "planning-pty", // But no descriptor has this ptyId
+    });
 
     // Should still find the primary by session.id and attach the
     // overridden planning PTY.

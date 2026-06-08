@@ -64,9 +64,7 @@
       case "RunningDetached":
         return "detached";
       case "Exited":
-        return pty.status.code == null
-          ? "exited"
-          : `exited ${pty.status.code}`;
+        return pty.status.code == null ? "exited" : `exited ${pty.status.code}`;
     }
   }
 
@@ -125,11 +123,15 @@
         {error}
       </div>
     {:else if loading && ptys.length === 0}
-      <div class="flex h-full items-center justify-center text-sm text-text-muted">
+      <div
+        class="flex h-full items-center justify-center text-sm text-text-muted"
+      >
         Loading PTYs...
       </div>
     {:else if ptys.length === 0}
-      <div class="flex h-full items-center justify-center text-sm text-text-muted">
+      <div
+        class="flex h-full items-center justify-center text-sm text-text-muted"
+      >
         No daemon PTYs
       </div>
     {:else}
@@ -139,10 +141,11 @@
             class="rounded-lg border border-border-subtle/60 bg-bg-surface/35 px-2 py-1.5 text-xs"
           >
             <div class="flex min-w-0 items-center gap-2">
-              <span
-                class="h-2 w-2 shrink-0 rounded-full {statusClass(pty)}"
+              <span class="h-2 w-2 shrink-0 rounded-full {statusClass(pty)}"
               ></span>
-              <span class="min-w-0 flex-1 truncate font-medium text-text-primary">
+              <span
+                class="min-w-0 flex-1 truncate font-medium text-text-primary"
+              >
                 {pty.name || pty.id}
               </span>
               <span class="shrink-0 text-[10px] uppercase text-text-muted">
