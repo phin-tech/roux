@@ -27,7 +27,7 @@ vi.mock("../attach", () => ({
 
 vi.mock("$lib/sessions/reconnect", () => ({
   reattachSession: vi.fn(async (session) => session),
-  reconnectSessionShell: vi.fn(async (session) => session),
+  continueSessionShell: vi.fn(async (session) => session),
 }));
 
 import { openSessionById } from "../openSession";
@@ -38,7 +38,7 @@ import { attachPtyToPane } from "../attach";
 import { loadPaneState } from "../persistence";
 import { listAllPtys, listSessions } from "$lib/tauri";
 import { restoreArchivedSession } from "$lib/stores/archivedSessions";
-import { reattachSession, reconnectSessionShell } from "$lib/sessions/reconnect";
+import { reattachSession, continueSessionShell } from "$lib/sessions/reconnect";
 import type { PtyInfo } from "$lib/bindings";
 import type { Session } from "$lib/types";
 
@@ -153,9 +153,8 @@ describe("openSessionById", () => {
 
     expect(result).toBe("opened");
     expect(attachPtyToPane).not.toHaveBeenCalled();
-    expect(reconnectSessionShell).toHaveBeenCalledWith(
+    expect(continueSessionShell).toHaveBeenCalledWith(
       expect.objectContaining({ id: "s1" }),
-      ["--continue"],
     );
     expect(get(sessionState).activeSessionId).toBe("s1");
   });
@@ -282,5 +281,129 @@ describe("openSessionById", () => {
     expect(restoreArchivedSession).toHaveBeenCalledWith("archived-plan");
     expect(reattachSession).toHaveBeenCalledWith(restored);
     expect(get(sessionState).activeSessionId).toBe("archived-plan");
+  });
+
+  it("continues a disconnected planning session when its PTY is dead (foreign ptyId)", async () => {
+    // Planning sessions have a ptyId that differs from sessionId.
+    // When the planning PTY is dead, reconnect should use
+    // continueSessionShell and the pane's ptyId must stay session.id
+    // so reconnectPrimaryPaneOnly can locate it.
+    vi.mocked(listAllPtys).mockResolvedValue([]);
+    vi.mocked(listSessions).mockResolvedValue([
+      {
+        id: "plan-session",
+        name: "Plan",
+        repoRoot: "/repo",
+        worktreePath: "/repo",
+        branch: "main",
+        isWorktree: false,
+        status: "disconnected",
+        model: null,
+        cost: null,
+        createdAt: 1,
+        projectId: null,
+        isGitRepo: true,
+      },
+    ]);
+    sessionState.set({ sessions: [], activeSessionId: null });
+
+    const result = await openSessionById("plan-session", {
+      ptyId: "planning-pty",
+    });
+
+    expect(result).toBe("opened");
+    expect(continueSessionShell).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "plan-session" }),
+    );
+    // The pane's ptyId must be session.id (not the dead planning PTY)
+    // so that findSessionPrimaryPaneId can find it.
+    expect(get(paneInstances).get("plan-session-main")?.ptyId).toBe(
+      "plan-session",
+    );
+    expect(get(sessionState).activeSessionId).toBe("plan-session");
+  });
+
+  it("adds the session to the store after reconnect, never before", async () => {
+    // The session must land in the store with the status that
+    // continueSessionShell returned — not the original disconnected
+    // status — so the UI never renders the SessionPicker.
+    vi.mocked(listAllPtys).mockResolvedValue([]);
+    vi.mocked(listSessions).mockResolvedValue([
+      {
+        id: "s1",
+        name: "Session",
+        repoRoot: "/repo",
+        worktreePath: "/repo",
+        branch: "main",
+        isWorktree: false,
+        status: "disconnected",
+        model: null,
+        cost: null,
+        createdAt: 1,
+        projectId: null,
+        isGitRepo: true,
+      },
+    ]);
+    vi.mocked(continueSessionShell).mockResolvedValueOnce({
+      id: "s1",
+      name: "Session",
+      repoRoot: "/repo",
+      worktreePath: "/repo",
+      branch: "main",
+      isWorktree: false,
+      status: "idle",
+      model: null,
+      cost: null,
+      createdAt: 1,
+      projectId: null,
+      isGitRepo: true,
+      primaryPtyId: null,
+    } as Session);
+    sessionState.set({ sessions: [], activeSessionId: null });
+
+    const result = await openSessionById("s1");
+
+    expect(result).toBe("opened");
+    expect(continueSessionShell).toHaveBeenCalled();
+    // The store must reflect the reconnected status, not "disconnected".
+    expect(get(sessionState).sessions[0]?.status).toBe("idle");
+  });
+
+  it("reconnects even when daemon reports idle but PTY is dead", async () => {
+    // The daemon may report "idle" for a session whose PTY was killed
+    // during restart. If no live PTY attaches, reconnect anyway.
+    vi.mocked(listAllPtys).mockResolvedValue([]);
+    vi.mocked(listSessions).mockResolvedValue([
+      {
+        id: "s1",
+        name: "Session",
+        repoRoot: "/repo",
+        worktreePath: "/repo",
+        branch: "main",
+        isWorktree: false,
+        status: "idle",
+        model: null,
+        cost: null,
+        createdAt: 1,
+        projectId: null,
+        isGitRepo: true,
+      },
+    ]);
+    sessionState.set({ sessions: [], activeSessionId: null });
+
+    const result = await openSessionById("s1");
+
+    expect(result).toBe("opened");
+    expect(continueSessionShell).toHaveBeenCalled();
+  });
+
+  it("does not add the session to the store when it is gone and not archived", async () => {
+    vi.mocked(listSessions).mockResolvedValue([]);
+    vi.mocked(listAllPtys).mockResolvedValue([]);
+
+    const result = await openSessionById("missing-session");
+
+    expect(result).toBe("gone");
+    expect(get(sessionState).sessions).toHaveLength(0);
   });
 });

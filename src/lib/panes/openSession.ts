@@ -118,10 +118,10 @@ export async function openSessionById(
   });
 
   const attached = hasAttachedSessionPane(session.id, primaryPtyId);
-  if (!attached && session.status === "disconnected") {
-    const { reconnectSessionShell } = await import("$lib/sessions/reconnect");
+  if (!attached) {
+    const { continueSessionShell } = await import("$lib/sessions/reconnect");
     try {
-      session = await reconnectSessionShell(session, ["--continue"]);
+      session = await continueSessionShell(session);
     } catch (e) {
       log(
         `openSessionById(${sessionId}): reconnect failed, session stays disconnected: ${e}`,
@@ -134,8 +134,6 @@ export async function openSessionById(
   addSession(session);
   if (attached) {
     updateSessionStatus(session.id, "idle");
-  } else if (!attached && existing && existing.status !== "disconnected") {
-    updateSessionStatus(session.id, "disconnected");
   }
   setActiveSession(session.id);
   return "opened";

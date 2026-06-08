@@ -121,6 +121,79 @@ describe("restoreSessionPanes", () => {
     expect(attachPtyListeners).not.toHaveBeenCalled();
   });
 
+  it("uses session.id as ptyId when planning PTY is dead (foreign ptyId, empty decision)", async () => {
+    // When a planning session has a different PTY id (planning-pty)
+    // and that PTY is dead, the pane's ptyId must fall back to
+    // session.id so reconnect can locate it later.
+    const payload: PaneStatePayload = {
+      schemaVersion: 5,
+      layout: { kind: "leaf", paneId: "pane-1" },
+      descriptors: [
+        {
+          id: "pane-1",
+          type: "shell",
+          ptyId: "s1",
+          spawnProfileRef: { kind: "registered", id: "claude" },
+          provider: "claude",
+        },
+      ],
+    };
+
+    await restoreSessionPanes(
+      session({ id: "s1" }),
+      payload,
+      {
+        initTerminal,
+        attachPtyListeners,
+        livePtyIds: new Set(), // PTY dead
+        primaryPtyId: "planning-pty", // Foreign ptyId from work item
+      },
+    );
+
+    // The pane must have ptyId = session.id, not "" and not "planning-pty".
+    const pane = get(paneInstances).get("pane-1");
+    expect(pane?.ptyId).toBe("s1");
+    expect(pane?.terminalState).toEqual({ kind: "empty" });
+  });
+
+  it("resolves primary descriptor by session.id when foreign ptyId matches nothing", async () => {
+    // When primaryPtyId (planning PTY ID) doesn't appear in any
+    // descriptor, the function falls back to matching by session.id.
+    const payload: PaneStatePayload = {
+      schemaVersion: 5,
+      layout: { kind: "leaf", paneId: "s1-main" },
+      descriptors: [
+        {
+          id: "s1-main",
+          type: "shell",
+          ptyId: "s1",
+          spawnProfileRef: { kind: "registered", id: "claude" },
+          provider: "claude",
+        },
+      ],
+    };
+
+    await restoreSessionPanes(
+      session({ id: "s1" }),
+      payload,
+      {
+        initTerminal,
+        attachPtyListeners,
+        livePtyIds: new Set(["planning-pty"]), // Only planning PTY is live
+        primaryPtyId: "planning-pty", // But no descriptor has this ptyId
+      },
+    );
+
+    // Should still find the primary by session.id and attach the
+    // overridden planning PTY.
+    const pane = get(paneInstances).get("s1-main");
+    expect(pane?.ptyId).toBe("planning-pty");
+    expect(pane?.terminalState).toEqual({
+      kind: "attached",
+      ptyId: "planning-pty",
+    });
+  });
+
   it("restores persisted split panes and reattaches each live PTY", async () => {
     const payload: PaneStatePayload = {
       schemaVersion: 5,
