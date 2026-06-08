@@ -59,26 +59,34 @@ export async function openSessionById(
   }
 
   const sessions = await listSessions();
-  let session = sessions.find((s) => s.id === sessionId) ?? existing;
+  let session = sessions.find((s) => s.id === sessionId) ?? null;
   let restoredArchived = false;
+
+  // The session may be absent from the active list because it was
+  // archived.  Try to revive it.  This also covers the case where a
+  // stale local copy in `existing` outlives the backend record.
   if (!session) {
     try {
       await restoreArchivedSession(sessionId);
-      restoredArchived = true;
       const restoredSessions = await listSessions();
       session = restoredSessions.find((s) => s.id === sessionId) ?? null;
+      if (session) restoredArchived = true;
     } catch (e) {
       log(
-        `openSessionById(${sessionId}): session not found and archived restore failed: ${e}`,
+        `openSessionById(${sessionId}): archived restore failed: ${e}`,
       );
-      return "gone";
     }
-    if (!session) {
-      log(
-        `openSessionById(${sessionId}): archived restore did not return an active session`,
-      );
-      return "gone";
-    }
+  }
+
+  // Fall back to the local store copy when backend lookup + archive
+  // restore both come up empty (e.g. the session was registered
+  // client-side but hasn't been persisted yet).
+  if (!session) {
+    session = existing ?? null;
+  }
+
+  if (!session) {
+    return "gone";
   }
 
   const primaryPtyId = options.ptyId || session.primaryPtyId || session.id;
