@@ -10,7 +10,6 @@
   import Play from "@lucide/svelte/icons/play";
   import Terminal from "@lucide/svelte/icons/terminal";
   import Trash2 from "@lucide/svelte/icons/trash-2";
-  import Wrench from "@lucide/svelte/icons/wrench";
   import type { WorkItem } from "$lib/bindings";
   import type { WorkItemPhase } from "$lib/workItems/phase";
   import type { WorkItemReviewPackage } from "$lib/workItems/reviewPackage";
@@ -61,6 +60,8 @@
     ) => void | Promise<void>;
     /** Reveal the card's worktree path in the OS file manager. */
     onOpenWorktree?: (path: string) => void | Promise<void>;
+    /** Open the review modal for this card. */
+    onOpenReview?: (id: string) => void;
     /** Open a new agent session in the review worktree. */
     onOpenAgent?: (
       item: WorkItem,
@@ -96,15 +97,12 @@
     onDelete,
     onArchive,
     onAcceptReview,
-    onRequestChanges,
+    onOpenReview,
     onOpenWorktree,
-    onOpenAgent,
     startPending = false,
     planPending = false,
     stagePending = false,
     acceptPending = false,
-    requestChangesPending = false,
-    openAgentPending = false,
     archivePending = false,
     startError = null,
     phase,
@@ -189,12 +187,6 @@
   });
   const branchLabel = $derived(item.branch ?? null);
   const canForceStartPlanning = $derived(phase.canForceStart && !!onStart);
-  const canFixCi = $derived(
-    item.status === "review" &&
-      item.reviewStageId === "pr_review" &&
-      !!item.pinnedPrUrl &&
-      !!onStart,
-  );
   const hasMenuActions = $derived(
     !!onEdit || !!onPlan || !!onDelete || !!onArchive || canForceStartPlanning,
   );
@@ -223,6 +215,9 @@
         phase.action.kind === "accept-review"),
   );
   const reviewSessionId = $derived(reviewPackage?.sessionId ?? null);
+  const effectiveReviewSessionId = $derived(
+    reviewSessionId ?? (openTarget?.kind === "review" ? openTarget.sessionId : null),
+  );
   const reviewStageName = $derived(
     reviewStageLabel(item.reviewStageId, $settings.kanban),
   );
@@ -231,9 +226,6 @@
   );
   const canOpenReviewWorktree = $derived(
     !!reviewPackage?.worktreePath && !!onOpenWorktree,
-  );
-  const canOpenReviewAgent = $derived(
-    !!reviewPackage?.worktreePath && !!onOpenAgent,
   );
   const reviewWorktreeMetadata = $derived(
     reviewPackage?.worktreePath
@@ -296,24 +288,10 @@
   const doneActionClass =
     primaryActionClass +
     " border-green/30 bg-green/10 text-green hover:bg-green/15 focus-visible:ring-1 focus-visible:ring-green/50";
-  const reviewActionClass =
-    "inline-flex h-7 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md border px-2 text-[11px] font-semibold shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] transition-colors focus-visible:outline-none disabled:cursor-wait disabled:opacity-60";
-  const reviewAgentActionClass =
-    reviewActionClass +
-    " border-accent-dim/35 bg-accent-dim/15 text-accent hover:bg-accent-dim/25 focus-visible:ring-1 focus-visible:ring-accent-dim/60";
-  const reviewChangesActionClass =
-    reviewActionClass +
-    " border-amber/30 bg-amber/10 text-amber hover:bg-amber/15 focus-visible:ring-1 focus-visible:ring-amber/50";
-  const reviewDoneActionClass =
-    reviewActionClass +
-    " border-green/30 bg-green/10 text-green hover:bg-green/15 focus-visible:ring-1 focus-visible:ring-green/50";
 
   let menuOpen = $state(false);
   let menuX = $state(0);
   let menuY = $state(0);
-  let requestChangesOpen = $state(false);
-  let requestChangesNote = $state("");
-
   function openMenuAt(clientX: number, clientY: number): void {
     if (!hasMenuActions) return;
     menuX = Math.max(8, clientX);
@@ -359,11 +337,6 @@
     onStart?.(item.id, item, { forceStart: true });
   }
 
-  function handleFixCi(): void {
-    menuOpen = false;
-    onStart?.(item.id, item, { fixCi: true });
-  }
-
   function handleDelete(): void {
     menuOpen = false;
     onDelete?.(item.id, item);
@@ -372,11 +345,6 @@
   function handleArchive(): void {
     menuOpen = false;
     onArchive?.(item.id, item);
-  }
-
-  function handleAcceptReview(): void {
-    menuOpen = false;
-    onAcceptReview?.(item.id, item);
   }
 
   function handleOpenWorktree(): void {
@@ -397,29 +365,6 @@
     const sessionId = reviewSessionId ?? (openTarget?.kind === "review" ? openTarget.sessionId : null);
     if (!sessionId) return;
     onOpen?.(sessionId);
-  }
-
-  function handleOpenReviewAgent(): void {
-    menuOpen = false;
-    if (!reviewPackage) return;
-    void onOpenAgent?.(item, reviewPackage);
-  }
-
-  function handleRequestChangesOpen(): void {
-    menuOpen = false;
-    requestChangesOpen = true;
-  }
-
-  async function handleSubmitRequestChanges(): Promise<void> {
-    const note = requestChangesNote.trim();
-    if (!note || requestChangesPending) return;
-    try {
-      await onRequestChanges?.(item.id, item, note);
-      requestChangesNote = "";
-      requestChangesOpen = false;
-    } catch {
-      // Parent surfaces the error on the card; keep the note editable.
-    }
   }
 
   function handleAttentionOpen(event: MouseEvent): void {
@@ -453,7 +398,6 @@
   function handleWindowKeydown(event: KeyboardEvent): void {
     if (event.key === "Escape") {
       menuOpen = false;
-      requestChangesOpen = false;
     }
   }
 </script>
@@ -723,7 +667,7 @@
             <span class="truncate">{reviewCiChip.label}</span>
           </span>
         {/if}
-        {#if reviewSessionId && onOpen}
+        {#if effectiveReviewSessionId && onOpen}
           <span class="text-text-subtle">Session</span>
           <button
             type="button"
@@ -731,7 +675,7 @@
             aria-label="Open terminal"
             onclick={handleOpenReviewTerminal}
           >
-            {reviewSessionId}
+            {effectiveReviewSessionId}
           </button>
         {/if}
         {#if reviewPackage.prUrl}
@@ -752,121 +696,18 @@
     <p class="text-[11px] leading-snug text-red" role="alert">{startError}</p>
   {/if}
 
-  {#if requestChangesOpen && onRequestChanges && item.status === "review"}
-    <form
-      class="flex flex-col gap-1.5 border-t border-border-subtle/55 pt-1.5"
-      onsubmit={(event) => {
-        event.preventDefault();
-        void handleSubmitRequestChanges();
-      }}
-      data-testid="work-item-request-changes-form"
-    >
-      <textarea
-        class="min-h-16 w-full resize-y rounded-md border border-border-subtle bg-bg-deep/70 px-2 py-1.5 text-[11px] leading-4 text-text-primary placeholder:text-text-muted/60 focus:border-accent-dim focus:outline-none focus:ring-1 focus:ring-accent-dim/50"
-        placeholder="Requested changes"
-        bind:value={requestChangesNote}
-        disabled={requestChangesPending}
-      ></textarea>
-      <div class="flex items-center justify-end gap-1">
-        <button
-          type="button"
-          class="inline-flex h-6 items-center rounded-md px-2 text-[10px] text-text-muted transition-colors hover:bg-bg-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-dim/50"
-          onclick={() => (requestChangesOpen = false)}
-          disabled={requestChangesPending}
-        >
-          Cancel
-        </button>
-        <button
-          type="submit"
-          class="inline-flex h-6 items-center rounded-md border border-amber/30 bg-amber/10 px-2 text-[10px] font-semibold text-amber transition-colors hover:bg-amber/15 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-amber/50 disabled:cursor-wait disabled:opacity-60"
-          disabled={requestChangesPending || !requestChangesNote.trim()}
-        >
-          {requestChangesPending ? "Requesting..." : "Request changes"}
-        </button>
-      </div>
-    </form>
-  {/if}
-
-  {#if item.status === "review"}
-    <div class="flex items-center gap-1.5 pt-0.5">
-      {#if canRunWorkflowStage}
-        <button
-          type="button"
-          class={accentActionClass}
-          onclick={handleRunStage}
-          aria-label="Run workflow stage"
-          aria-busy={stagePending}
-          disabled={stagePending}
-        >
-          <Play size={10} fill="currentColor" strokeWidth={2.2} />
-          <span class="truncate"
-            >{stagePending ? "Running..." : workflowStageActionText}</span
-          >
-        </button>
-      {/if}
-      {#if canFixCi}
-        <button
-          type="button"
-          class={reviewChangesActionClass}
-          onclick={handleFixCi}
-          aria-label="Fix CI"
-          aria-busy={startPending}
-          disabled={startPending}
-        >
-          <Wrench size={12} strokeWidth={2.2} />
-          <span class="truncate">{startPending ? "Starting..." : "Fix CI"}</span
-          >
-        </button>
-      {/if}
-      {#if canOpenReviewAgent}
-        <button
-          type="button"
-          class={reviewAgentActionClass}
-          onclick={handleOpenReviewAgent}
-          aria-label="Open agent"
-          aria-busy={openAgentPending}
-          disabled={openAgentPending}
-        >
-          <Bot size={12} strokeWidth={2.2} />
-          <span class="truncate"
-            >{openAgentPending ? "Opening..." : "Open agent"}</span
-          >
-        </button>
-      {/if}
-      {#if onRequestChanges}
-        <button
-          type="button"
-          class={reviewChangesActionClass}
-          onclick={handleRequestChangesOpen}
-          aria-label="Request changes"
-          aria-busy={requestChangesPending}
-          disabled={requestChangesPending}
-        >
-          <MessageSquareWarning size={12} strokeWidth={2.2} />
-          <span class="truncate"
-            >{requestChangesPending ? "Requesting..." : "Request changes"}</span
-          >
-        </button>
-      {/if}
-      {#if onAcceptReview}
-        <button
-          type="button"
-          class={reviewDoneActionClass}
-          onclick={handleAcceptReview}
-          aria-label="Accept work item review"
-          aria-busy={acceptPending}
-          disabled={acceptPending}
-        >
-          <Check size={12} strokeWidth={2.2} />
-          <span class="truncate"
-            >{acceptPending ? "Accepting..." : acceptReviewText}</span
-          >
-        </button>
-      {/if}
-    </div>
-  {:else}
-    <div class="flex items-center gap-1.5 pt-0.5">
-      {#if canRunWorkflowStage}
+  <div class="flex items-center gap-1.5 pt-0.5">
+    {#if item.status === "review" && onOpenReview}
+      <button
+        type="button"
+        class={doneActionClass}
+        onclick={() => onOpenReview?.(item.id)}
+        aria-label="Review work item"
+      >
+        <Check size={10} strokeWidth={2.2} />
+        <span class="truncate">Review</span>
+      </button>
+    {:else if canRunWorkflowStage}
         <button
           type="button"
           class={accentActionClass}
@@ -926,6 +767,15 @@
           <Terminal size={11} strokeWidth={2.2} />
           <span>Open planning terminal</span>
         </button>
+      {:else if (phase.action.kind === "approve-start" || phase.action.kind === "configure" || phase.action.kind === "start") && openTarget?.kind === "implementation" && onOpen}
+        <button
+          class={accentActionClass}
+          onclick={() => openTarget && onOpen?.(openTarget.sessionId, openTarget.ptyId ?? null)}
+          aria-label="Open terminal"
+        >
+          <Terminal size={11} strokeWidth={2.2} />
+          <span>Open terminal</span>
+        </button>
       {:else if (phase.action.kind === "approve-start" || phase.action.kind === "configure" || phase.action.kind === "start") && onStart}
         <button
           class={accentActionClass}
@@ -939,7 +789,6 @@
         </button>
       {/if}
     </div>
-  {/if}
 </div>
 
 {#if menuOpen}

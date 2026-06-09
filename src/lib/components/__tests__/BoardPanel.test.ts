@@ -475,6 +475,9 @@ describe("BoardPanel", () => {
     seedColumns([item]);
     render(BoardPanel, { visible: true, onclose: vi.fn() });
 
+    // Open the review modal
+    await fireEvent.click(screen.getByLabelText("Review work item"));
+
     expect(screen.getByText("Accept Local Review")).toBeTruthy();
     await fireEvent.click(screen.getByLabelText("Accept work item review"));
 
@@ -497,6 +500,9 @@ describe("BoardPanel", () => {
     });
     seedColumns([item]);
     render(BoardPanel, { visible: true, onclose: vi.fn() });
+
+    // Open the review modal
+    await fireEvent.click(screen.getByLabelText("Review work item"));
 
     await fireEvent.click(screen.getByRole("button", { name: "Fix CI" }));
 
@@ -577,11 +583,14 @@ describe("BoardPanel", () => {
     );
     expect(openWorkItemEditor).toHaveBeenCalledWith("wi-review");
     const reviewPackage = screen.getByTestId("work-item-review-package");
-    expect(screen.queryByText("Open worktree")).toBeNull();
-    expect(screen.queryByText("Open terminal")).toBeNull();
+    // Worktree and session links are still in the card info section
+    expect(within(reviewPackage).getByText("PR Review")).toBeTruthy();
+
+    // Open the review modal to access action buttons
+    await fireEvent.click(screen.getByLabelText("Review work item"));
+
     expect(screen.getByText("Open agent")).toBeTruthy();
     expect(screen.getByText("Request changes")).toBeTruthy();
-    expect(within(reviewPackage).getByText("PR Review")).toBeTruthy();
     expect(screen.getByText("Accept PR Review")).toBeTruthy();
 
     await fireEvent.click(
@@ -619,7 +628,7 @@ describe("BoardPanel", () => {
 
     await fireEvent.click(screen.getByText("Request changes"));
     const form = screen.getByTestId("work-item-request-changes-form");
-    await fireEvent.input(screen.getByPlaceholderText("Requested changes"), {
+    await fireEvent.input(screen.getByPlaceholderText("Describe the changes you're requesting..."), {
       target: { value: "Tighten the tests." },
     });
     await fireEvent.click(

@@ -60,6 +60,9 @@
   import WorkItemCard from "./WorkItemCard.svelte";
   import AddCardInput from "./AddCardInput.svelte";
   import WorkItemDeleteDialog from "./WorkItemDeleteDialog.svelte";
+  import WorkItemReviewModal from "./WorkItemReviewModal.svelte";
+  import { reviewStageLabel } from "$lib/workItems/reviewStages";
+  import { workflowStage, workflowStageActionLabel } from "$lib/workItems/workflow";
 
   interface Props {
     visible: boolean;
@@ -80,11 +83,51 @@
   let deleteTarget = $state<WorkItem | null>(null);
   let deleting = $state(false);
   let deleteError = $state<string | null>(null);
+  let reviewModalItemId = $state<string | null>(null);
 
   const sessionStatusMap = derived(sessionList, ($sessions) => {
     const m = new Map<string, SessionStatus>();
     for (const s of $sessions) m.set(s.id, s.status);
     return m;
+  });
+
+  const reviewModalData = $derived.by(() => {
+    const itemId = reviewModalItemId;
+    if (!itemId) return null;
+    const items = get(itemsByColumn);
+    let item: WorkItem | null = null;
+    for (const colItems of items.values()) {
+      const found = colItems.find((i) => i.id === itemId);
+      if (found) { item = found; break; }
+    }
+    if (!item || item.status !== "review") return null;
+    const kanban = get(settings).kanban;
+    const itemRuns = (get(runsByItem).get(item!.id) ?? []);
+    const itemAttachments = (get(attachmentsByWorkItem).get(item!.id) ?? []);
+    const events = get(workItemRunEvents);
+    const rp = buildWorkItemReviewPackage(item, itemRuns, itemAttachments, events);
+    const target = resolveWorkItemOpenTarget(item, itemRuns, rp);
+    const stageName = reviewStageLabel(item.reviewStageId, kanban);
+    const stage = workflowStage(kanban, item.workflowStageId);
+    const stageActionText = workflowStageActionLabel(item.workflowStageId, kanban) ?? stageName ?? "Run";
+    const wsActionLabel = stage?.actionLabel;
+    const canRunStage = !!item.workflowStageId;
+    const canFixCi = item.status === "review" &&
+      item.reviewStageId === "pr_review" && !!item.pinnedPrUrl;
+    const canOpenAgent = !!rp.worktreePath;
+    const canOpenWt = !!rp.worktreePath;
+    return {
+      item,
+      reviewPackage: rp,
+      openTarget: target,
+      reviewStageName: stageName,
+      acceptReviewText: stageName ? `Accept ${stageName}` : "Accept done",
+      workflowStageActionText: wsActionLabel ?? stageActionText,
+      canRunWorkflowStage: canRunStage,
+      canFixCi,
+      canOpenReviewAgent: canOpenAgent,
+      canOpenReviewWorktree: canOpenWt,
+    };
   });
 
   function withoutKey<T>(
@@ -315,6 +358,14 @@
     }
   }
 
+  function handleOpenReview(itemId: string) {
+    reviewModalItemId = itemId;
+  }
+
+  function handleCloseReview() {
+    reviewModalItemId = null;
+  }
+
   async function handleOpen(sessionId: string, ptyId?: string | null) {
     const result = ptyId
       ? await openSessionById(sessionId, { ptyId })
@@ -461,6 +512,7 @@
                 onRequestChanges={handleRequestChanges}
                 onOpenWorktree={handleOpenWorktree}
                 onOpenAgent={handleOpenAgent}
+                onOpenReview={handleOpenReview}
                 startPending={!!startingItemIds[item.id]}
                 planPending={!!planningItemIds[item.id]}
                 stagePending={!!runningStageItemIds[item.id]}
@@ -496,3 +548,35 @@
   }}
   onConfirm={confirmDelete}
 />
+
+{#if reviewModalData}
+  <WorkItemReviewModal
+    item={reviewModalData.item}
+    reviewPackage={reviewModalData.reviewPackage}
+    openTarget={reviewModalData.openTarget}
+    reviewStageName={reviewModalData.reviewStageName}
+    acceptReviewText={reviewModalData.acceptReviewText}
+    open={true}
+    onAccept={handleAcceptReview}
+    onRequestChanges={handleRequestChanges}
+    onOpenSession={handleOpen}
+    onOpenAgent={handleOpenAgent}
+    onOpenWorktree={handleOpenWorktree}
+    onRunStage={handleRunStage}
+    onFixCi={(id, item) => handleStart(id, item, { fixCi: true })}
+    onClose={handleCloseReview}
+    error={startErrors[reviewModalItemId ?? ""] ??
+      reviewModalData.item.startError ??
+      null}
+    acceptPending={!!acceptingItemIds[reviewModalItemId ?? ""]}
+    requestChangesPending={!!requestingChangesItemIds[reviewModalItemId ?? ""]}
+    stagePending={!!runningStageItemIds[reviewModalItemId ?? ""]}
+    startPending={!!startingItemIds[reviewModalItemId ?? ""]}
+    openAgentPending={!!openingAgentItemIds[reviewModalItemId ?? ""]}
+    canRunWorkflowStage={reviewModalData.canRunWorkflowStage}
+    canFixCi={reviewModalData.canFixCi}
+    canOpenReviewAgent={reviewModalData.canOpenReviewAgent}
+    canOpenReviewWorktree={reviewModalData.canOpenReviewWorktree}
+    workflowStageActionText={reviewModalData.workflowStageActionText}
+  />
+{/if}
