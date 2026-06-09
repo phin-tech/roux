@@ -4050,7 +4050,7 @@ dependencies = [
 
 [[package]]
 name = "roux-cli"
-version = "0.5.3"
+version = "0.5.4-pre.31"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -4089,7 +4089,7 @@ dependencies = [
 
 [[package]]
 name = "roux-desktop"
-version = "0.5.3"
+version = "0.5.4-pre.31"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
