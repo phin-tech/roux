@@ -1390,6 +1390,12 @@ export type RouxSettings = {
 	 *  processes and render a local URL in the app chrome.
 	 */
 	externalTools?: ExternalTool[],
+	/**
+	 *  External tool id to launch when the user clicks "View diff" in the
+	 *  work-item review modal. Must reference an enabled tool in
+	 *  `external_tools`. `None` disables the button.
+	 */
+	reviewDiffToolId?: string | null,
 	kanban?: KanbanSettings,
 	// Runtime feature flags. See `ExperimentsConfig`.
 	experiments?: ExperimentsConfig,

@@ -125,11 +125,24 @@
         startupExternalToolId === null
           ? "restore"
           : current.startupTarget;
+      const renamedReviewDiffToolId =
+        startupToolRename &&
+        current.reviewDiffToolId === startupToolRename.previousId
+          ? startupToolRename.nextId
+          : (current.reviewDiffToolId ?? null);
+      const reviewDiffToolId =
+        renamedReviewDiffToolId &&
+        tools.some(
+          (tool) => tool.id === renamedReviewDiffToolId && tool.enabled !== false,
+        )
+          ? renamedReviewDiffToolId
+          : null;
       return {
         ...current,
         externalTools: tools,
         startupExternalToolId,
         startupTarget,
+        reviewDiffToolId,
       };
     });
   }
@@ -239,6 +252,38 @@
         class="rounded border border-border bg-bg-elevated px-2 py-1 text-[11px] text-text-secondary hover:bg-bg-hover"
         onclick={() => addExternalTool("web")}>Add Web</button
       >
+    </div>
+  </div>
+
+  <!-- Review diff viewer selector -->
+  <div class="mt-3 rounded border border-border-subtle bg-bg-deep/60 p-2.5">
+    <div class="flex items-center gap-3">
+      <label class="text-[12px] font-medium text-text-primary shrink-0" for="review-diff-tool">
+        Review diff viewer
+      </label>
+      <select
+        id="review-diff-tool"
+        class="ml-auto min-w-0 max-w-[200px] rounded border border-border-subtle bg-bg-deep px-2 py-1 text-[11px] text-text-primary focus:border-accent-dim focus:outline-none focus:ring-1 focus:ring-accent-dim/50"
+        value={$settings.reviewDiffToolId ?? ""}
+        onchange={(e) => {
+          const val = (e.currentTarget as HTMLSelectElement).value;
+          updateSettingsDraft((s) => ({
+            ...s,
+            reviewDiffToolId: val || null,
+          }));
+        }}
+      >
+        <option value="">None</option>
+        {#each externalTools().filter((t) => t.enabled !== false) as tool}
+          <option value={tool.id}>{tool.name}</option>
+        {/each}
+      </select>
+    </div>
+    <div class="mt-1.5 text-[10px] text-text-muted leading-4">
+      Tool launched by "View diff" in the work-item review modal. The tool's command
+      template may use <code class="font-mono">{"{{ review.base }}"}</code> and
+      <code class="font-mono">{"{{ review.changed_files }}"}</code> in addition to
+      all session variables.
     </div>
   </div>
 

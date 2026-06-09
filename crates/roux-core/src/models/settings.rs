@@ -1111,6 +1111,11 @@ pub struct RouxSettings {
     /// processes and render a local URL in the app chrome.
     #[serde(default = "default_external_tools")]
     pub external_tools: Vec<ExternalTool>,
+    /// External tool id to launch when the user clicks "View diff" in the
+    /// work-item review modal. Must reference an enabled tool in
+    /// `external_tools`. `None` disables the button.
+    #[serde(default)]
+    pub review_diff_tool_id: Option<String>,
     #[serde(default)]
     pub kanban: KanbanSettings,
     /// Runtime feature flags. See `ExperimentsConfig`.
@@ -1184,6 +1189,7 @@ impl Default for RouxSettings {
             mcp_last_configured_host: None,
             mcp_last_configured_at_ms: None,
             external_tools: default_external_tools(),
+            review_diff_tool_id: None,
             kanban: KanbanSettings::default(),
             experiments: ExperimentsConfig::default(),
         }
@@ -1264,6 +1270,10 @@ impl RouxSettings {
         if s.startup_target == StartupTarget::ExternalTool && s.startup_external_tool_id.is_none() {
             s.startup_target = StartupTarget::Restore;
         }
+        s.review_diff_tool_id =
+            s.review_diff_tool_id.as_ref().map(|id| id.trim().to_string()).filter(|id| {
+                !id.is_empty() && s.external_tools.iter().any(|tool| tool.id == *id && tool.enabled)
+            });
         s.kanban.startup_sidebar = match s.startup_target {
             StartupTarget::Restore | StartupTarget::LastSession | StartupTarget::ExternalTool => {
                 KanbanStartupSidebar::Restore

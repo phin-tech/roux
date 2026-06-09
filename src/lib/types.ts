@@ -140,7 +140,21 @@ export const DEFAULT_SETTINGS: RouxSettings = {
   mcpEnabled: false,
   mcpLastConfiguredHost: null,
   mcpLastConfiguredAtMs: null,
+  reviewDiffToolId: null,
   externalTools: [
+    {
+      id: "plannotator",
+      name: "Plannotator",
+      enabled: true,
+      surface: "terminal",
+      commandTemplate: "plannotator review --git",
+      cwdTemplate: "{{ session.worktree_path }}",
+      requiresSession: true,
+      urlTemplate: null,
+      preferredPort: null,
+      webEmbedder: "webview",
+      keepWebviewAlive: false,
+    },
     {
       id: "lazygit",
       name: "Lazygit",

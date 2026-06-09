@@ -59,15 +59,71 @@
   import { defaultAgentProfileId } from "$lib/panes/defaultAgent";
   import { reviewAgentProfileId } from "$lib/workItems/workflow";
   import { hasWorkItemDragData, readWorkItemDragData } from "$lib/board/drag";
+  import { launchReviewDiff } from "$lib/externalTools/reviewDiff";
   import WorkItemCard from "./WorkItemCard.svelte";
   import AddCardInput from "./AddCardInput.svelte";
   import WorkItemDeleteDialog from "./WorkItemDeleteDialog.svelte";
+  import WorkItemReviewModal from "./WorkItemReviewModal.svelte";
+  import { reviewStageLabel } from "$lib/workItems/reviewStages";
+  import { workflowStage, workflowStageActionLabel } from "$lib/workItems/workflow";
 
   const sessionStatusMap = derived(sessionList, ($sessions) => {
     const m = new Map<string, SessionStatus>();
     for (const s of $sessions) m.set(s.id, s.status);
     return m;
   });
+
+  const reviewModalData = $derived.by(() => {
+    const itemId = reviewModalItemId;
+    if (!itemId) return null;
+    const items = get(itemsByColumn);
+    let item: WorkItem | null = null;
+    for (const colItems of items.values()) {
+      const found = colItems.find((i) => i.id === itemId);
+      if (found) { item = found; break; }
+    }
+    if (!item || item.status !== "review") return null;
+    const kanban = get(settings).kanban;
+    const itemRuns = (get(runsByItem).get(item!.id) ?? []);
+    const itemAttachments = (get(attachmentsByWorkItem).get(item!.id) ?? []);
+    const events = get(workItemRunEvents);
+    const rp = buildWorkItemReviewPackage(item, itemRuns, itemAttachments, events);
+    const target = resolveWorkItemOpenTarget(item, itemRuns, rp);
+    const stageName = reviewStageLabel(item.reviewStageId, kanban);
+    const stage = workflowStage(kanban, item.workflowStageId);
+    const stageActionText = workflowStageActionLabel(item.workflowStageId, kanban) ?? stageName ?? "Run";
+    const wsActionLabel = stage?.actionLabel;
+    const canRunStage = !!item.workflowStageId;
+    const canFixCi = item.status === "review" &&
+      item.reviewStageId === "pr_review" && !!item.pinnedPrUrl;
+    const canOpenAgent = !!rp.worktreePath;
+    const canOpenWt = !!rp.worktreePath;
+    const reviewSessionId = target?.sessionId ?? rp.sessionId ?? null;
+    const canViewDiff =
+      !!get(settings).reviewDiffToolId && !!reviewSessionId;
+    return {
+      item,
+      reviewPackage: rp,
+      openTarget: target,
+      reviewStageName: stageName,
+      acceptReviewText: stageName ? `Accept ${stageName}` : "Accept done",
+      workflowStageActionText: wsActionLabel ?? stageActionText,
+      canRunWorkflowStage: canRunStage,
+      canFixCi,
+      canOpenReviewAgent: canOpenAgent,
+      canOpenReviewWorktree: canOpenWt,
+      canViewDiff,
+      reviewSessionId,
+    };
+  });
+
+  function handleOpenReview(itemId: string) {
+    reviewModalItemId = itemId;
+  }
+
+  function handleCloseReview() {
+    reviewModalItemId = null;
+  }
 
   // Column currently under a valid drag, for the drop-target highlight.
   let dragOverColumn = $state<WorkItemStatus | null>(null);
@@ -77,6 +133,7 @@
   let acceptingItemIds = $state<Record<string, boolean>>({});
   let requestingChangesItemIds = $state<Record<string, boolean>>({});
   let openingAgentItemIds = $state<Record<string, boolean>>({});
+  let viewDiffItemIds = $state<Record<string, boolean>>({});
   let archivingItemIds = $state<Record<string, boolean>>({});
   let restoringItemIds = $state<Record<string, boolean>>({});
   let startErrors = $state<Record<string, string>>({});
@@ -85,6 +142,7 @@
   let deleteTarget = $state<WorkItem | null>(null);
   let deleting = $state(false);
   let deleteError = $state<string | null>(null);
+  let reviewModalItemId = $state<string | null>(null);
 
   async function handleMove(id: string, status: WorkItemStatus) {
     await moveWorkItem(id, status, Date.now());
@@ -257,6 +315,25 @@
       await openPathInFinder(path);
     } catch (err) {
       console.error("Failed to open work item worktree", err);
+    }
+  }
+
+  async function handleViewDiff(item: WorkItem) {
+    if (!reviewModalData || viewDiffItemIds[item.id]) return;
+    const toolId = get(settings).reviewDiffToolId;
+    const sessionId = reviewModalData.reviewSessionId;
+    if (!toolId || !sessionId) return;
+    viewDiffItemIds = { ...viewDiffItemIds, [item.id]: true };
+    startErrors = withoutKey(startErrors, item.id);
+    try {
+      await launchReviewDiff(toolId, sessionId, reviewModalData.reviewPackage);
+    } catch (err) {
+      startErrors = {
+        ...startErrors,
+        [item.id]: err instanceof Error ? err.message : String(err),
+      };
+    } finally {
+      viewDiffItemIds = withoutKey(viewDiffItemIds, item.id);
     }
   }
 
@@ -515,6 +592,7 @@
                 onRequestChanges={handleRequestChanges}
                 onOpenWorktree={handleOpenWorktree}
                 onOpenAgent={handleOpenAgent}
+                onOpenReview={handleOpenReview}
                 startPending={!!startingItemIds[item.id]}
                 planPending={!!planningItemIds[item.id]}
                 stagePending={!!runningStageItemIds[item.id]}
@@ -597,3 +675,38 @@
   }}
   onConfirm={confirmDelete}
 />
+
+{#if reviewModalData}
+  <WorkItemReviewModal
+    item={reviewModalData.item}
+    reviewPackage={reviewModalData.reviewPackage}
+    openTarget={reviewModalData.openTarget}
+    reviewStageName={reviewModalData.reviewStageName}
+    acceptReviewText={reviewModalData.acceptReviewText}
+    open={true}
+    onAccept={handleAcceptReview}
+    onRequestChanges={handleRequestChanges}
+    onOpenSession={handleOpen}
+    onOpenAgent={handleOpenAgent}
+    onOpenWorktree={handleOpenWorktree}
+    onRunStage={handleRunStage}
+    onFixCi={(id, item) => handleStart(id, item, { fixCi: true })}
+    onClose={handleCloseReview}
+    error={startErrors[reviewModalItemId ?? ""] ??
+      reviewModalData.item.startError ??
+      null}
+    acceptPending={!!acceptingItemIds[reviewModalItemId ?? ""]}
+    requestChangesPending={!!requestingChangesItemIds[reviewModalItemId ?? ""]}
+    stagePending={!!runningStageItemIds[reviewModalItemId ?? ""]}
+    startPending={!!startingItemIds[reviewModalItemId ?? ""]}
+    openAgentPending={!!openingAgentItemIds[reviewModalItemId ?? ""]}
+    viewDiffPending={!!viewDiffItemIds[reviewModalItemId ?? ""]}
+    canRunWorkflowStage={reviewModalData.canRunWorkflowStage}
+    canFixCi={reviewModalData.canFixCi}
+    canOpenReviewAgent={reviewModalData.canOpenReviewAgent}
+    canOpenReviewWorktree={reviewModalData.canOpenReviewWorktree}
+    canViewDiff={reviewModalData.canViewDiff}
+    onViewDiff={handleViewDiff}
+    workflowStageActionText={reviewModalData.workflowStageActionText}
+  />
+{/if}

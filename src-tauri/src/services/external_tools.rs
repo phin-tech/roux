@@ -1,6 +1,6 @@
 use minijinja::{AutoEscape, Environment, UndefinedBehavior};
 use roux_core::{providers::shell_quote, ExternalTool, ExternalToolSurface, Session};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::net::TcpListener;
 use std::path::PathBuf;
@@ -17,6 +17,17 @@ pub(crate) enum ExternalToolError {
     Port(String),
 }
 
+/// Review-scoped context passed to the minijinja renderer when a tool is
+/// launched from the work-item review modal. Always present in the context
+/// (with empty defaults when `None`) so templates can safely reference
+/// `review.*` without triggering `UndefinedBehavior::Strict` errors.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ReviewContext {
+    pub(crate) base: Option<String>,
+    pub(crate) changed_files: Vec<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct RenderedExternalTool {
@@ -29,6 +40,7 @@ pub(crate) struct RenderedExternalTool {
 pub(crate) fn render_external_tool(
     tool: &ExternalTool,
     session: Option<&Session>,
+    review: Option<&ReviewContext>,
     port: Option<u16>,
 ) -> Result<RenderedExternalTool, ExternalToolError> {
     if tool.requires_session && session.is_none() {
@@ -40,7 +52,7 @@ pub(crate) fn render_external_tool(
         return Err(ExternalToolError::MissingUrlTemplate(tool.name.clone()));
     }
 
-    let context = render_context(tool, session, port);
+    let context = render_context(tool, session, review, port);
     let command = render_template("command", &tool.command_template, &context)?;
     let cwd = render_template("cwd", &tool.cwd_template, &context)?;
     let cwd = if cwd.trim().is_empty() { default_cwd() } else { cwd };
@@ -93,8 +105,15 @@ fn shell_quote_filter(value: String) -> String {
     shell_quote(&value)
 }
 
-fn render_context(tool: &ExternalTool, session: Option<&Session>, port: Option<u16>) -> Value {
+fn render_context(
+    tool: &ExternalTool,
+    session: Option<&Session>,
+    review: Option<&ReviewContext>,
+    port: Option<u16>,
+) -> Value {
     let session_value = session.map(session_ctx).unwrap_or(Value::Null);
+    let default_review = ReviewContext::default();
+    let r = review.unwrap_or(&default_review);
     json!({
         "tool": {
             "id": tool.id,
@@ -108,6 +127,10 @@ fn render_context(tool: &ExternalTool, session: Option<&Session>, port: Option<u
         "port": port,
         "paths": {
             "home": home_dir_string(),
+        },
+        "review": {
+            "base": r.base,
+            "changed_files": r.changed_files,
         },
     })
 }
@@ -201,7 +224,7 @@ mod tests {
             keep_webview_alive: false,
         };
 
-        let rendered = render_external_tool(&tool, Some(&session()), Some(4999)).unwrap();
+        let rendered = render_external_tool(&tool, Some(&session()), None, Some(4999)).unwrap();
 
         assert_eq!(rendered.command, "serve '/repo/work trees/feat' --port 4999");
         assert_eq!(rendered.cwd, "/repo/work trees/feat");
@@ -224,7 +247,7 @@ mod tests {
             keep_webview_alive: false,
         };
 
-        let err = render_external_tool(&tool, None, None).unwrap_err();
+        let err = render_external_tool(&tool, None, None, None).unwrap_err();
         assert!(err.to_string().contains("requires an active session"));
     }
 
@@ -244,7 +267,7 @@ mod tests {
             keep_webview_alive: false,
         };
 
-        let err = render_external_tool(&tool, None, Some(4966)).unwrap_err();
+        let err = render_external_tool(&tool, None, None, Some(4966)).unwrap_err();
         assert!(err.to_string().contains("url template"));
     }
 
@@ -264,7 +287,7 @@ mod tests {
             keep_webview_alive: false,
         };
 
-        let err = render_external_tool(&tool, None, Some(4966)).unwrap_err();
+        let err = render_external_tool(&tool, None, None, Some(4966)).unwrap_err();
         assert!(err.to_string().contains("url template"));
     }
 

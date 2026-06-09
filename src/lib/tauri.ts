@@ -109,6 +109,11 @@ export interface RenderedExternalTool {
   port: number | null;
 }
 
+export interface ReviewContext {
+  base: string | null;
+  changedFiles: string[];
+}
+
 export interface ExternalToolLaunchResult {
   toolId: string;
   surface: ExternalToolSurface;
@@ -170,11 +175,13 @@ export async function launchExternalTool(
   toolId: string,
   sessionId?: string | null,
   initialSize?: InitialPtySize | null,
+  review?: ReviewContext | null,
 ): Promise<ExternalToolLaunchResult> {
   return invoke("launch_external_tool", {
     toolId,
     sessionId: sessionId ?? null,
     initialSize: initialSize ? [initialSize.cols, initialSize.rows] : null,
+    review: review ?? null,
   });
 }
 

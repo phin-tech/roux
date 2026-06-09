@@ -12,6 +12,7 @@ import {
   type ExternalToolLaunchResult,
   type ProcessSnapshot,
   type RenderedExternalTool,
+  type ReviewContext,
 } from "$lib/tauri";
 import { activeSession, sessionList } from "$lib/stores/sessions";
 import { settings } from "$lib/stores/settings";
@@ -37,6 +38,7 @@ export interface ExternalToolRun {
   webEmbedder: ExternalToolWebEmbedder;
   keepWebviewAlive: boolean;
   sessionId: string | null;
+  review: ReviewContext | null;
   runtimeId: string | null;
   runtimeGeneration: number | null;
   rendered: RenderedExternalTool | null;
@@ -81,7 +83,17 @@ export function listEnabledExternalTools(): ExternalTool[] {
 export async function openExternalTool(toolId: string): Promise<void> {
   const tool = findTool(toolId);
   const boundSessionId = resolveBoundSessionId(tool);
-  const runId = externalToolRunId(tool.id, boundSessionId);
+  await openExternalToolForSession(toolId, boundSessionId, null, tool);
+}
+
+export async function openExternalToolForSession(
+  toolId: string,
+  sessionId: string | null,
+  review?: ReviewContext | null,
+  _tool?: ExternalTool,
+): Promise<void> {
+  const tool = _tool ?? findTool(toolId);
+  const runId = externalToolRunId(tool.id, sessionId);
   const existing = get(externalToolRuns).get(runId);
   if (existing && externalToolRunIsLive(existing)) {
     openMainView({ kind: "externalTool", runId });
@@ -93,7 +105,7 @@ export async function openExternalTool(toolId: string): Promise<void> {
     if (!externalToolRelaunchCleanupIsCurrent(runId, relaunchToken)) return;
     finishExternalToolRelaunchCleanup(runId, relaunchToken);
   }
-  await launchRun(tool, boundSessionId, existing?.id);
+  await launchRun(tool, sessionId, review ?? null, existing?.id);
 }
 
 export async function restartExternalToolRun(runId: string): Promise<void> {
@@ -110,7 +122,7 @@ export async function restartExternalToolRun(runId: string): Promise<void> {
     closeExternalToolView(runId);
     cancelExternalToolLaunch(runId);
   }
-  await launchRun(tool, run.sessionId, runId);
+  await launchRun(tool, run.sessionId, run.review, runId);
 }
 
 function markExternalToolRelaunching(runId: string): number {
@@ -269,6 +281,7 @@ export function externalToolRunIsLive(run: ExternalToolRun): boolean {
 async function launchRun(
   tool: ExternalTool,
   sessionId: string | null,
+  review: ReviewContext | null,
   existingRunId?: string,
 ): Promise<void> {
   const runId = existingRunId ?? externalToolRunId(tool.id, sessionId);
@@ -282,6 +295,7 @@ async function launchRun(
     webEmbedder: externalToolWebEmbedder(tool),
     keepWebviewAlive: externalToolKeepsWebviewAlive(tool),
     sessionId,
+    review,
     runtimeId: null,
     runtimeGeneration: null,
     rendered: null,
@@ -294,7 +308,7 @@ async function launchRun(
   openMainView({ kind: "externalTool", runId });
 
   try {
-    const result = await launchExternalTool(tool.id, sessionId);
+    const result = await launchExternalTool(tool.id, sessionId, null, review);
     if (!externalToolLaunchIsCurrent(runId, launchToken)) {
       await killLaunchResultRuntime(result);
       return;

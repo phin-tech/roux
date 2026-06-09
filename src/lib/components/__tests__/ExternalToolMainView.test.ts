@@ -70,6 +70,7 @@ function makeWebErrorRun(): ExternalToolRun {
     webEmbedder: "webview",
     keepWebviewAlive: false,
     sessionId: null,
+    review: null,
     runtimeId: "process-1",
     runtimeGeneration: null,
     rendered: {

@@ -822,6 +822,9 @@ describe("BoardMainView", () => {
     ]);
     render(BoardMainView);
 
+    // Open the review modal
+    await fireEvent.click(screen.getByLabelText("Review work item"));
+
     expect(screen.getByText("Accept Local Review")).toBeTruthy();
     await fireEvent.click(screen.getByLabelText("Accept work item review"));
 
@@ -845,6 +848,9 @@ describe("BoardMainView", () => {
       }),
     ]);
     render(BoardMainView);
+
+    // Open the review modal
+    await fireEvent.click(screen.getByLabelText("Review work item"));
 
     await fireEvent.click(screen.getByRole("button", { name: "Fix CI" }));
 
@@ -937,8 +943,10 @@ describe("BoardMainView", () => {
     expect(within(reviewPackage).getByText("npm run test")).toBeTruthy();
     expect(within(reviewPackage).getByText("feature/review-card")).toBeTruthy();
     expect(within(reviewPackage).getByText("PR Review")).toBeTruthy();
-    expect(screen.queryByText("Open worktree")).toBeNull();
-    expect(screen.queryByText("Open terminal")).toBeNull();
+
+    // Open the review modal to access action buttons
+    await fireEvent.click(screen.getByLabelText("Review work item"));
+
     expect(screen.getByText("Open agent")).toBeTruthy();
     expect(screen.getByText("Request changes")).toBeTruthy();
     expect(screen.getByText("Accept PR Review")).toBeTruthy();
@@ -975,11 +983,10 @@ describe("BoardMainView", () => {
     expect(connectPaneTerminal).toHaveBeenCalledWith("review-agent-session");
     expect(runProfileInPane).toHaveBeenCalled();
     expect(setActiveSession).toHaveBeenCalledWith("review-agent-session");
-    expect(closeMainView).toHaveBeenCalled();
 
     await fireEvent.click(screen.getByText("Request changes"));
     const form = screen.getByTestId("work-item-request-changes-form");
-    await fireEvent.input(screen.getByPlaceholderText("Requested changes"), {
+    await fireEvent.input(screen.getByPlaceholderText("Describe the changes you're requesting..."), {
       target: { value: "Add retry coverage." },
     });
     await fireEvent.click(
@@ -1062,25 +1069,27 @@ describe("BoardMainView", () => {
     );
     render(BoardMainView);
 
+    // Open the review modal
+    await fireEvent.click(screen.getByLabelText("Review work item"));
+
     await fireEvent.click(screen.getByText("Request changes"));
     const form = screen.getByTestId("work-item-request-changes-form");
-    await fireEvent.input(screen.getByPlaceholderText("Requested changes"), {
+    await fireEvent.input(screen.getByPlaceholderText("Describe the changes you're requesting..."), {
       target: { value: "Keep this note." },
     });
     await fireEvent.click(
       within(form).getByRole("button", { name: "Request changes" }),
     );
 
-    await vi.waitFor(() =>
-      expect(screen.getByRole("alert").textContent).toContain(
-        "Failed to request changes.",
-      ),
-    );
+    await vi.waitFor(() => {
+      const alerts = screen.getAllByRole("alert");
+      expect(alerts.some((el) => el.textContent?.includes("Failed to request changes."))).toBe(true);
+    });
     expect(screen.getByTestId("work-item-request-changes-form")).toBeTruthy();
     expect(screen.getByDisplayValue("Keep this note.")).toBeTruthy();
   });
 
-  it("hides the request-changes form when a card leaves review", async () => {
+  it("closes the request-changes form when the review modal is dismissed", async () => {
     seedColumns([
       workItem({
         id: "wi-review",
@@ -1090,20 +1099,17 @@ describe("BoardMainView", () => {
     ]);
     render(BoardMainView);
 
+    // Open the review modal
+    await fireEvent.click(screen.getByLabelText("Review work item"));
+
     await fireEvent.click(screen.getByText("Request changes"));
     expect(screen.getByTestId("work-item-request-changes-form")).toBeTruthy();
 
-    seedColumns([
-      workItem({
-        id: "wi-review",
-        title: "Review me",
-        status: "doing",
-      }),
-    ]);
+    // Close the modal via the X button
+    await fireEvent.click(screen.getByLabelText("Close review"));
 
-    await vi.waitFor(() =>
-      expect(screen.queryByTestId("work-item-request-changes-form")).toBeNull(),
-    );
+    expect(screen.queryByTestId("work-item-request-changes-form")).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Review work item" })).toBeNull();
   });
 
   it("shows Open planning terminal for an active planning run", async () => {

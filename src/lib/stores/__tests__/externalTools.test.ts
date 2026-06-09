@@ -55,6 +55,7 @@ function runWithStatus(status: ExternalToolRunStatus): ExternalToolRun {
     webEmbedder: "webview",
     keepWebviewAlive: false,
     sessionId: "session-1",
+    review: null,
     runtimeId: "pty-1",
     runtimeGeneration: 1,
     rendered: null,

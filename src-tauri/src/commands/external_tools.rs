@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use crate::services::external_tools::{
-    allocate_localhost_port, render_external_tool, RenderedExternalTool,
+    allocate_localhost_port, render_external_tool, RenderedExternalTool, ReviewContext,
 };
 use crate::state::AppState;
 use roux_core::{ExternalTool, ExternalToolSurface, Session};
@@ -35,7 +35,7 @@ pub(crate) async fn preview_external_tool(
     let tool = find_tool(&settings.external_tools, &tool_id)?;
     let session = resolve_session(&state, session_id.as_deref()).await?;
     let render_port = preview_render_port(&tool, port);
-    render_external_tool(&tool, session.as_ref(), render_port).map_err(|err| err.to_string())
+    render_external_tool(&tool, session.as_ref(), None, render_port).map_err(|err| err.to_string())
 }
 
 #[tauri::command]
@@ -47,7 +47,7 @@ pub(crate) async fn preview_external_tool_config(
 ) -> Result<RenderedExternalTool, String> {
     let session = resolve_session(&state, session_id.as_deref()).await?;
     let render_port = preview_render_port(&tool, port);
-    render_external_tool(&tool, session.as_ref(), render_port).map_err(|err| err.to_string())
+    render_external_tool(&tool, session.as_ref(), None, render_port).map_err(|err| err.to_string())
 }
 
 #[tauri::command]
@@ -55,6 +55,7 @@ pub(crate) async fn launch_external_tool(
     tool_id: String,
     session_id: Option<String>,
     initial_size: Option<(u16, u16)>,
+    review: Option<ReviewContext>,
     state: tauri::State<'_, AppState>,
 ) -> Result<ExternalToolLaunchResult, String> {
     let settings = state.settings.lock().map_err(|e| e.to_string())?.clone().normalized();
@@ -66,7 +67,7 @@ pub(crate) async fn launch_external_tool(
     let session = resolve_session(&state, session_id.as_deref()).await?;
     let port = launch_render_port(&tool)?;
     let rendered =
-        render_external_tool(&tool, session.as_ref(), port).map_err(|err| err.to_string())?;
+        render_external_tool(&tool, session.as_ref(), review.as_ref(), port).map_err(|err| err.to_string())?;
     let runtime = match tool.surface {
         ExternalToolSurface::Terminal => {
             launch_terminal_tool(&state, &tool, session.as_ref(), &rendered, initial_size).await?
